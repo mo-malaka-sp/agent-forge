@@ -17,7 +17,7 @@
       "goldenFile": "golden/gcp-vertex.sp-config.json",
       "privilegeGoldenFile": "golden/privilege-classification.gcp-vertex.json",
       "connectorSlug": "gcp-vertex",
-      "misSchemaDefault": "vertex-agent",
+      "misSchemaDefault": "gcp-agent",
       "suggestedSourceName": "AI Agents GCP"
     },
     {

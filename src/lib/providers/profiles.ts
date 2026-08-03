@@ -20,7 +20,7 @@ export const DEPLOYMENT_PROVIDERS = {
     infrastructure: "vertex_ai",
     connectorSlug: "gcp-vertex",
     nativeStatusActive: "ACTIVE",
-    misSchemaId: "vertex-agent",
+    misSchemaId: "gcp-agent",
     demoHeroAgentId: "agt_demo_gcp_vertex",
     defaultConfig: {
       project_id: "demo-ai-governance",
