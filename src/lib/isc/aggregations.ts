@@ -45,9 +45,10 @@ export async function startDatasetAggregation(
       method: "POST",
       apiVersion: null,
       experimental: true,
-      ...(options.config
-        ? { body: { config: options.config } }
-        : { bodyMode: "none" as const }),
+      // The body is optional, but the endpoint still refuses a request with no
+      // Content-Type (RESTEASY003065), so always send JSON — `{}` when there is
+      // no connector-specific config.
+      body: options.config ? { config: options.config } : {},
     },
   );
 
