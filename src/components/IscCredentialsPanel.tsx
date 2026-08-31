@@ -193,7 +193,17 @@ export function IscCredentialsPanel({
           </li>
           <li>
             <code className="text-[11px]">idn:sources:manage</code> — account
-            aggregation, machine-account mappings
+            aggregation, dataset/resource management, machine-account mappings
+          </li>
+          <li>
+            <code className="text-[11px]">idn:sources:update</code> +{" "}
+            <code className="text-[11px]">idn:source-schema:create</code> +{" "}
+            <code className="text-[11px]">idn:source-schema:manage</code> —
+            create datasets and their resource schemas
+          </li>
+          <li>
+            <code className="text-[11px]">idn:sources:aggregate</code> —
+            start dataset aggregations
           </li>
           <li>
             <code className="text-[11px]">idn:accounts:read</code> — list
@@ -202,13 +212,6 @@ export function IscCredentialsPanel({
           <li>
             <code className="text-[11px]">idn:entitlement:manage</code> —
             entitlement aggregation
-          </li>
-          <li>
-            <code className="text-[11px]">idn:mis-identity:manage</code> +{" "}
-            <code className="text-[11px]">idn:mis-identity:read</code> —
-            dataset aggregation (there is no{" "}
-            <code className="text-[11px]">idn:mis-agents:aggregate</code> scope
-            in the PAT picker)
           </li>
           <li>
             <code className="text-[11px]">idn:mis-account:read</code> — list

@@ -2,20 +2,15 @@ import { iscRequest } from "@/lib/isc/client";
 import type { IscConfig } from "@/lib/isc/config";
 
 /**
- * ISC Dataset / Resource APIs (v2026 Sources).
+ * ISC Dataset / Resource APIs (Sources v1).
  *
- * Documented in the Python/Go SDKs and ISC Postman collection:
- * - GET  /sources/{sourceId}/datasets
- * - GET  /sources/{sourceId}/datasets/{datasetId}
- * - POST /sources/{sourceId}/datasets          (create; experimental)
- * - GET  /sources/{sourceId}/resources
- * - GET  /sources/{sourceId}/resources/{resourceId}
- * - POST /sources/{sourceId}/schemas           (create resource schema)
- * Aggregation of agent resources still uses:
- * - POST /sources/{sourceId}/aggregate-agents  { datasetIds, disableOptimization? }
+ * - GET/POST /sources/v1/{sourceId}/datasets
+ * - GET      /sources/v1/{sourceId}/datasets/{datasetId}
+ * - POST     /sources/v1/{sourceId}/datasets/{datasetId}/aggregate
+ * - GET/POST /sources/v1/{sourceId}/resources
  *
- * Web Services HTTP operationType remains
- * `Machine Identity Aggregation-{resourceName}` and maps to AgentForge /accounts.
+ * Dataset and resource IDs are server-generated from their names with a
+ * `customer:` prefix. Client-supplied IDs are ignored.
  */
 
 export const AGENT_RESOURCE_TYPE = "std:agent";
@@ -33,6 +28,7 @@ export interface SourceDatasetResource {
   id: string;
   name: string;
   type?: string;
+  datasetId?: string;
   features?: string[];
   raw: Record<string, unknown>;
 }
@@ -112,6 +108,8 @@ function parseResource(value: unknown): SourceDatasetResource | null {
     id: id || name,
     name: name || id,
     type: typeof record.type === "string" ? record.type : undefined,
+    datasetId:
+      typeof record.datasetId === "string" ? record.datasetId : undefined,
     features: Array.isArray(record.features)
       ? record.features.filter((item): item is string => typeof item === "string")
       : undefined,
@@ -121,6 +119,7 @@ function parseResource(value: unknown): SourceDatasetResource | null {
 
 function datasetRequestOptions(accessToken?: string) {
   return {
+    apiVersion: null,
     experimental: true,
     ...(accessToken ? { accessToken } : {}),
   } as const;
@@ -132,7 +131,7 @@ export async function listSourceDatasets(
 ): Promise<SourceDataset[]> {
   const raw = await iscRequest(
     config,
-    `/sources/${config.sourceId}/datasets`,
+    `/sources/v1/${config.sourceId}/datasets`,
     datasetRequestOptions(accessToken),
   );
   return unwrapList(raw)
@@ -147,7 +146,7 @@ export async function getSourceDataset(
 ): Promise<SourceDataset | null> {
   const raw = await iscRequest(
     config,
-    `/sources/${config.sourceId}/datasets/${encodeURIComponent(datasetId)}`,
+    `/sources/v1/${config.sourceId}/datasets/${encodeURIComponent(datasetId)}`,
     datasetRequestOptions(accessToken),
   );
   return parseDataset(raw);
@@ -159,22 +158,18 @@ export async function createSourceDataset(
     name: string;
     description?: string;
     aggregationEnabled?: boolean;
-    id?: string;
   },
   accessToken?: string,
 ): Promise<SourceDataset> {
-  const body: Record<string, unknown> = {
+  const body = {
     name: input.name,
     description: input.description ?? "",
     aggregationEnabled: input.aggregationEnabled ?? true,
   };
-  if (input.id?.trim()) {
-    body.id = input.id.trim();
-  }
 
   const raw = await iscRequest(
     config,
-    `/sources/${config.sourceId}/datasets`,
+    `/sources/v1/${config.sourceId}/datasets`,
     {
       method: "POST",
       body,
@@ -188,30 +183,13 @@ export async function createSourceDataset(
   return parsed;
 }
 
-export async function listSourceSchemas(
-  config: IscConfig,
-  accessToken?: string,
-): Promise<Array<{ id?: string; name?: string; configuration?: Record<string, unknown> }>> {
-  const raw = await iscRequest(config, `/sources/${config.sourceId}/schemas`, {
-    ...(accessToken ? { accessToken } : {}),
-  });
-  return unwrapList(raw)
-    .map(asRecord)
-    .filter((item): item is Record<string, unknown> => item !== null)
-    .map((item) => ({
-      id: typeof item.id === "string" ? item.id : undefined,
-      name: typeof item.name === "string" ? item.name : undefined,
-      configuration: asRecord(item.configuration) ?? undefined,
-    }));
-}
-
 export async function listSourceResources(
   config: IscConfig,
   accessToken?: string,
 ): Promise<SourceDatasetResource[]> {
   const raw = await iscRequest(
     config,
-    `/sources/${config.sourceId}/resources`,
+    `/sources/v1/${config.sourceId}/resources`,
     datasetRequestOptions(accessToken),
   );
   return unwrapList(raw)
@@ -233,7 +211,7 @@ function agentResourceAttributes() {
   }));
 }
 
-export async function createAgentResourceSchema(
+export async function createAgentResource(
   config: IscConfig,
   input: { datasetId: string; resourceId: string; name?: string },
   accessToken?: string,
@@ -241,20 +219,18 @@ export async function createAgentResourceSchema(
   const resourceId = input.resourceId.trim();
   return iscRequest(
     config,
-    `/sources/${config.sourceId}/schemas`,
+    `/sources/v1/${config.sourceId}/resources`,
     {
       method: "POST",
       body: {
         name: input.name?.trim() || resourceId,
-        nativeObjectType: resourceId,
-        identityAttribute: "nativeIdentity",
-        displayAttribute: "identityName",
-        configuration: {
-          datasetId: input.datasetId,
-          resourceId,
-          resourceType: AGENT_RESOURCE_TYPE,
+        type: AGENT_RESOURCE_TYPE,
+        datasetId: input.datasetId,
+        schema: {
+          identityAttribute: "nativeIdentity",
+          displayAttribute: "identityName",
+          attributes: agentResourceAttributes(),
         },
-        attributes: agentResourceAttributes(),
       },
       ...datasetRequestOptions(accessToken),
     },
@@ -288,33 +264,6 @@ export function matchAgentResource(
   });
 }
 
-export async function resolveSourceDatasetIds(
-  config: IscConfig,
-  preferredIds: string[],
-): Promise<string[]> {
-  if (preferredIds.length === 0) {
-    throw new Error(
-      "Dataset aggregation requires at least one dataset id (e.g. bedrock-agent).",
-    );
-  }
-
-  try {
-    const datasets = await listSourceDatasets(config);
-    if (datasets.length === 0) {
-      return preferredIds;
-    }
-
-    const resolved: string[] = [];
-    for (const preferred of preferredIds) {
-      const match = matchDataset(datasets, preferred);
-      resolved.push(match?.id ?? preferred);
-    }
-    return resolved;
-  } catch {
-    return preferredIds;
-  }
-}
-
 export async function ensureAgentDataset(
   config: IscConfig,
   spec: AgentDatasetSpec,
@@ -325,12 +274,7 @@ export async function ensureAgentDataset(
     throw new Error("datasetId is required to ensure an agent dataset.");
   }
 
-  let datasets: SourceDataset[] = [];
-  try {
-    datasets = await listSourceDatasets(config, accessToken);
-  } catch {
-    datasets = [];
-  }
+  const datasets = await listSourceDatasets(config, accessToken);
 
   let createdDataset = false;
   let dataset = matchDataset(datasets, preferredId);
@@ -339,7 +283,6 @@ export async function ensureAgentDataset(
     dataset = await createSourceDataset(
       config,
       {
-        id: preferredId,
         name: spec.displayName?.trim() || preferredId,
         description:
           spec.description?.trim() ||
@@ -351,32 +294,12 @@ export async function ensureAgentDataset(
     createdDataset = true;
   }
 
-  let resources: SourceDatasetResource[] = [];
-  try {
-    resources = await listSourceResources(config, accessToken);
-  } catch {
-    resources = [];
-  }
+  const resources = await listSourceResources(config, accessToken);
 
   let createdResource = false;
   const resource = matchAgentResource(resources, preferredId);
-  let schemaExists = Boolean(resource);
-  if (!schemaExists) {
-    try {
-      const schemas = await listSourceSchemas(config, accessToken);
-      schemaExists = schemas.some(
-        (schema) =>
-          schema.name?.toLowerCase() === preferredId.toLowerCase() ||
-          (typeof schema.configuration?.datasetId === "string" &&
-            schema.configuration.datasetId.toLowerCase() ===
-              preferredId.toLowerCase()),
-      );
-    } catch {
-      schemaExists = false;
-    }
-  }
-  if (!schemaExists) {
-    await createAgentResourceSchema(
+  if (!resource) {
+    await createAgentResource(
       config,
       { datasetId: dataset.id, resourceId: preferredId, name: preferredId },
       accessToken,

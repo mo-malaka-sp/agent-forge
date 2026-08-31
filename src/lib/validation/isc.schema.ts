@@ -58,3 +58,11 @@ export const iscSourceVerifySchema = z.object({
   source_id: z.string().trim().min(1).optional(),
   isc_runtime: iscRuntimeSchema,
 });
+
+export const iscSourceBaseUrlRepairSchema = z.object({
+  provider: deploymentProviderSchema,
+  source_id: z.string().trim().min(1).optional(),
+  /** Overrides the URL auto-detected from request headers. */
+  base_url: z.string().trim().url().optional(),
+  isc_runtime: iscRuntimeSchema,
+});

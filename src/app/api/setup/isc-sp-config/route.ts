@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { jsonError } from "@/lib/api/response";
 import { getSpConfigPlatformStatuses } from "@/lib/isc/sp-config-package";
+import { isUnreachableBaseUrl } from "@/lib/isc/source-base-url";
 import { resolveBaseUrl } from "@/lib/url";
 
 export async function GET(request: Request) {
@@ -12,6 +13,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       baseUrl,
+      baseUrlReachable: !isUnreachableBaseUrl(baseUrl),
       allAvailable,
       importGuideUrl:
         "https://documentation.sailpoint.com/saas/help/confighub/confighub_import.html",

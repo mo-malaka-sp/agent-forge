@@ -14,10 +14,7 @@ import {
   type IscConfig,
 } from "@/lib/isc/config";
 import { getDatasetId } from "@/lib/isc/settings-store";
-import {
-  ensureAgentDataset,
-  resolveSourceDatasetIds,
-} from "@/lib/isc/datasets";
+import { ensureAgentDataset } from "@/lib/isc/datasets";
 import { resolveDeploymentProvider as resolveProviderFromRow } from "@/lib/providers/deployment";
 import {
   DEPLOYMENT_PROVIDERS,
@@ -25,8 +22,7 @@ import {
 } from "@/lib/providers/profiles";
 import {
   startAccountAggregation,
-  startOutboundEntitlementAggregation,
-  startMachineIdentityAggregation,
+  startDatasetAggregation,
   updateMachineAccountMappings,
   verifySourceData,
   revokeEntitlementAccess,
@@ -189,28 +185,36 @@ export async function runDemoStep(
         payload,
         deploymentProvider,
       );
-      let ensured = null;
-      try {
-        ensured = await ensureAgentDataset(config, {
-          datasetId: preferredIds[0],
-          displayName: preferredIds[0],
-        });
-      } catch (error) {
-        console.warn(
-          "Could not ensure ISC dataset before aggregation:",
-          error instanceof Error ? error.message : error,
-        );
-      }
-      const datasetIds = await resolveSourceDatasetIds(config, preferredIds);
-      const started = await startMachineIdentityAggregation(config, datasetIds);
+      const ensured = await Promise.all(
+        preferredIds.map((datasetId) =>
+          ensureAgentDataset(config, {
+            datasetId,
+            displayName: datasetId,
+          }),
+        ),
+      );
+      const datasetIds = ensured.map((result) => result.dataset.id);
+      const started = await Promise.all(
+        datasetIds.map((datasetId) =>
+          startDatasetAggregation(config, datasetId),
+        ),
+      );
 
       return {
         step: payload.step,
         status: "started",
         message: `Dataset aggregation started (${datasetIds.join(", ")})`,
         system,
-        taskId: started.taskId,
-        result: { raw: started.raw, datasetIds, ensured },
+        taskId: started[0]?.taskId ?? null,
+        result: {
+          aggregations: started.map((result, index) => ({
+            datasetId: datasetIds[index],
+            taskId: result.taskId,
+            raw: result.raw,
+          })),
+          datasetIds,
+          ensured,
+        },
       };
     }
 

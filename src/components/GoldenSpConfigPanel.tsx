@@ -38,6 +38,7 @@ interface PlatformStatus {
 
 interface PackageStatus {
   baseUrl: string;
+  baseUrlReachable?: boolean;
   allAvailable: boolean;
   importGuideUrl: string;
   vscodeExtensionUrl: string;
@@ -873,6 +874,16 @@ export function GoldenSpConfigPanel({
           <p className="mt-3 rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
             Base URL in packages: {status.baseUrl}
           </p>
+
+          {status.baseUrlReachable === false ? (
+            <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              This URL is local to the machine serving AgentForge, so the ISC
+              tenant cannot call it back. Importing now bakes it into the source
+              and the connector will show <strong>Not Responding</strong>. Import
+              from the deployed URL, or repair the base URL in step 3 after
+              importing.
+            </p>
+          ) : null}
 
           {!status.allAvailable ? (
             <p className="mt-3 text-sm text-amber-800 dark:text-amber-200">

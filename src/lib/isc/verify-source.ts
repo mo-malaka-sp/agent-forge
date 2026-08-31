@@ -12,11 +12,21 @@ export interface IscSourceVerifyResult {
   message: string;
   datasetId?: string | null;
   datasetFound?: boolean;
+  /** Base URL the ISC source calls back on (Web Services connector attribute). */
+  connectorBaseUrl?: string | null;
+  /** Public URL of this AgentForge deployment, when the caller could resolve it. */
+  expectedBaseUrl?: string | null;
+  baseUrlMatches?: boolean;
+}
+
+function normalizeUrl(url: string): string {
+  return url.trim().replace(/\/$/, "");
 }
 
 export async function verifyIscPlatformSource(
   provider: DeploymentProvider,
   sourceIdInput?: string,
+  expectedBaseUrl?: string,
 ): Promise<IscSourceVerifyResult> {
   const credentials = getIscCredentials();
   if (!credentials) {
@@ -42,12 +52,30 @@ export async function verifyIscPlatformSource(
   }
 
   try {
-    const source = await iscRequest<{ id?: string; name?: string }>(
-      { ...credentials, sourceId },
-      `/sources/${sourceId}`,
-    );
+    const source = await iscRequest<{
+      id?: string;
+      name?: string;
+      connectorAttributes?: { genericWebServiceBaseUrl?: string };
+    }>({ ...credentials, sourceId }, `/sources/${sourceId}`);
 
     const name = source.name?.trim() ?? null;
+    const connectorBaseUrl =
+      source.connectorAttributes?.genericWebServiceBaseUrl?.trim() || null;
+    const expected = expectedBaseUrl?.trim() || null;
+    const baseUrlMatches =
+      expected && connectorBaseUrl
+        ? normalizeUrl(connectorBaseUrl) === normalizeUrl(expected)
+        : undefined;
+
+    let baseUrlMessage = "";
+    if (connectorBaseUrl && baseUrlMatches === false) {
+      baseUrlMessage = ` Base URL on the source is ${connectorBaseUrl}, but this deployment is ${expected} — ISC cannot reach AgentForge until it is repaired.`;
+    } else if (connectorBaseUrl && baseUrlMatches === true) {
+      baseUrlMessage = ` Base URL ${connectorBaseUrl} matches this deployment.`;
+    } else if (connectorBaseUrl) {
+      baseUrlMessage = ` Base URL on the source is ${connectorBaseUrl}.`;
+    }
+
     const preferredDatasetId = getDatasetId(provider);
     let datasetFound = false;
     let datasetMessage = "";
@@ -65,15 +93,18 @@ export async function verifyIscPlatformSource(
     return {
       provider,
       sourceId,
-      ok: true,
+      ok: baseUrlMatches !== false,
       sourceName: name,
       datasetId: preferredDatasetId,
       datasetFound,
+      connectorBaseUrl,
+      expectedBaseUrl: expected,
+      baseUrlMatches,
       message: `${
         name
           ? `Verified source “${name}” (${sourceId})`
           : `Verified source ${sourceId}`
-      }.${datasetMessage}`,
+      }.${baseUrlMessage}${datasetMessage}`,
     };
   } catch (error) {
     const raw =

@@ -17,7 +17,10 @@ import {
 type SourceMap = Record<DeploymentProvider, string>;
 
 type VerifyState = Partial<
-  Record<DeploymentProvider, { ok: boolean; message: string }>
+  Record<
+    DeploymentProvider,
+    { ok: boolean; message: string; baseUrlMismatch?: boolean }
+  >
 >;
 
 const EMPTY_SOURCES: SourceMap = {
@@ -93,6 +96,7 @@ export function IscSourceIdsPanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState<DeploymentProvider | null>(null);
+  const [repairing, setRepairing] = useState<DeploymentProvider | null>(null);
   const [verifyState, setVerifyState] = useState<VerifyState>({});
   const [error, setError] = useState<string | null>(null);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
@@ -261,6 +265,7 @@ export function IscSourceIdsPanel({
         ok?: boolean;
         message?: string;
         error?: string;
+        baseUrlMatches?: boolean;
       };
 
       setVerifyState((current) => ({
@@ -268,6 +273,7 @@ export function IscSourceIdsPanel({
         [provider]: {
           ok: body.ok === true,
           message: body.message ?? body.error ?? "Verification failed",
+          baseUrlMismatch: body.baseUrlMatches === false,
         },
       }));
     } catch (verifyError) {
@@ -283,6 +289,58 @@ export function IscSourceIdsPanel({
       }));
     } finally {
       setVerifying(null);
+    }
+  }
+
+  async function repairBaseUrl(provider: DeploymentProvider) {
+    const sourceId = sources[provider].trim();
+    if (!sourceId) {
+      return;
+    }
+
+    setRepairing(provider);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/isc/sources/base-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          withIscRuntimeBody({ provider, source_id: sourceId }),
+        ),
+      });
+      const body = (await response.json()) as {
+        message?: string;
+        error?: string;
+        changed?: boolean;
+      };
+
+      if (!response.ok) {
+        throw new Error(body.error ?? "Failed to repair base URL");
+      }
+
+      setVerifyState((current) => ({
+        ...current,
+        [provider]: {
+          ok: true,
+          message: body.message ?? "Base URL repaired.",
+          baseUrlMismatch: false,
+        },
+      }));
+    } catch (repairError) {
+      setVerifyState((current) => ({
+        ...current,
+        [provider]: {
+          ok: false,
+          message:
+            repairError instanceof Error
+              ? repairError.message
+              : "Failed to repair base URL",
+          baseUrlMismatch: true,
+        },
+      }));
+    } finally {
+      setRepairing(null);
     }
   }
 
@@ -395,15 +453,29 @@ export function IscSourceIdsPanel({
                   />
                 </label>
                 {verify ? (
-                  <p
-                    className={`text-xs ${
-                      verify.ok
-                        ? "text-emerald-700 dark:text-emerald-300"
-                        : "text-red-700 dark:text-red-300"
-                    }`}
-                  >
-                    {verify.message}
-                  </p>
+                  <div className="space-y-1.5">
+                    <p
+                      className={`text-xs ${
+                        verify.ok
+                          ? "text-emerald-700 dark:text-emerald-300"
+                          : "text-red-700 dark:text-red-300"
+                      }`}
+                    >
+                      {verify.message}
+                    </p>
+                    {verify.baseUrlMismatch ? (
+                      <button
+                        type="button"
+                        onClick={() => void repairBaseUrl(provider)}
+                        disabled={repairing !== null}
+                        className="rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-50 disabled:opacity-50 dark:border-amber-800 dark:text-amber-200 dark:hover:bg-amber-950/40"
+                      >
+                        {repairing === provider
+                          ? "Repairing..."
+                          : "Repoint source at this deployment"}
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             );

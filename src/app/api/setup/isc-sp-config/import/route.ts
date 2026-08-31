@@ -9,6 +9,7 @@ import {
 } from "@/lib/isc/privilege-criteria";
 import { loadPreparedSpConfig } from "@/lib/isc/sp-config-package";
 import { ensureAgentDataset } from "@/lib/isc/datasets";
+import { isUnreachableBaseUrl } from "@/lib/isc/source-base-url";
 import { DEPLOYMENT_PROVIDERS } from "@/lib/providers/profiles";
 import { resolveBaseUrl } from "@/lib/url";
 import {
@@ -111,6 +112,9 @@ export async function POST(request: Request) {
   try {
     const raw = await request.json();
     const baseUrl = resolveBaseUrl(request.headers);
+    const baseUrlWarning = isUnreachableBaseUrl(baseUrl)
+      ? `Imported sources point at ${baseUrl}, which the ISC tenant cannot reach. Re-import from the deployed URL or repair the base URL under Web Services source IDs.`
+      : undefined;
 
     if (raw?.import_all === true) {
       const payload = iscSpConfigImportAllSchema.parse(raw);
@@ -185,6 +189,8 @@ export async function POST(request: Request) {
       return NextResponse.json({
         preview: payload.preview ?? true,
         tenant: payload.tenant,
+        baseUrl,
+        baseUrlWarning,
         results,
         privilegeClassification:
           Object.keys(privilegeClassification).length > 0
@@ -233,6 +239,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ...result,
+      baseUrl,
+      baseUrlWarning,
       privilegeClassification,
       datasetEnsure,
     });

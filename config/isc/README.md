@@ -94,6 +94,7 @@ See [export-payloads/](./export-payloads/) or VS Code **Export sp-config** on ea
 |-------|-----|
 | Setup shows “not published yet” | Maintainer has not committed `golden/*.sp-config.json` |
 | Test connection fails | Wrong base URL — check Amplify `AGENTFORGE_BASE_URL` or request Host header |
+| Source calls `localhost` after deploy | The base URL is substituted at download/import time, so sources imported from a laptop keep that URL. Verify the source in Setup and use **Repoint source at this deployment** |
 | Import overwrites source | ISC matches by **source name**; rename in golden JSON or target tenant |
 | Dataset missing after import | Run Demo full sync, or create the dataset under Dataset Management |
 | Orchestrator skips entitlement steps | Ensure **Group Aggregation** HTTP op exists (CONNECTOR_SETUP Part D2.5) |

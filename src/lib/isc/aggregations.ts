@@ -28,31 +28,26 @@ export async function startOutboundEntitlementAggregation(
   return startEntitlementAggregation(config);
 }
 
-export async function startMachineIdentityAggregation(
+export async function startDatasetAggregation(
   config: IscConfig,
-  datasetIds: string[] = ["bedrock-agent"],
-  options: { disableOptimization?: boolean } = {},
+  datasetId: string,
+  options: { config?: Record<string, unknown> } = {},
 ): Promise<AggregationStartResult> {
-  if (datasetIds.length === 0) {
-    throw new Error(
-      "Dataset aggregation requires at least one datasetId (e.g. bedrock-agent).",
-    );
-  }
-
-  const body: { datasetIds: string[]; disableOptimization?: boolean } = {
-    datasetIds,
-  };
-  if (options.disableOptimization) {
-    body.disableOptimization = true;
+  const normalizedDatasetId = datasetId.trim();
+  if (!normalizedDatasetId) {
+    throw new Error("Dataset aggregation requires a dataset ID.");
   }
 
   const raw = await iscRequest(
     config,
-    `/sources/${config.sourceId}/aggregate-agents`,
+    `/sources/v1/${config.sourceId}/datasets/${encodeURIComponent(normalizedDatasetId)}/aggregate`,
     {
       method: "POST",
-      body,
+      apiVersion: null,
       experimental: true,
+      ...(options.config
+        ? { body: { config: options.config } }
+        : { bodyMode: "none" as const }),
     },
   );
 

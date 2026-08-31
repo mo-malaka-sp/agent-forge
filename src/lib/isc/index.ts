@@ -9,7 +9,7 @@ export {
 export {
   startEntitlementAggregation,
   startOutboundEntitlementAggregation,
-  startMachineIdentityAggregation,
+  startDatasetAggregation,
   startAccountAggregation,
 } from "@/lib/isc/aggregations";
 export {
@@ -17,8 +17,8 @@ export {
   getSourceDataset,
   createSourceDataset,
   listSourceResources,
+  createAgentResource,
   ensureAgentDataset,
-  resolveSourceDatasetIds,
 } from "@/lib/isc/datasets";
 export {
   getMachineAccountMappings,

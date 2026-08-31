@@ -1,15 +1,18 @@
 import { getIscAccessToken } from "@/lib/isc/auth";
 import { getIscBaseUrl, type IscConfig } from "@/lib/isc/config";
 
-export type IscBodyMode = "json" | "form" | "none";
+export type IscBodyMode = "json" | "json-patch" | "form" | "none";
 
 export interface IscRequestOptions {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   query?: Record<string, string | boolean | undefined>;
   experimental?: boolean;
-  /** Override API version prefix (e.g. beta for task-status). */
-  apiVersion?: string;
+  /**
+   * Override API version prefix (e.g. beta for task-status). Set to null for
+   * APIs whose version is embedded in the path, such as /sources/v1.
+   */
+  apiVersion?: string | null;
   bodyMode?: IscBodyMode;
   /** Skip OAuth client credentials when a PAT or bearer token is already available. */
   accessToken?: string;
@@ -22,8 +25,10 @@ export async function iscRequest<T = unknown>(
 ): Promise<T> {
   const token = options.accessToken?.trim() || (await getIscAccessToken(config));
   const baseUrl = getIscBaseUrl(config);
-  const apiVersion = options.apiVersion ?? config.apiVersion;
-  const url = new URL(`${baseUrl}/${apiVersion}${path}`);
+  const apiVersion =
+    options.apiVersion === undefined ? config.apiVersion : options.apiVersion;
+  const versionPrefix = apiVersion ? `/${apiVersion}` : "";
+  const url = new URL(`${baseUrl}${versionPrefix}${path}`);
 
   if (options.query) {
     for (const [key, value] of Object.entries(options.query)) {
@@ -47,6 +52,9 @@ export async function iscRequest<T = unknown>(
 
   if (bodyMode === "json" && options.body !== undefined) {
     headers["Content-Type"] = "application/json";
+    requestBody = JSON.stringify(options.body);
+  } else if (bodyMode === "json-patch" && options.body !== undefined) {
+    headers["Content-Type"] = "application/json-patch+json";
     requestBody = JSON.stringify(options.body);
   } else if (bodyMode === "form" && options.body !== undefined) {
     headers["Content-Type"] = "application/x-www-form-urlencoded";
