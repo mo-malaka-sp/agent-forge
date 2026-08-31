@@ -15,6 +15,11 @@ import {
 } from "@/lib/isc/config";
 import { getDatasetId } from "@/lib/isc/settings-store";
 import { AGENT_RESOURCE_TYPE, ensureAgentDataset } from "@/lib/isc/datasets";
+import {
+  describeMissingResourceOperations,
+  findMissingResourceOperations,
+  readSourceOperations,
+} from "@/lib/isc/source-operations";
 import { resolveDeploymentProvider as resolveProviderFromRow } from "@/lib/providers/deployment";
 import {
   DEPLOYMENT_PROVIDERS,
@@ -202,6 +207,19 @@ export async function runDemoStep(
         ),
       );
       const datasetIds = ensured.map((result) => result.dataset.id);
+
+      // Fail here rather than waiting on an ISC task that cannot match an
+      // endpoint, and name the source so a misfiled source ID is obvious.
+      const operations = await readSourceOperations(config).catch(() => null);
+      if (operations) {
+        const missing = findMissingResourceOperations(operations, preferredIds);
+        if (missing.length > 0) {
+          throw new Error(
+            `Dataset aggregation cannot run: ${describeMissingResourceOperations(operations, missing)}`,
+          );
+        }
+      }
+
       const started = await Promise.all(
         datasetIds.map((datasetId) =>
           startDatasetAggregation(config, datasetId).catch((error: unknown) => {
