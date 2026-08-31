@@ -235,69 +235,6 @@
             "name": "inboundCallers",
             "created": "2026-06-25T19:19:35.230Z",
             "modified": "2026-06-25T19:20:28.105Z"
-          },
-          {
-            "nativeObjectType": "bedrock-agent",
-            "identityAttribute": "nativeIdentity",
-            "displayAttribute": "identityName",
-            "hierarchyAttribute": null,
-            "includePermissions": false,
-            "features": [],
-            "configuration": {
-              "datasetId": "bedrock-agent",
-              "resourceId": "bedrock-agent",
-              "resourceType": "std:agent"
-            },
-            "attributes": [
-              {
-                "name": "nativeIdentity",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "nativeIdentity",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              },
-              {
-                "name": "identityName",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "identityName",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              },
-              {
-                "name": "owner",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "owner",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              },
-              {
-                "name": "platform",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "platform",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              }
-            ],
-            "id": "78bedb8e0f4340549cbfcb3338e10d64",
-            "name": "bedrock-agent",
-            "created": "2026-06-25T19:46:54.519Z",
-            "modified": "2026-06-25T19:48:00.589Z"
           }
         ],
         "connectorAttributes": {

@@ -233,69 +233,6 @@
             "name": "inboundCallers",
             "created": "2026-07-07T17:02:17.825Z",
             "modified": "2026-07-07T17:03:32.497Z"
-          },
-          {
-            "nativeObjectType": "gcp-agent",
-            "identityAttribute": "nativeIdentity",
-            "displayAttribute": "identityName",
-            "hierarchyAttribute": null,
-            "includePermissions": false,
-            "features": [],
-            "configuration": {
-              "datasetId": "gcp-agent",
-              "resourceId": "gcp-agent",
-              "resourceType": "std:agent"
-            },
-            "attributes": [
-              {
-                "name": "nativeIdentity",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "nativeIdentity",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              },
-              {
-                "name": "identityName",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "identityName",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              },
-              {
-                "name": "owner",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "owner",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              },
-              {
-                "name": "platform",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "platform",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              }
-            ],
-            "id": "ad9d8a4282ee4b33abd4071dcc5721a9",
-            "name": "gcp-agent",
-            "created": "2026-07-07T17:08:04.149Z",
-            "modified": "2026-07-07T17:08:55.808Z"
           }
         ],
         "connectorAttributes": {

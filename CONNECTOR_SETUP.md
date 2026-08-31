@@ -378,6 +378,13 @@ Map **`nativeIdentity`** to the ARN field, **not** `accountId`.
 
 ### E2 — Dataset + agent resource
 
+The golden packages **do not** contain the dataset or the agent resource. SP-Config
+import rejects an agent resource embedded as a source schema
+(*"Cannot create resource as schema"*), so AgentForge creates both at runtime via
+`POST /sources/v1/{sourceId}/datasets` and `POST /sources/v1/{sourceId}/resources`
+on the dataset aggregation step. Create them by hand only if you are not using
+the orchestrator:
+
 **Dataset Management → Datasets → Create** (e.g. `bedrock-agent`), then **Resources → Create Resource** associated with that dataset.
 
 Resource type: **`std:agent`** (AI agent). Set **Resource ID** = `nativeIdentity` and **Resource Name** = `identityName`.
@@ -391,7 +398,11 @@ Resource type: **`std:agent`** (AI agent). Set **Resource ID** = `nativeIdentity
 
 HTTP **Machine Identity Aggregation** / dataset aggregation response mapping must include `owner` → `owner` (already in golden packages).
 
-If you still see **Machine Identities → Machine Identity Schemas** on an older tenant, create the same attributes there; newer tenants store this as a dataset resource with `configuration.datasetId`, `resourceId`, and `resourceType: std:agent`.
+Because ISC generates dataset and resource IDs as `customer:` plus a normalized
+form of the name, the created dataset for `bedrock-agent` is addressed as
+`customer:bedrock-agent`. The HTTP operation in the golden package is still named
+`Machine Identity Aggregation-{dataset}` — if dataset aggregation runs but
+collects nothing, re-point that operation at the resource in **HTTP Operations**.
 
 ---
 
@@ -935,6 +946,7 @@ To populate **Description**, **foundationModel**, etc. on **AI Agent → Details
 | AI Agent → Accounts empty | nativeIdentity / ARN mismatch | Align ARN; re-aggregate; link manually |
 | Identity Graph has no privilege rings | Privilege classification not configured | [Part M](#part-m--privilege-classification-identity-graph-colors) |
 | Graph *Filter Returned No Results* | Bad Account ID filter | Clear filters in Explorer |
+| Import fails: *Cannot create resource as schema* | Package contains a `std:agent` resource as a source schema — ISC no longer accepts this | Use a current golden package (agent schemas are stripped); the dataset and resource are created by the orchestrator instead |
 | Source is **Not Responding**, Base URL is `http://localhost:...` | Golden package was imported from a laptop, so the local URL was baked into the source | Verify the source under **Demo → Web Services source IDs** and click **Repoint source at this deployment**, or re-import the package from the deployed URL |
 | Only one source has the deployed URL | The other sources were imported during an earlier (local or older) session | Repair each remaining source as above — imports do not retroactively update sources created earlier |
 | 0 accounts in aggregation | Wrong URL or root path | `$.accounts[*]`; platform-specific path |

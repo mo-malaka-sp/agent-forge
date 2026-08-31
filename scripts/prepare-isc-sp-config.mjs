@@ -155,6 +155,41 @@ function stripEmptyGroupEntitlementSchemas(node) {
   return node;
 }
 
+function isAgentResourceSchema(schema) {
+  if (!schema || typeof schema !== "object") {
+    return false;
+  }
+  const config = schema.configuration ?? {};
+  return (
+    config.resourceType === "std:agent" ||
+    config.datasetType === "std:machine-identity"
+  );
+}
+
+/**
+ * SP-Config import rejects agent resources embedded as source schemas
+ * ("Cannot create resource as schema"). Datasets and their std:agent resources
+ * are created at runtime through /sources/v1/{sourceId}/datasets|resources.
+ */
+function stripAgentResourceSchemas(node) {
+  if (Array.isArray(node)) {
+    return node.map(stripAgentResourceSchemas);
+  }
+  if (node && typeof node === "object") {
+    const out = { ...node };
+    if (Array.isArray(out.schemas)) {
+      out.schemas = out.schemas.filter((schema) => !isAgentResourceSchema(schema));
+    }
+    for (const key of Object.keys(out)) {
+      if (key !== "schemas") {
+        out[key] = stripAgentResourceSchemas(out[key]);
+      }
+    }
+    return out;
+  }
+  return node;
+}
+
 const OWNER_SCHEMA_ATTRIBUTE = {
   name: "owner",
   nativeName: null,
@@ -249,6 +284,7 @@ function main() {
   data = stripSecrets(data);
   data = stripTenantRuntimeState(data);
   data = stripEmptyGroupEntitlementSchemas(data);
+  data = stripAgentResourceSchemas(data);
   data = ensureOwnerSchemaAttributes(data);
   if (args.blankSourceId) {
     data = blankSourceObjectIds(data);

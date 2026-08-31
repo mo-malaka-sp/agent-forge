@@ -96,5 +96,6 @@ See [export-payloads/](./export-payloads/) or VS Code **Export sp-config** on ea
 | Test connection fails | Wrong base URL — check Amplify `AGENTFORGE_BASE_URL` or request Host header |
 | Source calls `localhost` after deploy | The base URL is substituted at download/import time, so sources imported from a laptop keep that URL. Verify the source in Setup and use **Repoint source at this deployment** |
 | Import overwrites source | ISC matches by **source name**; rename in golden JSON or target tenant |
-| Dataset missing after import | Run Demo full sync, or create the dataset under Dataset Management |
+| Dataset missing after import | Expected — packages no longer ship the dataset/resource. Run Demo full sync, or create them under Dataset Management |
+| Import fails: *Cannot create resource as schema* | Stale package with a `std:agent` schema. Re-download; agent resources are created via the resources API, not SP-Config |
 | Orchestrator skips entitlement steps | Ensure **Group Aggregation** HTTP op exists (CONNECTOR_SETUP Part D2.5) |

@@ -233,69 +233,6 @@
             "name": "inboundCallers",
             "created": "2026-07-06T20:03:26.186Z",
             "modified": "2026-07-06T20:04:11.395Z"
-          },
-          {
-            "nativeObjectType": "foundry-agent",
-            "identityAttribute": "nativeIdentity",
-            "displayAttribute": "identityName",
-            "hierarchyAttribute": null,
-            "includePermissions": false,
-            "features": [],
-            "configuration": {
-              "datasetId": "foundry-agent",
-              "resourceId": "foundry-agent",
-              "resourceType": "std:agent"
-            },
-            "attributes": [
-              {
-                "name": "nativeIdentity",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "nativeIdentity",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              },
-              {
-                "name": "identityName",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "identityName",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              },
-              {
-                "name": "owner",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "owner",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              },
-              {
-                "name": "platform",
-                "nativeName": null,
-                "type": "STRING",
-                "schema": null,
-                "description": "platform",
-                "isMulti": false,
-                "isEntitlement": false,
-                "isGroup": false,
-                "isManaged": false
-              }
-            ],
-            "id": "6dc9b87d015f435c9c84e2e03a91d8d7",
-            "name": "foundry-agent",
-            "created": "2026-07-06T20:06:54.838Z",
-            "modified": "2026-07-06T20:07:41.001Z"
           }
         ],
         "connectorAttributes": {
