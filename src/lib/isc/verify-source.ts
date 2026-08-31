@@ -7,6 +7,7 @@ import {
   matchDataset,
 } from "@/lib/isc/datasets";
 import {
+  describeConnectorSlugMismatch,
   describeMissingResourceOperations,
   findMissingResourceOperations,
   readSourceOperations,
@@ -32,6 +33,10 @@ export interface IscSourceVerifyResult {
   resourceAggregationOperations?: string[];
   /** False when no operation matches a resource, which fails dataset aggregation. */
   resourceOperationsMatch?: boolean;
+  /** Connector slug the source's endpoints point at, e.g. `aws-bedrock`. */
+  connectorSlug?: string | null;
+  /** False when this source belongs to a different platform than it is saved under. */
+  platformMatches?: boolean;
 }
 
 function normalizeUrl(url: string): string {
@@ -112,6 +117,14 @@ export async function verifyIscPlatformSource(
     const resourceAggregationOperations =
       operations?.resourceAggregationOperations ?? [];
 
+    const slugMismatch = operations
+      ? describeConnectorSlugMismatch(
+          operations,
+          DEPLOYMENT_PROVIDERS[provider].connectorSlug,
+          DEPLOYMENT_PROVIDERS[provider].label,
+        )
+      : null;
+
     let resourceNames: string[] = [];
     let resourceOperationsMatch: boolean | undefined;
     let resourceMessage = "";
@@ -133,7 +146,10 @@ export async function verifyIscPlatformSource(
     return {
       provider,
       sourceId,
-      ok: baseUrlMatches !== false && resourceOperationsMatch !== false,
+      ok:
+        baseUrlMatches !== false &&
+        resourceOperationsMatch !== false &&
+        !slugMismatch,
       sourceName: name,
       datasetId: preferredDatasetId,
       datasetFound,
@@ -143,11 +159,15 @@ export async function verifyIscPlatformSource(
       resourceNames,
       resourceAggregationOperations,
       resourceOperationsMatch,
-      message: `${
-        name
-          ? `Verified source “${name}” (${sourceId})`
-          : `Verified source ${sourceId}`
-      }.${baseUrlMessage}${datasetMessage}${resourceMessage}`,
+      connectorSlug: operations?.connectorSlug ?? null,
+      platformMatches: slugMismatch ? false : undefined,
+      message: slugMismatch
+        ? slugMismatch
+        : `${
+            name
+              ? `Verified source “${name}” (${sourceId})`
+              : `Verified source ${sourceId}`
+          }.${baseUrlMessage}${datasetMessage}${resourceMessage}`,
     };
   } catch (error) {
     const raw =

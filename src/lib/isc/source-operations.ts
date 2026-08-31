@@ -16,6 +16,11 @@ const RESOURCE_AGGREGATION_PREFIX = "Resource Aggregation-";
 export interface SourceOperations {
   sourceId: string;
   sourceName: string | null;
+  /**
+   * Connector slug the source's endpoints actually point at, read from its
+   * context URLs. Reveals a source ID saved against the wrong platform.
+   */
+  connectorSlug: string | null;
   /** Every operation type configured on the source. */
   operationTypes: string[];
   /** Just the `Resource Aggregation-*` operation types. */
@@ -28,25 +33,54 @@ export function resourceAggregationOperationType(resourceName: string): string {
   return `${RESOURCE_AGGREGATION_PREFIX}${resourceName.trim()}`;
 }
 
+function detectConnectorSlug(contextUrls: string[]): string | null {
+  const counts = new Map<string, number>();
+
+  for (const contextUrl of contextUrls) {
+    const match = /\/api\/connectors\/web-services\/([^/?#]+)/.exec(contextUrl);
+    if (match) {
+      counts.set(match[1], (counts.get(match[1]) ?? 0) + 1);
+    }
+  }
+
+  let detected: string | null = null;
+  let highest = 0;
+  for (const [slug, count] of counts) {
+    if (count > highest) {
+      detected = slug;
+      highest = count;
+    }
+  }
+
+  return detected;
+}
+
 export async function readSourceOperations(
   config: IscConfig,
 ): Promise<SourceOperations> {
   const source = await iscRequest<{
     name?: string;
     connectorAttributes?: {
-      connectionParameters?: Array<{ operationType?: string }>;
+      connectionParameters?: Array<{
+        operationType?: string;
+        contextUrl?: string;
+      }>;
     };
   }>(config, `/sources/${config.sourceId}`);
 
-  const operationTypes = (
-    source.connectorAttributes?.connectionParameters ?? []
-  )
+  const parameters = source.connectorAttributes?.connectionParameters ?? [];
+  const operationTypes = parameters
     .map((parameter) => parameter?.operationType?.trim() ?? "")
     .filter((operationType) => operationType.length > 0);
 
   return {
     sourceId: config.sourceId,
     sourceName: source.name?.trim() ?? null,
+    connectorSlug: detectConnectorSlug(
+      parameters
+        .map((parameter) => parameter?.contextUrl?.trim() ?? "")
+        .filter((contextUrl) => contextUrl.length > 0),
+    ),
     operationTypes,
     resourceAggregationOperations: operationTypes.filter((operationType) =>
       operationType.startsWith(RESOURCE_AGGREGATION_PREFIX),
@@ -55,6 +89,27 @@ export async function readSourceOperations(
       operationType.startsWith("Machine Identity Aggregation-"),
     ),
   };
+}
+
+/**
+ * Detects a source ID filed under the wrong platform, which otherwise shows up
+ * as datasets appearing on one source while another stays empty.
+ */
+export function describeConnectorSlugMismatch(
+  operations: SourceOperations,
+  expectedSlug: string,
+  platformLabel: string,
+): string | null {
+  const actual = operations.connectorSlug;
+  if (!actual || actual === expectedSlug) {
+    return null;
+  }
+
+  const sourceLabel = operations.sourceName
+    ? `“${operations.sourceName}” (${operations.sourceId})`
+    : operations.sourceId;
+
+  return `Source ${sourceLabel} is saved under ${platformLabel}, but its endpoints call /${actual}/ instead of /${expectedSlug}/ — this is the ${actual} source. Correct the ${platformLabel} source ID under Web Services source IDs.`;
 }
 
 export function findMissingResourceOperations(

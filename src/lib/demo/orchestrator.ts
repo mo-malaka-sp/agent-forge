@@ -16,6 +16,7 @@ import {
 import { getDatasetId } from "@/lib/isc/settings-store";
 import { AGENT_RESOURCE_TYPE, ensureAgentDataset } from "@/lib/isc/datasets";
 import {
+  describeConnectorSlugMismatch,
   describeMissingResourceOperations,
   findMissingResourceOperations,
   readSourceOperations,
@@ -194,6 +195,29 @@ export async function runDemoStep(
         payload,
         deploymentProvider,
       );
+      // Read the source before writing to it: creating a dataset on a source
+      // filed under the wrong platform leaves the real source empty and the
+      // aggregation unable to match an endpoint.
+      const operations = await readSourceOperations(config).catch(() => null);
+      if (operations) {
+        const profile = DEPLOYMENT_PROVIDERS[deploymentProvider];
+        const slugMismatch = describeConnectorSlugMismatch(
+          operations,
+          profile.connectorSlug,
+          profile.label,
+        );
+        if (slugMismatch) {
+          throw new Error(`Dataset aggregation cannot run: ${slugMismatch}`);
+        }
+
+        const missing = findMissingResourceOperations(operations, preferredIds);
+        if (missing.length > 0) {
+          throw new Error(
+            `Dataset aggregation cannot run: ${describeMissingResourceOperations(operations, missing)}`,
+          );
+        }
+      }
+
       const ensured = await Promise.all(
         preferredIds.map((datasetId) =>
           ensureAgentDataset(config, {
@@ -207,18 +231,6 @@ export async function runDemoStep(
         ),
       );
       const datasetIds = ensured.map((result) => result.dataset.id);
-
-      // Fail here rather than waiting on an ISC task that cannot match an
-      // endpoint, and name the source so a misfiled source ID is obvious.
-      const operations = await readSourceOperations(config).catch(() => null);
-      if (operations) {
-        const missing = findMissingResourceOperations(operations, preferredIds);
-        if (missing.length > 0) {
-          throw new Error(
-            `Dataset aggregation cannot run: ${describeMissingResourceOperations(operations, missing)}`,
-          );
-        }
-      }
 
       const started = await Promise.all(
         datasetIds.map((datasetId) =>
