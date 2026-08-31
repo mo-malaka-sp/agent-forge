@@ -1,7 +1,11 @@
 import { getIscBaseUrl, getIscCredentials } from "@/lib/isc/config";
 import { iscRequest } from "@/lib/isc/client";
 import { getDatasetId, getIscSourceId } from "@/lib/isc/settings-store";
-import { listSourceDatasets, matchDataset } from "@/lib/isc/datasets";
+import {
+  listSourceDatasets,
+  listSourceResources,
+  matchDataset,
+} from "@/lib/isc/datasets";
 import { DEPLOYMENT_PROVIDERS, type DeploymentProvider } from "@/lib/providers/profiles";
 
 export interface IscSourceVerifyResult {
@@ -17,6 +21,21 @@ export interface IscSourceVerifyResult {
   /** Public URL of this AgentForge deployment, when the caller could resolve it. */
   expectedBaseUrl?: string | null;
   baseUrlMatches?: boolean;
+  /** Agent resource names ISC reports for this source. */
+  resourceNames?: string[];
+  /** `Resource Aggregation-*` operations configured on the Web Services source. */
+  resourceAggregationOperations?: string[];
+  /** False when no operation matches a resource, which fails dataset aggregation. */
+  resourceOperationsMatch?: boolean;
+}
+
+/**
+ * The connector matches a resource to its aggregation endpoint by operation
+ * type, so a resource named `bedrock-agent` needs this exact operation or the
+ * aggregation task fails with "No resource aggregation endpoints matched".
+ */
+export function resourceAggregationOperationType(resourceName: string): string {
+  return `Resource Aggregation-${resourceName}`;
 }
 
 function normalizeUrl(url: string): string {
@@ -55,7 +74,10 @@ export async function verifyIscPlatformSource(
     const source = await iscRequest<{
       id?: string;
       name?: string;
-      connectorAttributes?: { genericWebServiceBaseUrl?: string };
+      connectorAttributes?: {
+        genericWebServiceBaseUrl?: string;
+        connectionParameters?: Array<{ operationType?: string }>;
+      };
     }>({ ...credentials, sourceId }, `/sources/${sourceId}`);
 
     const name = source.name?.trim() ?? null;
@@ -90,21 +112,61 @@ export async function verifyIscPlatformSource(
         " Could not list datasets (endpoint may still be experimental).";
     }
 
+    const resourceAggregationOperations = (
+      source.connectorAttributes?.connectionParameters ?? []
+    )
+      .map((parameter) => parameter?.operationType?.trim() ?? "")
+      .filter((operationType) => /aggregation/i.test(operationType))
+      .filter(
+        (operationType) =>
+          !/^(Account|Group) Aggregation/i.test(operationType),
+      );
+
+    let resourceNames: string[] = [];
+    let resourceOperationsMatch: boolean | undefined;
+    let resourceMessage = "";
+    try {
+      const resources = await listSourceResources({ ...credentials, sourceId });
+      resourceNames = resources.map((resource) => resource.name);
+
+      if (resourceNames.length > 0) {
+        const missing = resourceNames.filter(
+          (resourceName) =>
+            !resourceAggregationOperations.includes(
+              resourceAggregationOperationType(resourceName),
+            ),
+        );
+        resourceOperationsMatch = missing.length === 0;
+        resourceMessage = resourceOperationsMatch
+          ? ` Resource aggregation operations match resource(s) ${resourceNames.join(", ")}.`
+          : ` Resource(s) ${missing.join(", ")} have no matching “${resourceAggregationOperationType(missing[0])}” operation on the source${
+              resourceAggregationOperations.length > 0
+                ? ` (found ${resourceAggregationOperations.join(", ")})`
+                : ""
+            } — dataset aggregation will fail until the golden package is re-imported.`;
+      }
+    } catch {
+      resourceMessage = " Could not list resources to check operation mapping.";
+    }
+
     return {
       provider,
       sourceId,
-      ok: baseUrlMatches !== false,
+      ok: baseUrlMatches !== false && resourceOperationsMatch !== false,
       sourceName: name,
       datasetId: preferredDatasetId,
       datasetFound,
       connectorBaseUrl,
       expectedBaseUrl: expected,
       baseUrlMatches,
+      resourceNames,
+      resourceAggregationOperations,
+      resourceOperationsMatch,
       message: `${
         name
           ? `Verified source “${name}” (${sourceId})`
           : `Verified source ${sourceId}`
-      }.${baseUrlMessage}${datasetMessage}`,
+      }.${baseUrlMessage}${datasetMessage}${resourceMessage}`,
     };
   } catch (error) {
     const raw =

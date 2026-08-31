@@ -338,7 +338,7 @@
               "requestType": "API",
               "sequenceNumberForEndpoint": "5",
               "uniqueNameForEndPoint": "Dataset Aggregation (bedrock-agent)",
-              "operationType": "Machine Identity Aggregation-bedrock-agent",
+              "operationType": "Resource Aggregation-bedrock-agent",
               "rootPath": "$.accounts[*]",
               "body": {}
             },

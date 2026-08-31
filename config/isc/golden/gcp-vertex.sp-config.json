@@ -331,7 +331,7 @@
               "requestType": "API",
               "sequenceNumberForEndpoint": "5",
               "uniqueNameForEndPoint": "Dataset Aggregation (gcp-agent)",
-              "operationType": "Machine Identity Aggregation-gcp-agent",
+              "operationType": "Resource Aggregation-gcp-agent",
               "rootPath": "$.accounts[*]",
               "body": {}
             },

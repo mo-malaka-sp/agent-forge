@@ -331,7 +331,7 @@
               "requestType": "API",
               "sequenceNumberForEndpoint": "5",
               "uniqueNameForEndPoint": "Dataset Aggregation (foundry-agent)",
-              "operationType": "Machine Identity Aggregation-foundry-agent",
+              "operationType": "Resource Aggregation-foundry-agent",
               "rootPath": "$.accounts[*]",
               "body": {}
             },

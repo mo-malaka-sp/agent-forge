@@ -339,12 +339,16 @@ No separate AgentForge URL — reuse the **accounts** endpoint. ISC Dataset Mana
 
 | Field | Value |
 |-------|-------|
-| **Operation Type** | **Machine Identity Aggregation - {dataset / resource name}** (e.g. `bedrock-agent`) |
+| **Operation Type** | **Resource Aggregation - {resource name}** (e.g. `Resource Aggregation-bedrock-agent`) |
 | **Context URL** | `/api/connectors/web-services/aws-bedrock/accounts` |
 | **HTTP Method** | `GET` |
 | **Root path** | `$.accounts[*]` |
 
-Web Services still uses the `Machine Identity Aggregation-{name}` operation type. In the UI, start aggregation from **Dataset Management → Datasets → Dataset Aggregations**.
+The operation type **must** end with the resource name exactly as it appears in
+**Dataset Management → Resources**. The connector matches a dataset's resources
+to endpoints by this name; the older `Machine Identity Aggregation-{name}` type is
+no longer matched and fails the task with *"No resource aggregation endpoints
+matched dataset"*. In the UI, start aggregation from **Dataset Management → Datasets → Dataset Aggregations**.
 
 | Resource attribute | Attribute path |
 |--------------------|----------------|
@@ -396,13 +400,13 @@ Resource type: **`std:agent`** (AI agent). Set **Resource ID** = `nativeIdentity
 | `owner` | string — work email of an ISC identity |
 | `platform` | string |
 
-HTTP **Machine Identity Aggregation** / dataset aggregation response mapping must include `owner` → `owner` (already in golden packages).
+The **Resource Aggregation** response mapping must include `owner` → `owner` (already in golden packages).
 
 Because ISC generates dataset and resource IDs as `customer:` plus a normalized
 form of the name, the created dataset for `bedrock-agent` is addressed as
-`customer:bedrock-agent`. The HTTP operation in the golden package is still named
-`Machine Identity Aggregation-{dataset}` — if dataset aggregation runs but
-collects nothing, re-point that operation at the resource in **HTTP Operations**.
+`customer:bedrock-agent` while its resource is still *named* `bedrock-agent`. The
+operation type keys off the unprefixed resource name, so it is
+`Resource Aggregation-bedrock-agent`.
 
 ---
 
@@ -947,6 +951,8 @@ To populate **Description**, **foundationModel**, etc. on **AI Agent → Details
 | Identity Graph has no privilege rings | Privilege classification not configured | [Part M](#part-m--privilege-classification-identity-graph-colors) |
 | Graph *Filter Returned No Results* | Bad Account ID filter | Clear filters in Explorer |
 | Import fails: *Cannot create resource as schema* | Package contains a `std:agent` resource as a source schema — ISC no longer accepts this | Use a current golden package (agent schemas are stripped); the dataset and resource are created by the orchestrator instead |
+| Dataset agg task fails: *No resource aggregation endpoints matched dataset '`customer:…`'* | Source still has the retired `Machine Identity Aggregation-{name}` operation | Re-import a current golden package, which types the operation **Resource Aggregation-{resource name}** (e.g. `Resource Aggregation-bedrock-agent`), or rename it in **HTTP Operations** |
+| Dataset agg fails after renaming a resource | Operation type no longer ends with the resource name | Run **Verify** under **Demo → Web Services source IDs** — it now reports resources whose aggregation operation is missing |
 | Source is **Not Responding**, Base URL is `http://localhost:...` | Golden package was imported from a laptop, so the local URL was baked into the source | Verify the source under **Demo → Web Services source IDs** and click **Repoint source at this deployment**, or re-import the package from the deployed URL |
 | Only one source has the deployed URL | The other sources were imported during an earlier (local or older) session | Repair each remaining source as above — imports do not retroactively update sources created earlier |
 | 0 accounts in aggregation | Wrong URL or root path | `$.accounts[*]`; platform-specific path |

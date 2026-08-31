@@ -98,4 +98,5 @@ See [export-payloads/](./export-payloads/) or VS Code **Export sp-config** on ea
 | Import overwrites source | ISC matches by **source name**; rename in golden JSON or target tenant |
 | Dataset missing after import | Expected — packages no longer ship the dataset/resource. Run Demo full sync, or create them under Dataset Management |
 | Import fails: *Cannot create resource as schema* | Stale package with a `std:agent` schema. Re-download; agent resources are created via the resources API, not SP-Config |
+| Dataset agg fails: *No resource aggregation endpoints matched dataset* | Stale package typing the operation `Machine Identity Aggregation-{name}`. Re-download and re-import — current packages use **Resource Aggregation-{resource name}** |
 | Orchestrator skips entitlement steps | Ensure **Group Aggregation** HTTP op exists (CONNECTOR_SETUP Part D2.5) |
