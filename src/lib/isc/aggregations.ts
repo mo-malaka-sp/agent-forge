@@ -31,11 +31,19 @@ export async function startOutboundEntitlementAggregation(
 export async function startMachineIdentityAggregation(
   config: IscConfig,
   datasetIds: string[] = ["bedrock-agent"],
+  options: { disableOptimization?: boolean } = {},
 ): Promise<AggregationStartResult> {
   if (datasetIds.length === 0) {
     throw new Error(
-      "Machine identity aggregation requires at least one datasetId (machine identity schema name, e.g. bedrock-agent).",
+      "Dataset aggregation requires at least one datasetId (e.g. bedrock-agent).",
     );
+  }
+
+  const body: { datasetIds: string[]; disableOptimization?: boolean } = {
+    datasetIds,
+  };
+  if (options.disableOptimization) {
+    body.disableOptimization = true;
   }
 
   const raw = await iscRequest(
@@ -43,7 +51,7 @@ export async function startMachineIdentityAggregation(
     `/sources/${config.sourceId}/aggregate-agents`,
     {
       method: "POST",
-      body: { datasetIds },
+      body,
       experimental: true,
     },
   );

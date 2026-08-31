@@ -73,8 +73,8 @@ export const DEMO_STEPS: Record<DemoStepId, DemoStepDefinition> = {
   },
   "machine-identity-aggregation": {
     id: "machine-identity-aggregation",
-    label: "Machine identity aggregation",
-    description: "Create AI agents in ISC from AgentForge accounts",
+    label: "Dataset aggregation",
+    description: "Aggregate the agent dataset in ISC from AgentForge accounts",
     system: "isc",
   },
   "account-aggregation": {
@@ -128,7 +128,7 @@ export const DEMO_MODES: Record<
   "full-sync": {
     id: "full-sync",
     label: "Full sync",
-    description: "Discover agents, entitlements, and machine identity links in ISC",
+    description: "Discover agents, entitlements, and dataset links in ISC",
     steps: [
       "bulk-create",
       "entitlement-aggregation-outbound",

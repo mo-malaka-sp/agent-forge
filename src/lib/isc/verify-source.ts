@@ -1,6 +1,7 @@
 import { getIscBaseUrl, getIscCredentials } from "@/lib/isc/config";
 import { iscRequest } from "@/lib/isc/client";
-import { getIscSourceId } from "@/lib/isc/settings-store";
+import { getDatasetId, getIscSourceId } from "@/lib/isc/settings-store";
+import { listSourceDatasets, matchDataset } from "@/lib/isc/datasets";
 import { DEPLOYMENT_PROVIDERS, type DeploymentProvider } from "@/lib/providers/profiles";
 
 export interface IscSourceVerifyResult {
@@ -9,6 +10,8 @@ export interface IscSourceVerifyResult {
   ok: boolean;
   sourceName: string | null;
   message: string;
+  datasetId?: string | null;
+  datasetFound?: boolean;
 }
 
 export async function verifyIscPlatformSource(
@@ -45,14 +48,32 @@ export async function verifyIscPlatformSource(
     );
 
     const name = source.name?.trim() ?? null;
+    const preferredDatasetId = getDatasetId(provider);
+    let datasetFound = false;
+    let datasetMessage = "";
+    try {
+      const datasets = await listSourceDatasets({ ...credentials, sourceId });
+      datasetFound = Boolean(matchDataset(datasets, preferredDatasetId));
+      datasetMessage = datasetFound
+        ? ` Dataset “${preferredDatasetId}” is present.`
+        : ` Dataset “${preferredDatasetId}” was not listed — create it under Dataset Management or run full sync (AgentForge will POST /datasets).`;
+    } catch {
+      datasetMessage =
+        " Could not list datasets (endpoint may still be experimental).";
+    }
+
     return {
       provider,
       sourceId,
       ok: true,
       sourceName: name,
-      message: name
-        ? `Verified source “${name}” (${sourceId})`
-        : `Verified source ${sourceId}`,
+      datasetId: preferredDatasetId,
+      datasetFound,
+      message: `${
+        name
+          ? `Verified source “${name}” (${sourceId})`
+          : `Verified source ${sourceId}`
+      }.${datasetMessage}`,
     };
   } catch (error) {
     const raw =

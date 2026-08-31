@@ -15,6 +15,12 @@ export interface SpConfigImportResult {
   connectorSlug: string;
   fileName: string;
   resultSummary?: string;
+  dataset?: {
+    id: string;
+    createdDataset: boolean;
+    createdResource: boolean;
+    error?: string;
+  };
 }
 
 function getBetaBaseUrl(target: SpConfigImportTarget): string {

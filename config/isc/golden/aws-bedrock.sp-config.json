@@ -244,8 +244,9 @@
             "includePermissions": false,
             "features": [],
             "configuration": {
-              "datasetType": "std:machine-identity",
-              "datasetId": "bedrock-agent"
+              "datasetId": "bedrock-agent",
+              "resourceId": "bedrock-agent",
+              "resourceType": "std:agent"
             },
             "attributes": [
               {
@@ -399,7 +400,7 @@
               "pagingSize": 50,
               "requestType": "API",
               "sequenceNumberForEndpoint": "5",
-              "uniqueNameForEndPoint": "Machine Identity Aggregation (bedrock-agent)",
+              "uniqueNameForEndPoint": "Dataset Aggregation (bedrock-agent)",
               "operationType": "Machine Identity Aggregation-bedrock-agent",
               "rootPath": "$.accounts[*]",
               "body": {}

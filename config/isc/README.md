@@ -16,7 +16,7 @@ Import **Web Services SaaS** sources into a new ISC tenant in minutes instead of
 1. Go to **AgentForge → Setup → Prep your ISC tenant**.
 2. **Option 1 — Configuration Hub:** Solution Center → Configuration Hub → **Uploads** → upload each JSON → prepare draft → deploy (no PAT).
 3. **Option 2 — API import:** follow the ORG_ADMIN PAT guide on Setup → preview → run import (PAT is not stored).
-4. **Connections → Sources** — test connection on each source.
+4. **Connections → Sources** — test connection on each source. Confirm **Dataset Management** lists the agent dataset (`bedrock-agent` / `gcp-agent` / `foundry-agent`). If it is missing, Demo full sync will `POST /sources/{id}/datasets`.
 5. **AgentForge Setup → Step 3** — apply privilege classification (paste target source IDs + ORG_ADMIN PAT). Required for Identity Graph rings.
 6. Set `ISC_TENANT`, `ISC_CLIENT_ID`, `ISC_CLIENT_SECRET` on AgentForge; open **Demo → ISC sources** and paste source IDs.
 
@@ -95,4 +95,5 @@ See [export-payloads/](./export-payloads/) or VS Code **Export sp-config** on ea
 | Setup shows “not published yet” | Maintainer has not committed `golden/*.sp-config.json` |
 | Test connection fails | Wrong base URL — check Amplify `AGENTFORGE_BASE_URL` or request Host header |
 | Import overwrites source | ISC matches by **source name**; rename in golden JSON or target tenant |
+| Dataset missing after import | Run Demo full sync, or create the dataset under Dataset Management |
 | Orchestrator skips entitlement steps | Ensure **Group Aggregation** HTTP op exists (CONNECTOR_SETUP Part D2.5) |

@@ -13,7 +13,11 @@ import {
   getIscConfigForProvider,
   type IscConfig,
 } from "@/lib/isc/config";
-import { getMisSchemaId } from "@/lib/isc/settings-store";
+import { getDatasetId } from "@/lib/isc/settings-store";
+import {
+  ensureAgentDataset,
+  resolveSourceDatasetIds,
+} from "@/lib/isc/datasets";
 import { resolveDeploymentProvider as resolveProviderFromRow } from "@/lib/providers/deployment";
 import {
   DEPLOYMENT_PROVIDERS,
@@ -73,7 +77,7 @@ function defaultAllowPermission(payload: DemoStepPayload): string {
   return payload.permission ?? "S3:Read";
 }
 
-function resolveMachineIdentityDatasetIds(
+function preferredMachineIdentityDatasetIds(
   payload: DemoStepPayload,
   provider: DeploymentProvider,
 ): string[] {
@@ -83,7 +87,7 @@ function resolveMachineIdentityDatasetIds(
   if (payload.schemas?.length) {
     return payload.schemas;
   }
-  return [getMisSchemaId(provider)];
+  return [getDatasetId(provider)];
 }
 
 function defaultRevokeEntitlement(payload: DemoStepPayload): string {
@@ -181,19 +185,32 @@ export async function runDemoStep(
 
     case "machine-identity-aggregation": {
       const config = requireIscConfig(deploymentProvider);
-      const datasetIds = resolveMachineIdentityDatasetIds(
+      const preferredIds = preferredMachineIdentityDatasetIds(
         payload,
         deploymentProvider,
       );
+      let ensured = null;
+      try {
+        ensured = await ensureAgentDataset(config, {
+          datasetId: preferredIds[0],
+          displayName: preferredIds[0],
+        });
+      } catch (error) {
+        console.warn(
+          "Could not ensure ISC dataset before aggregation:",
+          error instanceof Error ? error.message : error,
+        );
+      }
+      const datasetIds = await resolveSourceDatasetIds(config, preferredIds);
       const started = await startMachineIdentityAggregation(config, datasetIds);
 
       return {
         step: payload.step,
         status: "started",
-        message: `Machine identity aggregation started (schema: ${datasetIds.join(", ")})`,
+        message: `Dataset aggregation started (${datasetIds.join(", ")})`,
         system,
         taskId: started.taskId,
-        result: { raw: started.raw, datasetIds },
+        result: { raw: started.raw, datasetIds, ensured },
       };
     }
 

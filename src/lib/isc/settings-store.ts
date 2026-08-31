@@ -197,6 +197,11 @@ export function getMisSchemaId(provider: DeploymentProvider): string {
   return DEPLOYMENT_PROVIDERS[provider].misSchemaId;
 }
 
+/** Alias — stored value is the ISC dataset id (legacy name: MIS schema). */
+export function getDatasetId(provider: DeploymentProvider): string {
+  return getMisSchemaId(provider);
+}
+
 export function getConfiguredIscSourceIds(): Record<
   DeploymentProvider,
   string | null

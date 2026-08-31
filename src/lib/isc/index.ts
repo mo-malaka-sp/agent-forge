@@ -13,6 +13,14 @@ export {
   startAccountAggregation,
 } from "@/lib/isc/aggregations";
 export {
+  listSourceDatasets,
+  getSourceDataset,
+  createSourceDataset,
+  listSourceResources,
+  ensureAgentDataset,
+  resolveSourceDatasetIds,
+} from "@/lib/isc/datasets";
+export {
   getMachineAccountMappings,
   updateMachineAccountMappings,
   classifySourceMachineAccounts,

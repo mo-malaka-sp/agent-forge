@@ -734,10 +734,14 @@ function PostImportSteps({ embedded = false }: { embedded?: boolean }) {
             <strong>Entitlement Management → Entitlement Types</strong> — golden
             import uses <code className="text-xs">outboundPermissions</code> and{" "}
             <code className="text-xs">inboundCallers</code> only. After import,
-            confirm <strong>account</strong> and <strong>machine identity</strong>{" "}
-            schemas include an <code className="text-xs">owner</code> attribute
-            (golden packages include it) — then re-run account and machine
-            identity aggregation so <strong>OWNERS</strong> populate on AI Agents.
+            confirm <strong>account</strong> schema and the agent{" "}
+            <strong>dataset resource</strong> include an{" "}
+            <code className="text-xs">owner</code> attribute (golden packages
+            include it) — then re-run account and dataset aggregation so{" "}
+            <strong>OWNERS</strong> populate on AI Agents. If Dataset Management
+            is empty after import, run Demo <strong>full sync</strong> (creates
+            the dataset via <code className="text-xs">POST /datasets</code>) or
+            create it under <strong>Dataset Management → Datasets</strong>.
           </p>
         </div>
       </li>

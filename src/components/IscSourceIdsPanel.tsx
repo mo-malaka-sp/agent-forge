@@ -89,6 +89,7 @@ export function IscSourceIdsPanel({
   onSourcesChange,
 }: IscSourceIdsPanelProps) {
   const [sources, setSources] = useState<SourceMap>(EMPTY_SOURCES);
+  const [datasetIds, setDatasetIds] = useState<SourceMap>(defaultMisSchemas());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [verifying, setVerifying] = useState<DeploymentProvider | null>(null);
@@ -111,6 +112,8 @@ export function IscSourceIdsPanel({
       const response = await fetch("/api/isc/sources");
       const body = (await response.json()) as {
         sources?: SourceMap;
+        misSchemas?: SourceMap;
+        datasetIds?: SourceMap;
         error?: string;
       };
 
@@ -132,6 +135,11 @@ export function IscSourceIdsPanel({
 
       setSources(loaded);
       setSavedBaseline(loaded);
+      setDatasetIds({
+        ...defaultMisSchemas(),
+        ...(body.datasetIds ?? body.misSchemas ?? {}),
+        ...(cached?.mis_schemas ?? {}),
+      });
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -152,8 +160,12 @@ export function IscSourceIdsPanel({
     options?: { quiet?: boolean; baseline?: SourceMap },
   ) {
     const patch = buildSourcesPatch(formSources, options?.baseline ?? savedBaseline);
+    const misSchemas = {
+      ...defaultMisSchemas(),
+      ...datasetIds,
+    };
 
-    if (Object.keys(patch).length === 0) {
+    if (Object.keys(patch).length === 0 && !hasAnySource) {
       if (!options?.quiet) {
         setError("Enter at least one source ID before saving.");
       }
@@ -166,13 +178,14 @@ export function IscSourceIdsPanel({
       setSavedMessage(null);
     }
 
-    const misSchemas = defaultMisSchemas();
-
     try {
       const response = await fetch("/api/isc/sources", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sources: patch, mis_schemas: misSchemas }),
+        body: JSON.stringify({
+          ...(Object.keys(patch).length > 0 ? { sources: patch } : {}),
+          dataset_ids: misSchemas,
+        }),
       });
       const body = (await response.json()) as {
         error?: string;
@@ -293,7 +306,8 @@ export function IscSourceIdsPanel({
             </>
           ) : null}
           . Save one platform at a time — you only need the source(s) you plan to
-          demo.
+          demo. Dataset ID is the ISC <strong>Dataset Management</strong> id used
+          for agent aggregation (defaults shown below).
         </p>
         {savedCount > 0 ? (
           <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">
@@ -362,6 +376,23 @@ export function IscSourceIdsPanel({
                       {verifying === provider ? "Verifying..." : "Verify"}
                     </button>
                   </div>
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-[11px] text-zinc-500">
+                    Dataset ID (default {DEPLOYMENT_PROVIDERS[provider].misSchemaId})
+                  </span>
+                  <input
+                    value={datasetIds[provider]}
+                    onChange={(event) =>
+                      setDatasetIds((current) => ({
+                        ...current,
+                        [provider]: event.target.value,
+                      }))
+                    }
+                    placeholder={DEPLOYMENT_PROVIDERS[provider].misSchemaId}
+                    disabled={!connectionReady}
+                    className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-xs disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900"
+                  />
                 </label>
                 {verify ? (
                   <p

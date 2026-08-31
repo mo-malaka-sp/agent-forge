@@ -8,6 +8,8 @@ import {
   loadPrivilegeCriteriaGolden,
 } from "@/lib/isc/privilege-criteria";
 import { loadPreparedSpConfig } from "@/lib/isc/sp-config-package";
+import { ensureAgentDataset } from "@/lib/isc/datasets";
+import { DEPLOYMENT_PROVIDERS } from "@/lib/providers/profiles";
 import { resolveBaseUrl } from "@/lib/url";
 import {
   iscSpConfigImportAllSchema,
@@ -62,6 +64,49 @@ async function maybeApplyPrivilegeClassification(params: {
   return { skipped: false, applied };
 }
 
+async function maybeEnsureAgentDataset(params: {
+  tenant: string;
+  domain?: string;
+  personalAccessToken: string;
+  connectorSlug: "aws-bedrock" | "gcp-vertex" | "azure-ai-foundry";
+  sourceId?: string;
+  preview: boolean;
+}) {
+  if (params.preview || !params.sourceId?.trim()) {
+    return null;
+  }
+
+  const platform = PLATFORM_BY_SLUG[params.connectorSlug];
+  const datasetId = DEPLOYMENT_PROVIDERS[platform].misSchemaId;
+
+  try {
+    const ensured = await ensureAgentDataset(
+      {
+        tenant: params.tenant.trim(),
+        domain: params.domain?.trim() || "identitynow.com",
+        sourceId: params.sourceId.trim(),
+        apiVersion: "v2026",
+        clientId: "pat",
+        clientSecret: "pat",
+      },
+      { datasetId, displayName: datasetId },
+      params.personalAccessToken,
+    );
+
+    return {
+      skipped: false as const,
+      id: ensured.dataset.id,
+      createdDataset: ensured.createdDataset,
+      createdResource: ensured.createdResource,
+    };
+  } catch (error) {
+    return {
+      skipped: false as const,
+      error: error instanceof Error ? error.message : "Failed to ensure dataset",
+    };
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const raw = await request.json();
@@ -101,6 +146,11 @@ export async function POST(request: Request) {
         Awaited<ReturnType<typeof maybeApplyPrivilegeClassification>>
       > = {};
 
+      const datasetEnsure: Record<
+        string,
+        Awaited<ReturnType<typeof maybeEnsureAgentDataset>>
+      > = {};
+
       if (!(payload.preview ?? true) && payload.privilege_source_ids) {
         for (const connectorSlug of slugs) {
           const sourceId = payload.privilege_source_ids[connectorSlug];
@@ -120,6 +170,15 @@ export async function POST(request: Request) {
               },
               importPreview: false,
             });
+
+          datasetEnsure[connectorSlug] = await maybeEnsureAgentDataset({
+            tenant: payload.tenant,
+            domain: payload.domain,
+            personalAccessToken: payload.personal_access_token,
+            connectorSlug,
+            sourceId,
+            preview: false,
+          });
         }
       }
 
@@ -131,6 +190,8 @@ export async function POST(request: Request) {
           Object.keys(privilegeClassification).length > 0
             ? privilegeClassification
             : undefined,
+        datasetEnsure:
+          Object.keys(datasetEnsure).length > 0 ? datasetEnsure : undefined,
       });
     }
 
@@ -161,7 +222,20 @@ export async function POST(request: Request) {
       importPreview: payload.preview ?? true,
     });
 
-    return NextResponse.json({ ...result, privilegeClassification });
+    const datasetEnsure = await maybeEnsureAgentDataset({
+      tenant: payload.tenant,
+      domain: payload.domain,
+      personalAccessToken: payload.personal_access_token,
+      connectorSlug: payload.connector_slug,
+      sourceId: payload.source_id,
+      preview: payload.preview ?? true,
+    });
+
+    return NextResponse.json({
+      ...result,
+      privilegeClassification,
+      datasetEnsure,
+    });
   } catch (error) {
     if (error instanceof ZodError) {
       return jsonValidationError(error);

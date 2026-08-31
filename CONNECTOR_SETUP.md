@@ -333,21 +333,23 @@ Use the **same response mapping** as D3.
 
 Same response mapping as D3.
 
-### D5 — Machine Identity Aggregation
+### D5 — Dataset aggregation (agent resource)
 
-No separate AgentForge URL — reuse the **accounts** endpoint.
+No separate AgentForge URL — reuse the **accounts** endpoint. ISC Dataset Management aggregates this resource on the source dataset (default `bedrock-agent`).
 
 | Field | Value |
 |-------|-------|
-| **Operation Type** | **Machine Identity Aggregation - {schema name}** (e.g. `bedrock-agent`) |
+| **Operation Type** | **Machine Identity Aggregation - {dataset / resource name}** (e.g. `bedrock-agent`) |
 | **Context URL** | `/api/connectors/web-services/aws-bedrock/accounts` |
 | **HTTP Method** | `GET` |
 | **Root path** | `$.accounts[*]` |
 
-| Machine identity attribute | Attribute path |
-|----------------------------|----------------|
-| Native Identity | `nativeIdentity` (or `backendId` if your schema uses that) |
-| Identity Name | `identityName` |
+Web Services still uses the `Machine Identity Aggregation-{name}` operation type. In the UI, start aggregation from **Dataset Management → Datasets → Dataset Aggregations**.
+
+| Resource attribute | Attribute path |
+|--------------------|----------------|
+| Native Identity / Resource ID | `nativeIdentity` (or `backendId` if your schema uses that) |
+| Identity Name / Resource Name | `identityName` |
 | `backendId` | `backendId` |
 | `identity` | `identity` |
 | `owner` | `owner` |
@@ -374,25 +376,22 @@ Map **`nativeIdentity`** to the ARN field, **not** `accountId`.
 
 **Edit Account Schema:** Account ID = `accountId`, Account Name = `name`.
 
-### E2 — Machine identity schema
+### E2 — Dataset + agent resource
 
-**Machine Identities → Machine Identity Schemas → Create** (e.g. `bedrock-agent`)
+**Dataset Management → Datasets → Create** (e.g. `bedrock-agent`), then **Resources → Create Resource** associated with that dataset.
 
-Add attributes, then **Actions → Edit Type**:
-
-| Setting | Attribute |
-|---------|-----------|
-| **Native Identifier** | `nativeIdentity` |
-| **Identity Name** | `identityName` |
-
-Add these attributes on the machine identity schema (required for **OWNERS** on AI Agents):
+Resource type: **`std:agent`** (AI agent). Set **Resource ID** = `nativeIdentity` and **Resource Name** = `identityName`.
 
 | Attribute | Type |
 |-----------|------|
+| `nativeIdentity` | string — Resource ID |
+| `identityName` | string — Resource Name |
 | `owner` | string — work email of an ISC identity |
 | `platform` | string |
 
-HTTP **Machine Identity Aggregation** response mapping must include `owner` → `owner` (already in golden packages).
+HTTP **Machine Identity Aggregation** / dataset aggregation response mapping must include `owner` → `owner` (already in golden packages).
+
+If you still see **Machine Identities → Machine Identity Schemas** on an older tenant, create the same attributes there; newer tenants store this as a dataset resource with `configuration.datasetId`, `resourceId`, and `resourceType: std:agent`.
 
 ---
 
@@ -403,13 +402,13 @@ HTTP **Machine Identity Aggregation** response mapping must include `owner` → 
 ```
 1. Group Aggregation → outboundPermissions
 2. Group Aggregation → inboundCallers
-3. Machine Identity Aggregation → bedrock-agent (Specific Schemas — not "All" if no schemas exist)
+3. Dataset Management → Datasets → bedrock-agent → Start Aggregation
 4. Account Aggregation
 ```
 
 **Automated (AgentForge orchestrator):** **Run full sync** on the dashboard runs the same sequence via ISC v2026 APIs, including entitlement aggregation twice and machine account mappings. See [Part K](#part-k--isc-demo-orchestrator).
 
-**Machine identity aggregation:** If you see *`Illegal value "" for field "datasetIds"`*, you have no machine identity schema selected. Choose **Specific Schemas** and pick your schema (e.g. `bedrock-agent`).
+**Dataset aggregation:** If you see *`Illegal value "" for field "datasetIds"`*, no dataset is selected. Create a dataset under **Dataset Management**, then aggregate that dataset (e.g. `bedrock-agent`). AgentForge sends `datasetIds` on `POST /v2026/sources/{sourceId}/aggregate-agents`.
 
 ### Verify after aggregation
 
@@ -718,9 +717,9 @@ The orchestrator does **not** replace initial connector bootstrap. Configure onc
 |-----------------|-----|
 | Web Services source + HTTP operations | Poorly documented create-source API |
 | Entitlement types (`outboundPermissions`, `inboundCallers`) | No clean public create API |
-| Account + machine identity schemas | AIS-specific configuration |
+| Account schema + dataset / agent resource | AIS Dataset Management (`POST /sources/{id}/datasets`) |
 
-After bootstrap, the orchestrator handles runtime demo steps.
+After bootstrap, the orchestrator handles runtime demo steps. If Config Hub import does not create the dataset row, full sync or source verify will call **create dataset** and attach an `std:agent` resource.
 
 ### K2 — Environment variables
 
@@ -732,6 +731,7 @@ Set on AgentForge (`.env.local` locally, Amplify environment variables in produc
 | `ISC_CLIENT_ID` | Yes | API client ID |
 | `ISC_CLIENT_SECRET` | Yes | API client secret — **server only, never expose to browser** |
 | Platform source IDs | Yes | Set on **Demo → ISC sources** (saved server-side; one ID per Bedrock / Vertex / Foundry source) |
+| Dataset IDs | No | Same panel — default `bedrock-agent` / `gcp-agent` / `foundry-agent`. Env aliases: `ISC_MIS_DATASET_IDS_BEDROCK`, etc. |
 | `ISC_API_VERSION` | No | Default `v2026` |
 | `ISC_DOMAIN` | No | Default `identitynow.com` |
 | `ISC_DEMO_AGENT_ID` | No | Agent for govern + enforce (default `agt_demo_aws_bedrock`) |
@@ -758,7 +758,7 @@ Expected: `"configured": true` with tenant and sourceId.
 
 | Mode | Button | Steps |
 |------|--------|-------|
-| **Full sync** | Run full sync | Bulk create → entitlement agg ×2 → MIS agg → account agg → machine account mappings → verify |
+| **Full sync** | Run full sync | Bulk create → entitlement agg ×2 → dataset agg → account agg → machine account mappings → verify |
 | **Govern + enforce** | Run govern + enforce | Authorize allow → revoke entitlement → unoptimized account agg → authorize deny |
 
 **Full sync** ISC API calls (AgentForge server → ISC):
@@ -766,7 +766,9 @@ Expected: `"configured": true` with tenant and sourceId.
 | Step | ISC API |
 |------|---------|
 | Entitlement aggregation | `POST /v2026/entitlements/aggregate/sources/{sourceId}` |
-| Machine identity aggregation | `POST /v2026/sources/{sourceId}/aggregate-agents` |
+| Dataset aggregation | `POST /v2026/sources/{sourceId}/aggregate-agents` with `{ datasetIds }` |
+| List datasets | `GET /v2026/sources/{sourceId}/datasets` |
+| Create dataset | `POST /v2026/sources/{sourceId}/datasets` |
 | Account aggregation | `POST /v2026/sources/{sourceId}/load-accounts` |
 | Machine account mappings | `PUT /v2026/sources/{sourceId}/machine-account-mappings` |
 | Verify | `GET /v2026/accounts`, `GET /v2026/machine-accounts` |
@@ -814,12 +816,12 @@ curl -s https://main.d12mzah9vzl24s.amplifyapp.com/api/demo/task/{taskId} | jq
 
 ```
 ONE-TIME (ISC UI)
-  Web Services source + HTTP ops + entitlement types + schemas
+  Web Services source + HTTP ops + entitlement types + dataset/resource
                     ↓
 DEMO (AgentForge orchestrator)
   AgentForge bulk create
   → ISC entitlement agg (×2)
-  → ISC MIS agg
+  → ISC dataset agg (aggregate-agents)
   → ISC account agg
   → ISC machine account mappings
   → ISC verify
@@ -892,13 +894,13 @@ Match entitlement `name` for demo polish without schema changes:
 
 > **Note:** Ring indicators appear on access objects that **contain** classified entitlements (e.g. grouped source nodes). Individual blue entitlement leaves stay blue; privilege shows as rings on parent/group nodes.
 
-### E2b — Optional machine identity attributes (rich Details tab)
+### E2b — Optional agent resource attributes (rich Details tab)
 
 To populate **Description**, **foundationModel**, etc. on **AI Agent → Details**:
 
-1. **Machine Identities → Machine Identity Schemas → bedrock-agent → Edit**
+1. **Dataset Management → Resources → bedrock-agent → Schema → Edit**
 2. Add string attributes: `description`, `foundationModel`, `role`, `version`, `agentAliasStatus`
-3. **Machine Identity Aggregation** response mapping — add paths from the accounts payload:
+3. Dataset aggregation HTTP response mapping — add paths from the accounts payload:
 
 | Machine identity attribute | Account payload path |
 |----------------------------|----------------------|
@@ -908,7 +910,7 @@ To populate **Description**, **foundationModel**, etc. on **AI Agent → Details
 | `version` | `version` |
 | `agentAliasStatus` | `agentAliasStatus` |
 
-4. Re-run machine identity + account aggregation
+4. Re-run dataset + account aggregation
 
 ---
 
@@ -921,7 +923,7 @@ To populate **Description**, **foundationModel**, etc. on **AI Agent → Details
 | *No configuration for Group Aggregation-AWSManagedPolicies* | Missing typed HTTP operation | Add **Group Aggregation - AWSManagedPolicies** on the AWS IAM source (L2c) |
 | *Multiple Entitlement attributes with same type* | Both access fields typed as `group` | Create separate types `outboundPermissions` and `inboundCallers` |
 | *No configuration for Group Aggregation-outboundPermissions* | Missing HTTP operation | Add operation type **Group Aggregation - outboundPermissions** (D3) |
-| *datasetIds empty* on machine identity agg | No schema selected | Create machine identity schema; use **Specific Schemas** |
+| *datasetIds empty* on dataset agg | No dataset selected | Create a dataset in **Dataset Management**; use that dataset id (e.g. `bedrock-agent`) |
 | Attributes populated, Entitlement Assignments empty | Entitlement ID mismatch | Set **Entitlement ID = `name`**; re-run group + account agg |
 | Catalog shows `S3 Read`, account has `S3:Read` | Display normalization | OK if Entitlement Assignments on account are populated |
 | AI Agent → Access empty | Account not linked to agent | Correlate on **AI Agent → Accounts** |
@@ -950,7 +952,9 @@ To populate **Description**, **foundationModel**, etc. on **AI Agent → Details
 | **Outbound** | What the agent can reach (`outboundPermissions`) |
 | **Inbound** | Who can invoke the agent (`inboundCallers`) |
 | **Account** | Connector object on the Web Services source |
-| **AI Agent** | Governed machine identity in AIS |
+| **Dataset** | Aggregation unit that groups one or more resources (AgentForge uses one agent dataset per platform) |
+| **Resource** | Typed schema collected by a dataset (`std:agent` for AI agents) |
+| **AI Agent** | Governed non-human identity produced by dataset aggregation |
 
 ---
 
@@ -958,14 +962,14 @@ To populate **Description**, **foundationModel**, etc. on **AI Agent → Details
 
 ```
 ☐ Hero agents loaded — full-store reset (Part A0)
-☐ One-time ISC bootstrap (source, HTTP ops, entitlement types, schemas)
+☐ One-time ISC bootstrap (source, HTTP ops, entitlement types, dataset + resource)
 ☐ AgentForge ISC env vars set (Part K2)
 ☐ Web Services Bedrock source + test connection
 ☐ Entitlement types: outboundPermissions, inboundCallers (Entitlement ID = name)
 ☐ Group aggregation maps riskScore (+ optional privilegeLevel)
-☐ HTTP ops: test, account, group×2, machine identity
-☐ Account + machine identity schemas
-☐ Aggregate: group outbound → group inbound → machine identity → account
+☐ HTTP ops: test, account, group×2, dataset/agent aggregation
+☐ Account schema + dataset (`bedrock-agent`) with `std:agent` resource
+☐ Aggregate: group outbound → group inbound → dataset → account
      (or Run full sync on dashboard)
 ☐ AI Agent linked to Bedrock account
 ☐ AI Agent → Access shows ~14 entitlements on one source

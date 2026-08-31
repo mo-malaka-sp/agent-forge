@@ -206,7 +206,7 @@ export function IscCredentialsPanel({
           <li>
             <code className="text-[11px]">idn:mis-identity:manage</code> +{" "}
             <code className="text-[11px]">idn:mis-identity:read</code> —
-            machine identity aggregation (there is no{" "}
+            dataset aggregation (there is no{" "}
             <code className="text-[11px]">idn:mis-agents:aggregate</code> scope
             in the PAT picker)
           </li>

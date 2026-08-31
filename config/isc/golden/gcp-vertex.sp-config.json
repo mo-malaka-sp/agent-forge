@@ -242,8 +242,9 @@
             "includePermissions": false,
             "features": [],
             "configuration": {
-              "datasetType": "std:machine-identity",
-              "datasetId": "gcp-agent"
+              "datasetId": "gcp-agent",
+              "resourceId": "gcp-agent",
+              "resourceType": "std:agent"
             },
             "attributes": [
               {
@@ -392,7 +393,7 @@
               "pagingSize": 50,
               "requestType": "API",
               "sequenceNumberForEndpoint": "5",
-              "uniqueNameForEndPoint": "Machine Identity Aggregation (GCP-agent)",
+              "uniqueNameForEndPoint": "Dataset Aggregation (gcp-agent)",
               "operationType": "Machine Identity Aggregation-gcp-agent",
               "rootPath": "$.accounts[*]",
               "body": {}

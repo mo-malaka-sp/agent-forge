@@ -11,6 +11,8 @@ export interface IscRequestOptions {
   /** Override API version prefix (e.g. beta for task-status). */
   apiVersion?: string;
   bodyMode?: IscBodyMode;
+  /** Skip OAuth client credentials when a PAT or bearer token is already available. */
+  accessToken?: string;
 }
 
 export async function iscRequest<T = unknown>(
@@ -18,7 +20,7 @@ export async function iscRequest<T = unknown>(
   path: string,
   options: IscRequestOptions = {},
 ): Promise<T> {
-  const token = await getIscAccessToken(config);
+  const token = options.accessToken?.trim() || (await getIscAccessToken(config));
   const baseUrl = getIscBaseUrl(config);
   const apiVersion = options.apiVersion ?? config.apiVersion;
   const url = new URL(`${baseUrl}/${apiVersion}${path}`);

@@ -21,13 +21,16 @@ export async function GET() {
     tenant: status.tenant,
     sources: settings.sources,
     misSchemas: settings.misSchemas,
+    datasetIds: settings.misSchemas,
     updatedAt: settings.updatedAt,
     platforms: Object.entries(DEPLOYMENT_PROVIDERS).map(([id, profile]) => ({
       provider: id,
       label: profile.label,
       defaultMisSchemaId: profile.misSchemaId,
+      defaultDatasetId: profile.misSchemaId,
       sourceId: settings.sources[id as keyof typeof settings.sources] ?? "",
       misSchemaId: settings.misSchemas[id as keyof typeof settings.misSchemas] ?? "",
+      datasetId: settings.misSchemas[id as keyof typeof settings.misSchemas] ?? "",
     })),
   });
 }
@@ -35,19 +38,20 @@ export async function GET() {
 export async function PUT(request: Request) {
   try {
     const body = iscSourcesUpdateSchema.parse(await request.json());
-    if (!body.sources && !body.mis_schemas) {
-      return jsonError("sources or mis_schemas object is required", 400);
+    if (!body.sources && !body.mis_schemas && !body.dataset_ids) {
+      return jsonError("sources, mis_schemas, or dataset_ids object is required", 400);
     }
 
     const settings = updateIscSettings({
       sources: body.sources,
-      misSchemas: body.mis_schemas,
+      misSchemas: body.dataset_ids ?? body.mis_schemas,
     });
 
     return NextResponse.json({
       ok: true,
       sources: settings.sources,
       misSchemas: settings.misSchemas,
+      datasetIds: settings.misSchemas,
       updatedAt: settings.updatedAt,
     });
   } catch (error) {

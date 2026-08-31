@@ -5,6 +5,7 @@ export const DEPLOYMENT_PROVIDERS = {
     infrastructure: "bedrock",
     connectorSlug: "aws-bedrock",
     nativeStatusActive: "PREPARED",
+    /** Default ISC dataset id (and agent resource name) for this platform. */
     misSchemaId: "bedrock-agent",
     demoHeroAgentId: "agt_demo_aws_bedrock",
     defaultConfig: {
@@ -20,6 +21,7 @@ export const DEPLOYMENT_PROVIDERS = {
     infrastructure: "vertex_ai",
     connectorSlug: "gcp-vertex",
     nativeStatusActive: "ACTIVE",
+    /** Default ISC dataset id (and agent resource name) for this platform. */
     misSchemaId: "gcp-agent",
     demoHeroAgentId: "agt_demo_gcp_vertex",
     defaultConfig: {
@@ -33,6 +35,7 @@ export const DEPLOYMENT_PROVIDERS = {
     infrastructure: "ai_foundry",
     connectorSlug: "azure-ai-foundry",
     nativeStatusActive: "Succeeded",
+    /** Default ISC dataset id (and agent resource name) for this platform. */
     misSchemaId: "foundry-agent",
     demoHeroAgentId: "agt_demo_azure_foundry",
     defaultConfig: {

@@ -14,7 +14,7 @@ Create mock agents with **inbound** and **outbound** access, then expose them th
 - **Provisioning API** — ISC write-back for add/remove entitlement and disable/enable account
 - **Authorize API** — runtime allow/deny against effective inbound/outbound access
 - **ISC demo orchestrator** — run full sync and govern + enforce from the dashboard (no Postman)
-- **Machine identity** — reuse the accounts endpoint for machine identity aggregation (same `nativeIdentity` ARN)
+- **Dataset aggregation** — reuse the accounts endpoint for ISC dataset aggregation (same `nativeIdentity` ARN)
 - **Reference API** — optional cloud-native JSON shapes (Bedrock, Vertex, Foundry)
 
 ## Demo target in ISC
@@ -38,7 +38,7 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000).
 
 ### One-click ISC demo (recommended)
 
-1. **One-time in ISC** — configure the Web Services source, HTTP operations, entitlement types, and schemas ([setup guide](./CONNECTOR_SETUP.md))
+1. **One-time in ISC** — configure the Web Services source, HTTP operations, entitlement types, and dataset/resource ([setup guide](./CONNECTOR_SETUP.md))
 2. **Set ISC env vars** — copy [`.env.example`](./.env.example) to `.env.local` and fill in tenant credentials
 3. Open the dashboard → **ISC demo orchestrator**
 4. **Run full sync** — bulk create agents, run ISC aggregations, link machine accounts, verify
@@ -159,7 +159,7 @@ Never expose `ISC_CLIENT_SECRET` to the browser — AgentForge calls ISC only fr
 
 | Mode | Steps | What it does |
 |------|-------|--------------|
-| **Full sync** | 6 (+ entitlement agg ×2) | Bulk create → entitlement agg → MIS agg → account agg → machine account mappings → verify |
+| **Full sync** | 6 (+ entitlement agg ×2) | Bulk create → entitlement agg → dataset agg → account agg → machine account mappings → verify |
 | **Govern + enforce** | 4 | Authorize allow → revoke entitlement (AgentForge) → unoptimized account agg → authorize deny |
 
 ### Demo API examples

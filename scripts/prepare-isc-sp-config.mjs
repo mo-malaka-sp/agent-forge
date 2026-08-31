@@ -195,15 +195,19 @@ function ensureOwnerSchemaAttributes(node) {
           return schema;
         }
         const config = schema.configuration ?? {};
-        const isMis = config.datasetType === "std:machine-identity";
+        const isAgentResource =
+          config.resourceType === "std:agent" ||
+          config.datasetType === "std:machine-identity" ||
+          (typeof config.datasetId === "string" &&
+            typeof config.resourceId === "string");
         const isAccount =
           schema.nativeObjectType === "User" || schema.name === "account";
         const attributes = [...(schema.attributes ?? [])];
 
-        if ((isAccount || isMis) && !schemaHasAttribute(schema, "owner")) {
+        if ((isAccount || isAgentResource) && !schemaHasAttribute(schema, "owner")) {
           attributes.push({ ...OWNER_SCHEMA_ATTRIBUTE });
         }
-        if (isMis && !schemaHasAttribute(schema, "platform")) {
+        if (isAgentResource && !schemaHasAttribute(schema, "platform")) {
           attributes.push({ ...PLATFORM_SCHEMA_ATTRIBUTE });
         }
 

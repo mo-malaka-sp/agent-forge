@@ -18,9 +18,10 @@ import {
   getIscCredentials,
   getIscPublicStatus,
 } from "@/lib/isc/config";
-import { getIscSourceId } from "@/lib/isc/settings-store";
+import { getIscSourceId, getDatasetId } from "@/lib/isc/settings-store";
 import { DEPLOYMENT_PROVIDERS, type DeploymentProvider } from "@/lib/providers/profiles";
 import { verifySourceData } from "@/lib/isc/verify";
+import { listSourceDatasets, matchDataset } from "@/lib/isc/datasets";
 
 export type PreflightStatus = "pass" | "warn" | "fail";
 
@@ -95,6 +96,46 @@ export async function runDemoPreflight(
           : "Not configured — save source ID on Demo → ISC sources",
         detail: { provider, sourceId },
       });
+    }
+  }
+
+  if (credentials && mode === "full-sync") {
+    const provider =
+      options?.deploymentProvider ?? ("aws_bedrock" as DeploymentProvider);
+    const config = getIscConfigForProvider(provider);
+    if (config) {
+      const preferredDatasetId = getDatasetId(provider);
+      try {
+        const datasets = await listSourceDatasets(config);
+        const match = matchDataset(datasets, preferredDatasetId);
+        checks.push({
+          id: "isc_dataset",
+          label: `ISC dataset (${DEPLOYMENT_PROVIDERS[provider].label})`,
+          status: match ? "pass" : "warn",
+          message: match
+            ? `Dataset ${match.id} is on the source`
+            : `Dataset “${preferredDatasetId}” not listed — create it in Dataset Management or run full sync`,
+          detail: {
+            provider,
+            preferredDatasetId,
+            datasets: datasets.map((dataset) => ({
+              id: dataset.id,
+              name: dataset.name,
+            })),
+          },
+        });
+      } catch (error) {
+        checks.push({
+          id: "isc_dataset",
+          label: `ISC dataset (${DEPLOYMENT_PROVIDERS[provider].label})`,
+          status: "warn",
+          message:
+            error instanceof Error
+              ? `Could not list datasets: ${error.message}`
+              : "Could not list datasets",
+          detail: { provider, preferredDatasetId },
+        });
+      }
     }
   }
 
