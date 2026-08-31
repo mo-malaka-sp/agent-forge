@@ -81,8 +81,13 @@ export async function iscRequest<T = unknown>(
   }
 
   if (!response.ok) {
+    // Full URL, not just `path` — the version prefix is what distinguishes
+    // /v2026/sources/... from /sources/v1/... when an endpoint 404s.
+    const detail = text.trim().slice(0, 800);
     throw new Error(
-      `ISC ${options.method ?? "GET"} ${path} failed (${response.status}): ${text}`,
+      `ISC ${options.method ?? "GET"} ${url.toString()} failed (${response.status})${
+        detail ? `: ${detail}` : ""
+      }`,
     );
   }
 

@@ -14,7 +14,7 @@ import {
   type IscConfig,
 } from "@/lib/isc/config";
 import { getDatasetId } from "@/lib/isc/settings-store";
-import { ensureAgentDataset } from "@/lib/isc/datasets";
+import { AGENT_RESOURCE_TYPE, ensureAgentDataset } from "@/lib/isc/datasets";
 import { resolveDeploymentProvider as resolveProviderFromRow } from "@/lib/providers/deployment";
 import {
   DEPLOYMENT_PROVIDERS,
@@ -49,6 +49,10 @@ function resolveDemoDeploymentProvider(
     return resolveProviderFromRow(agentRow.deploymentProvider);
   }
   return "aws_bedrock";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function requireIscConfig(provider: DeploymentProvider): IscConfig {
@@ -190,13 +194,21 @@ export async function runDemoStep(
           ensureAgentDataset(config, {
             datasetId,
             displayName: datasetId,
+          }).catch((error: unknown) => {
+            throw new Error(
+              `Could not create or read dataset “${datasetId}” / its ${AGENT_RESOURCE_TYPE} resource on source ${config.sourceId} — ${errorMessage(error)}`,
+            );
           }),
         ),
       );
       const datasetIds = ensured.map((result) => result.dataset.id);
       const started = await Promise.all(
         datasetIds.map((datasetId) =>
-          startDatasetAggregation(config, datasetId),
+          startDatasetAggregation(config, datasetId).catch((error: unknown) => {
+            throw new Error(
+              `Dataset “${datasetId}” exists but aggregation did not start — ${errorMessage(error)}`,
+            );
+          }),
         ),
       );
 
