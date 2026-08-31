@@ -15,6 +15,17 @@ export interface IscTaskStatus {
   completed?: boolean | string;
   progress?: string;
   completionStatus?: string;
+  /**
+   * Where beta /task-status puts failure detail — there is no `errors` field on
+   * that response, so this is the only place a task's reason for failing shows up.
+   */
+  messages?: Array<{
+    type?: string;
+    key?: string;
+    localizedText?: { locale?: string; text?: string };
+    [key: string]: unknown;
+  }>;
+  attributes?: Record<string, unknown>;
   errors?: Array<string | Record<string, unknown>>;
   warnings?: Array<string | Record<string, unknown>>;
   [key: string]: unknown;

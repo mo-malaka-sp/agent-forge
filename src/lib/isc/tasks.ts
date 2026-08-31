@@ -90,7 +90,7 @@ export function isTaskSuccessful(status: IscTaskStatus): boolean {
   }
 
   if (hasCompletedTimestamp(status)) {
-    return !status.errors?.length;
+    return !status.errors?.length && !hasTaskErrorMessages(status);
   }
 
   return false;
@@ -116,8 +116,75 @@ export function formatTaskStatus(status: IscTaskStatus): string {
   return status.completed ? "completed" : "in progress";
 }
 
+/**
+ * Pulls text out of `messages[]`, which is where beta /task-status reports why a
+ * task failed. `INFO` entries are skipped unless nothing else is available.
+ */
+function taskMessageTexts(
+  status: IscTaskStatus,
+  types: ReadonlySet<string>,
+): string[] {
+  const texts: string[] = [];
+
+  for (const entry of status.messages ?? []) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const type = String(entry.type ?? "").toUpperCase();
+    if (!types.has(type)) {
+      continue;
+    }
+    const localized =
+      typeof entry.localizedText?.text === "string"
+        ? entry.localizedText.text.trim()
+        : "";
+    const key = typeof entry.key === "string" ? entry.key.trim() : "";
+    const text = localized || key;
+    if (text) {
+      texts.push(type === "ERROR" ? text : `${type.toLowerCase()}: ${text}`);
+    }
+  }
+
+  return texts;
+}
+
+export function hasTaskErrorMessages(status: IscTaskStatus): boolean {
+  return taskMessageTexts(status, new Set(["ERROR"])).length > 0;
+}
+
+/**
+ * Summarizes task attributes as a last resort, so a failure with no messages
+ * still says something more useful than the bare completion status.
+ */
+function formatTaskAttributes(status: IscTaskStatus): string | null {
+  const attributes = status.attributes;
+  if (!attributes || typeof attributes !== "object") {
+    return null;
+  }
+
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(attributes)) {
+    if (value === null || value === undefined || value === "") {
+      continue;
+    }
+    if (typeof value === "object") {
+      continue;
+    }
+    parts.push(`${key}=${String(value)}`);
+  }
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return `task attributes: ${parts.slice(0, 8).join(", ")}`;
+}
+
 export function formatTaskErrors(status: IscTaskStatus): string | null {
-  const messages: string[] = [];
+  const messages: string[] = taskMessageTexts(
+    status,
+    new Set(["ERROR", "WARN"]),
+  );
 
   for (const entry of status.errors ?? []) {
     if (typeof entry === "string") {
@@ -135,7 +202,11 @@ export function formatTaskErrors(status: IscTaskStatus): string | null {
   }
 
   if (messages.length === 0) {
-    return null;
+    const info = taskMessageTexts(status, new Set(["INFO"]));
+    if (info.length > 0) {
+      return info.slice(0, 3).join(" | ");
+    }
+    return formatTaskAttributes(status);
   }
 
   return messages.slice(0, 3).join(" | ");

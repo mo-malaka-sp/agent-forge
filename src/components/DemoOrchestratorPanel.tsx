@@ -255,10 +255,11 @@ async function pollTask(taskId: string, onTick: (message: string) => void) {
           (Array.isArray(body.status?.errors) && body.status.errors.length > 0
             ? JSON.stringify(body.status.errors[0])
             : null);
+        const completion = body.status?.completionStatus ?? statusLabel;
         throw new Error(
           detail
-            ? `ISC task failed: ${body.status?.completionStatus ?? statusLabel} — ${detail}`
-            : `ISC task failed: ${body.status?.completionStatus ?? statusLabel}`,
+            ? `ISC task failed: ${completion} — ${detail}`
+            : `ISC task failed: ${completion} (task ${taskId}) — ISC returned no reason. Open Admin → Monitoring → Tasks in ISC and inspect this task for detail.`,
         );
       }
       return;
