@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 
 import { loadSafPocConfig } from "@/lib/saf-poc/config";
+import { createSailPointClient } from "@/lib/saf-poc/sailpoint";
 import { createSigningKey, signSet, type SigningKey } from "@/lib/saf-poc/jwt";
 import { getSafPocStore } from "@/lib/saf-poc/storage";
 
@@ -449,6 +450,23 @@ async function saveRuntime(runtime: Runtime): Promise<void> {
   await getSafPocStore().put(STATE_KEY, persisted);
 }
 
+async function sailPointAuthorization(
+  endpointUrl: string,
+  fetchImpl: typeof fetch,
+): Promise<Record<string, string>> {
+  let host = "";
+  try {
+    host = new URL(endpointUrl).hostname;
+  } catch {
+    return {};
+  }
+  if (!host.endsWith("identitynow.com") && !host.endsWith("identitynow-demo.com")) {
+    return {};
+  }
+  const token = await createSailPointClient(loadSafPocConfig(), fetchImpl).authorize();
+  return { Authorization: `Bearer ${token}` };
+}
+
 function signEvent(
   runtime: Runtime,
   issuer: string,
@@ -473,6 +491,7 @@ async function pushSet(
     headers: {
       "Content-Type": "application/secevent+jwt",
       Accept: "application/json",
+      ...(await sailPointAuthorization(endpointUrl, fetchImpl)),
     },
     body: set,
     signal: AbortSignal.timeout(15_000),

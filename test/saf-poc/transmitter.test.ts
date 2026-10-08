@@ -94,11 +94,13 @@ describe("CAEP transmitter", () => {
   });
 
   it("pushes a signed risk-level change to the receiver endpoint", async () => {
-    const pushed: Array<{ url: string; contentType: string | null; body: string }> = [];
+    const pushed: Array<{ url: string; contentType: string | null; authorization: string | null; body: string }> = [];
     const fetchImpl: typeof fetch = async (url, init) => {
+      const headers = new Headers(init?.headers);
       pushed.push({
         url: String(url),
-        contentType: new Headers(init?.headers).get("content-type"),
+        contentType: headers.get("content-type"),
+        authorization: headers.get("authorization"),
         body: String(init?.body ?? ""),
       });
       return new Response("", { status: 202 });
@@ -128,8 +130,55 @@ describe("CAEP transmitter", () => {
     assert.equal(emitted.deliveries[0]?.accepted, true);
     assert.equal(pushed[0]?.url, "https://receiver.example/events");
     assert.equal(pushed[0]?.contentType, "application/secevent+jwt");
+    assert.equal(pushed[0]?.authorization, null);
     const payload = await verifySet(pushed[0]?.body ?? "");
     assert.equal((payload.sub_id as { email: string }).email, "mo.malaka@sailpoint.com");
+  });
+
+  it("sends the tenant access token when SailPoint receives the event", async () => {
+    process.env.SAF_CLIENT_ID = "client-id";
+    process.env.SAF_CLIENT_SECRET = "client-secret";
+    process.env.SAF_API_BASE = "https://beta-25503.api.identitynow-demo.com";
+    const endpoint = "https://beta-25503.api.identitynow-demo.com/v2025/ssf-event/stream-1";
+    const calls: Array<{ url: string; authorization: string | null; contentType: string | null }> = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      const headers = new Headers(init?.headers);
+      calls.push({
+        url: String(url),
+        authorization: headers.get("authorization"),
+        contentType: headers.get("content-type"),
+      });
+      if (String(url).endsWith("/oauth/token")) {
+        return Response.json({ access_token: "tenant-access-token" });
+      }
+      return new Response("", { status: 202 });
+    };
+
+    await dispatchSsf({
+      method: "POST",
+      path: "stream",
+      publicUrl: issuer,
+      authorization: "Bearer transmitter-token",
+      fetchImpl,
+      body: {
+        delivery: {
+          method: "urn:ietf:rfc:8935",
+          endpoint_url: endpoint,
+        },
+      },
+    });
+    const emitted = await publishRiskLevelChange({
+      publicUrl: issuer,
+      email: "mo.malaka@sailpoint.com",
+      previousLevel: "LOW",
+      currentLevel: "HIGH",
+      fetchImpl,
+    });
+
+    const push = calls.find((call) => call.url === endpoint);
+    assert.equal(emitted.deliveries[0]?.accepted, true);
+    assert.equal(push?.authorization, "Bearer tenant-access-token");
+    assert.equal(push?.contentType, "application/secevent+jwt");
   });
 
   it("holds an event for an email the receiver did not subscribe", async () => {
