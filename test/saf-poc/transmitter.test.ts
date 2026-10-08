@@ -133,6 +133,7 @@ describe("CAEP transmitter", () => {
     assert.equal(pushed[0]?.authorization, null);
     const payload = await verifySet(pushed[0]?.body ?? "");
     assert.equal((payload.sub_id as { email: string }).email, "mo.malaka@sailpoint.com");
+    assert.equal(typeof payload.txn, "string");
   });
 
   it("sends the tenant access token when SailPoint receives the event", async () => {

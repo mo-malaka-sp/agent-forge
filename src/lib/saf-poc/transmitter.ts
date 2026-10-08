@@ -662,7 +662,7 @@ function riskPayload(
     jti: event.jti,
     iat: now,
     aud,
-    txn: now,
+    txn: event.jti,
     sub_id: { format: "email", email: event.email },
     events: {
       [RISK_LEVEL_CHANGE_EVENT]: {
