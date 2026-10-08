@@ -1,4 +1,3 @@
-import { findAgentById, updateAgent } from "@/lib/db/store";
 import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import { buildAgentRiskEvent, ingestSafEvent } from "@/lib/saf-poc/events";
 import { publishRiskLevelChange, type DeliveryReport } from "@/lib/saf-poc/transmitter";
@@ -8,7 +7,9 @@ const LEVELS = new Set(["low", "medium", "high", "critical"]);
 
 export async function changeAgentRisk(input: {
   agentId: string;
+  agentName?: string;
   riskLevel: string;
+  previousLevel?: string;
   identityEmail?: string;
   publicUrl: string;
   transmit?: boolean;
@@ -22,25 +23,14 @@ export async function changeAgentRisk(input: {
   caep: { deliveries: DeliveryReport[] } | null;
   event: StoredEvent | null;
 }> {
-  const agent = findAgentById(input.agentId.trim());
-  if (!agent) {
-    throw new Error(`Agent ${input.agentId} was not found.`);
+  const agentId = input.agentId.trim();
+  const agentName = input.agentName?.trim() || agentId;
+  if (!agentId) {
+    throw new Error("Select an agent from the tenant.");
   }
 
   const currentLevel = normalizeLevel(input.riskLevel);
-  const metadata = parseMetadata(agent.metadata);
-  const previousLevel = normalizeLevel(metadata.risk_level || "low");
-  metadata.risk_level = titleCase(currentLevel);
-  const timestamp = new Date().toISOString();
-  const updated = updateAgent(agent.id, {
-    metadata: JSON.stringify(metadata),
-    updatedAt: timestamp,
-    lastActiveAt: timestamp,
-  });
-  if (!updated) {
-    throw new Error(`Agent ${agent.id} could not be updated.`);
-  }
-
+  const previousLevel = normalizeLevel(input.previousLevel || "low");
   const config = loadSafPocConfig();
   const identityEmail = (input.identityEmail || config.notifyEmail).trim().toLowerCase();
   if (!identityEmail) {
@@ -65,8 +55,8 @@ export async function changeAgentRisk(input: {
           scenario: "agent-risk-change",
           payload: buildAgentRiskEvent({
             tenant: config.tenant,
-            agentId: agent.id,
-            agentName: agent.name,
+            agentId,
+            agentName,
             identityEmail,
             previousLevel,
             currentLevel,
@@ -74,8 +64,8 @@ export async function changeAgentRisk(input: {
         });
 
   return {
-    agentId: agent.id,
-    agentName: agent.name,
+    agentId,
+    agentName,
     previousLevel,
     currentLevel,
     identityEmail,
@@ -92,17 +82,3 @@ function normalizeLevel(value: string): string {
   return level;
 }
 
-function titleCase(level: string): string {
-  return level.charAt(0).toUpperCase() + level.slice(1);
-}
-
-function parseMetadata(raw: string): Record<string, string> {
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return Object.fromEntries(
-      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-    );
-  } catch {
-    return {};
-  }
-}

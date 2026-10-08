@@ -8,7 +8,9 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       agentId?: string;
+      agentName?: string;
       riskLevel?: string;
+      previousLevel?: string;
       identityEmail?: string;
       transmit?: boolean;
       ingest?: boolean;
@@ -19,7 +21,9 @@ export async function POST(request: Request) {
     const baseUrl = resolveBaseUrl(request.headers);
     const result = await changeAgentRisk({
       agentId: body.agentId,
+      agentName: body.agentName,
       riskLevel: body.riskLevel,
+      previousLevel: body.previousLevel,
       identityEmail: body.identityEmail,
       publicUrl: baseUrl,
       transmit: body.transmit,

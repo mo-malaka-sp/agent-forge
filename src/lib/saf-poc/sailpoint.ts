@@ -239,6 +239,7 @@ export function createSailPointClient(
     requestPath: string,
     body?: unknown,
     contentType = "application/json",
+    extraHeaders?: Record<string, string>,
   ) => {
     if (!accessToken) {
       await authorize();
@@ -247,6 +248,8 @@ export function createSailPointClient(
       method,
       headers: {
         Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+        ...extraHeaders,
         ...(body === undefined ? {} : { "Content-Type": contentType }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -261,7 +264,10 @@ export function createSailPointClient(
     return text ? (JSON.parse(text) as unknown) : null;
   };
 
-  const listAll = async <T>(requestPath: string): Promise<T[]> => {
+  const listAll = async <T>(
+    requestPath: string,
+    extraHeaders?: Record<string, string>,
+  ): Promise<T[]> => {
     const records: T[] = [];
     const limit = 250;
     for (let offset = 0; ; offset += limit) {
@@ -269,12 +275,20 @@ export function createSailPointClient(
       const page = (await request(
         "GET",
         `${requestPath}${separator}limit=${limit}&offset=${offset}`,
-      )) as T[] | null;
-      if (!Array.isArray(page)) {
+        undefined,
+        "application/json",
+        extraHeaders,
+      )) as T[] | { items?: T[] } | null;
+      const items = Array.isArray(page)
+        ? page
+        : page && Array.isArray(page.items)
+          ? page.items
+          : null;
+      if (!items) {
         throw new Error("SailPoint list response was not an array.");
       }
-      records.push(...page);
-      if (page.length < limit) {
+      records.push(...items);
+      if (items.length < limit || records.length >= 1000) {
         return records;
       }
     }
@@ -293,6 +307,12 @@ export function createSailPointClient(
     async findWorkflow(): Promise<WorkflowRecord | null> {
       const workflows = await listAll<WorkflowRecord>(WORKFLOWS_PATH);
       return workflows.find((workflow) => workflow.name === POC_WORKFLOW_NAME) ?? null;
+    },
+    async listRecords(
+      requestPath: string,
+      extraHeaders?: Record<string, string>,
+    ): Promise<unknown[]> {
+      return listAll<unknown>(requestPath, extraHeaders);
     },
     request,
   };

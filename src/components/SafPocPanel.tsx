@@ -47,18 +47,32 @@ type SafState = {
   }>;
 };
 
-type AgentOption = { id: string; name: string; riskLevel: string };
+type AgentOption = {
+  id: string;
+  name: string;
+  riskLevel: string;
+  email?: string;
+  source?: string;
+};
 
 type SafPocPanelProps = {
   initialState: SafState | null;
   initialError: string | null;
   agents: AgentOption[];
+  agentsError?: string | null;
 };
 
 const RISK_LEVELS = ["Low", "Medium", "High", "Critical"];
 
-export function SafPocPanel({ initialState, initialError, agents }: SafPocPanelProps) {
+export function SafPocPanel({
+  initialState,
+  initialError,
+  agents,
+  agentsError: initialAgentsError = null,
+}: SafPocPanelProps) {
   const [state, setState] = useState<SafState | null>(initialState);
+  const [agentOptions, setAgentOptions] = useState(agents);
+  const [agentsError, setAgentsError] = useState(initialAgentsError);
   const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
   const [riskLevel, setRiskLevel] = useState("High");
   const [identityEmail, setIdentityEmail] = useState(initialState?.notifyEmail ?? "");
@@ -75,6 +89,20 @@ export function SafPocPanel({ initialState, initialError, agents }: SafPocPanelP
     }
     setState(body);
     setIdentityEmail((current) => current || body.notifyEmail || "");
+  }, []);
+
+  const loadAgents = useCallback(async () => {
+    const response = await fetch("/api/saf-poc/agents", { cache: "no-store" });
+    const body = (await response.json()) as { agents?: AgentOption[]; error?: string };
+    if (!response.ok) {
+      throw new Error(body.error ?? "Could not load tenant agents.");
+    }
+    const nextAgents = body.agents ?? [];
+    setAgentOptions(nextAgents);
+    setAgentsError(nextAgents.length === 0 ? "This tenant returned no agents." : null);
+    setAgentId((current) =>
+      nextAgents.some((agent) => agent.id === current) ? current : (nextAgents[0]?.id ?? ""),
+    );
   }, []);
 
   async function run(label: string, action: () => Promise<void>) {
@@ -126,7 +154,12 @@ export function SafPocPanel({ initialState, initialError, agents }: SafPocPanelP
           <button
             type="button"
             disabled={busy !== null}
-            onClick={() => void run("refresh", load)}
+            onClick={() =>
+              void run("refresh", async () => {
+                await load();
+                await loadAgents();
+              })
+            }
             className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
           >
             Refresh
@@ -199,20 +232,29 @@ export function SafPocPanel({ initialState, initialError, agents }: SafPocPanelP
 
         <article className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
           <h2 className="text-sm font-semibold">Change an agent’s risk</h2>
+          <p className="text-xs text-zinc-500">
+            Agents are machine identities on {state?.tenant || "the configured tenant"}.
+          </p>
           <label className="block text-xs">
-            Agent
+            Tenant agent
             <select
               value={agentId}
               onChange={(event) => setAgentId(event.target.value)}
               className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
             >
-              {agents.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name} ({agent.riskLevel || "no risk"})
-                </option>
-              ))}
+              {agentOptions.length === 0 ? (
+                <option value="">No tenant agents</option>
+              ) : (
+                agentOptions.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                    {agent.source ? ` · ${agent.source}` : ""} ({agent.riskLevel || "no risk"})
+                  </option>
+                ))
+              )}
             </select>
           </label>
+          {agentsError ? <p className="text-xs text-red-700 dark:text-red-300">{agentsError}</p> : null}
           <label className="block text-xs">
             New risk level
             <select
@@ -239,11 +281,19 @@ export function SafPocPanel({ initialState, initialError, agents }: SafPocPanelP
             disabled={busy !== null || !agentId}
             onClick={() =>
               void run("risk", async () => {
+                const selected = agentOptions.find((agent) => agent.id === agentId);
                 const payload = await post("/api/saf-poc/risk", {
                   agentId,
+                  agentName: selected?.name,
                   riskLevel,
+                  previousLevel: selected?.riskLevel || "Low",
                   identityEmail,
                 });
+                setAgentOptions((current) =>
+                  current.map((agent) =>
+                    agent.id === agentId ? { ...agent, riskLevel } : agent,
+                  ),
+                );
                 const delivery = (
                   payload as {
                     result?: { caep?: { deliveries?: Array<{ detail: string }> } | null };
