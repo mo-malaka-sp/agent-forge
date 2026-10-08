@@ -1,6 +1,7 @@
 import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import { buildAgentRiskEvent, ingestSafEvent } from "@/lib/saf-poc/events";
 import { publishRiskLevelChange, type DeliveryReport } from "@/lib/saf-poc/transmitter";
+import { applyCalibratedRiskProfile } from "@/lib/saf-poc/risk-calibration";
 import {
   emailAddress,
   listTenantAgents,
@@ -26,6 +27,7 @@ export async function changeAgentRisk(input: {
   agentName: string;
   previousLevel: string;
   currentLevel: string;
+  requestedLevel: string;
   identityEmail: string;
   riskUpdate: string;
   calculatedSeverity: string;
@@ -39,7 +41,7 @@ export async function changeAgentRisk(input: {
     throw new Error("Select an agent from the tenant.");
   }
 
-  const currentLevel = normalizeLevel(input.riskLevel);
+  const requestedLevel = normalizeLevel(input.riskLevel);
   const previousLevel = normalizeLevel(input.previousLevel || "low");
   const config = loadSafPocConfig();
   const agents = await listTenantAgents(config);
@@ -54,6 +56,8 @@ export async function changeAgentRisk(input: {
     const owner = agent?.ownerName ? `Owner ${agent.ownerName}` : "The agent owner";
     throw new Error(`${owner} has no email address SailPoint can correlate.`);
   }
+  const applied = await applyCalibratedRiskProfile(agentId, requestedLevel, config);
+  const currentLevel = normalizeLevel(applied.observed.severity);
   const caep =
     input.transmit === false
       ? null
@@ -81,16 +85,17 @@ export async function changeAgentRisk(input: {
         });
 
   const snapshot = await readAgentRiskSnapshot(agentId, config);
-  const riskUpdate = `CAEP level sent: ${currentLevel}. Calculated Risk Severity: ${snapshot.calculatedSeverity}.`;
+  const riskUpdate = `SailPoint calculated ${applied.observed.severity} (score ${applied.observed.score ?? "unavailable"}); CAEP sent the same level.`;
 
   return {
     agentId,
     agentName,
     previousLevel,
     currentLevel,
+    requestedLevel,
     identityEmail,
     riskUpdate,
-    calculatedSeverity: snapshot.calculatedSeverity,
+    calculatedSeverity: applied.observed.severity,
     findings: snapshot.findings,
     findingsNote: snapshot.findingsNote,
     caep,

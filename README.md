@@ -191,6 +191,8 @@ Two event paths stay separate:
 
 The CAEP level sent from `/saf-poc` does not write Agentic Fabric Risk Severity. After each emit, the page reads `GET /machine-identities/v1/{id}` and `GET /machine-identities/v1/{id}/anomalies` and shows the calculated severity and finding titles. On Snowflake SaaS, open the Cortex Agent resource, choose **Owner Correlation**, and map a real owner attribute such as email to the human identity Email attribute. The next dataset aggregation can clear **No human owner confirmed**. That can lower the calculated score. It does not set the score to the selected CAEP level.
 
+For `POLICY_CONCIERGE`, **Calibrate POLICY_CONCIERGE** saves the current v2 owner, user-entitlement, and business-application references, probes reversible combinations, starts the Snowflake dataset aggregation, and records only severity levels SailPoint actually returns. **Restore baseline** restores the saved factors. The risk dropdown enables only those proven levels; emitting applies the corresponding profile, waits for SailPoint's calculated score, and sends that actual level in CAEP. Calibration never patches `risk` or `insights`. Snowflake owner correlation remains the durable source-quality fix and requires a source attribute containing the human owner's real email.
+
 Hosted checks, after Amplify is up:
 
 1. Deploy `infra/saf-poc-dynamodb.yaml` and set `SAF_POC_TABLE_NAME` so evidence and the signing key survive cold starts.

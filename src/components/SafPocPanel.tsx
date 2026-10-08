@@ -56,6 +56,31 @@ type ScoreView = {
   findingsNote: string;
 };
 
+type RiskInputs = {
+  name: string;
+  modified: string;
+  score: number | null;
+  severity: string;
+  owners: Record<string, unknown>;
+  userEntitlements: unknown[];
+  businessApplicationRefs: unknown[];
+  effectiveSanctionedStatus: string;
+  sourceId: string;
+  resourceId: string;
+  datasetId: string;
+  ownershipCorrelationConfigs: unknown[];
+};
+
+type RiskCalibration = {
+  baselineScore: number | null;
+  baselineSeverity: string;
+  profiles: Record<
+    string,
+    { candidate: string; score: number | null; severity: string; observedAt: string }
+  >;
+  attemptedCandidates: string[];
+};
+
 type AgentOption = {
   id: string;
   name: string;
@@ -85,7 +110,7 @@ export function SafPocPanel({
   const [agentOptions, setAgentOptions] = useState(agents);
   const [agentsError, setAgentsError] = useState(initialAgentsError);
   const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
-  const [riskLevel, setRiskLevel] = useState("High");
+  const [riskLevel, setRiskLevel] = useState(agents[0]?.riskLevel || "Low");
   const [identityEmail, setIdentityEmail] = useState(
     usableEmail(agents[0]?.ownerEmail) || initialState?.notifyEmail || "",
   );
@@ -93,6 +118,8 @@ export function SafPocPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [scoreView, setScoreView] = useState<ScoreView | null>(null);
+  const [riskInputs, setRiskInputs] = useState<RiskInputs | null>(null);
+  const [calibration, setCalibration] = useState<RiskCalibration | null>(null);
   const [error, setError] = useState<string | null>(initialError);
 
   const load = useCallback(async () => {
@@ -146,6 +173,34 @@ export function SafPocPanel({
       setState(payload.state);
     } else {
       await load();
+    }
+    return payload;
+  }
+
+  async function calibrationRequest(body?: unknown) {
+    const url = body
+      ? "/api/saf-poc/calibration"
+      : `/api/saf-poc/calibration?agentId=${encodeURIComponent(agentId)}`;
+    const response = await fetch(url, body
+      ? {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }
+      : { cache: "no-store" });
+    const payload = (await response.json()) as {
+      error?: string;
+      inputs?: RiskInputs;
+      calibration?: RiskCalibration;
+    };
+    if (!response.ok) {
+      throw new Error(payload.error ?? `Calibration request failed (${response.status}).`);
+    }
+    if (payload.inputs) {
+      setRiskInputs(payload.inputs);
+    }
+    if (payload.calibration) {
+      setCalibration(payload.calibration);
     }
     return payload;
   }
@@ -258,6 +313,9 @@ export function SafPocPanel({
               onChange={(event) => {
                 const nextId = event.target.value;
                 setAgentId(nextId);
+                setRiskInputs(null);
+                setCalibration(null);
+                setScoreView(null);
                 const ownerEmail = usableEmail(
                   agentOptions.find((agent) => agent.id === nextId)?.ownerEmail,
                 );
@@ -289,7 +347,12 @@ export function SafPocPanel({
               className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
             >
               {RISK_LEVELS.map((level) => (
-                <option key={level}>{level}</option>
+                <option
+                  key={level}
+                  disabled={!calibration?.profiles[level.toLowerCase()]}
+                >
+                  {level}
+                </option>
               ))}
             </select>
           </label>
@@ -304,7 +367,11 @@ export function SafPocPanel({
           </label>
           <button
             type="button"
-            disabled={busy !== null || !agentId}
+            disabled={
+              busy !== null ||
+              !agentId ||
+              !calibration?.profiles[riskLevel.toLowerCase()]
+            }
             onClick={() =>
               void run("risk", async () => {
                 const selected = agentOptions.find((agent) => agent.id === agentId);
@@ -334,19 +401,118 @@ export function SafPocPanel({
                   findings: result?.findings ?? [],
                   findingsNote: result?.findingsNote || "",
                 });
-                setAgentOptions((current) =>
-                  current.map((agent) =>
-                    agent.id === agentId ? { ...agent, riskLevel: calculatedSeverity } : agent,
-                  ),
-                );
                 const delivery = result?.caep?.deliveries?.[0]?.detail;
                 setMessage(delivery || result?.riskUpdate || "CAEP signal sent.");
+                await calibrationRequest();
               })
             }
             className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
           >
             {busy === "risk" ? "Sending…" : "Emit CAEP and SAF events"}
           </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy !== null || !agentId}
+              onClick={() =>
+                void run("inspect-risk", async () => {
+                  await calibrationRequest();
+                  setMessage("Loaded SailPoint’s current v2 risk inputs.");
+                })
+              }
+              className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
+            >
+              Inspect risk inputs
+            </button>
+            <button
+              type="button"
+              disabled={busy !== null || !agentId}
+              onClick={() =>
+                void run("calibrate-risk", async () => {
+                  await calibrationRequest({ agentId, action: "capture" });
+                  const failures: string[] = [];
+                  for (const candidate of [
+                    "least-access",
+                    "unowned",
+                    "unowned-least-access",
+                  ]) {
+                    try {
+                      await calibrationRequest({
+                        agentId,
+                        action: "probe",
+                        candidate,
+                      });
+                    } catch (candidateError) {
+                      failures.push(
+                        `${candidate}: ${
+                          candidateError instanceof Error
+                            ? candidateError.message
+                            : "failed"
+                        }`,
+                      );
+                    }
+                  }
+                  const restored = await calibrationRequest({
+                    agentId,
+                    action: "restore",
+                  });
+                  const levels = Object.keys(restored.calibration?.profiles ?? {});
+                  setRiskLevel((current) =>
+                    levels.includes(current.toLowerCase())
+                      ? current
+                      : labelLevel(levels[0] || "Unavailable"),
+                  );
+                  setMessage(
+                    `Calibration finished. Proven levels: ${
+                      levels.map(labelLevel).join(", ") || "none"
+                    }.${failures.length ? ` ${failures.join(" ")}` : ""}`,
+                  );
+                })
+              }
+              className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white"
+            >
+              {busy === "calibrate-risk"
+                ? "Calibrating and restoring…"
+                : "Calibrate POLICY_CONCIERGE"}
+            </button>
+            <button
+              type="button"
+              disabled={busy !== null || !calibration}
+              onClick={() =>
+                void run("restore-risk", async () => {
+                  await calibrationRequest({ agentId, action: "restore" });
+                  setMessage("Restored the saved risk-factor baseline and started aggregation.");
+                })
+              }
+              className="rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-800 dark:border-amber-800 dark:text-amber-200"
+            >
+              Restore baseline
+            </button>
+          </div>
+          {riskInputs ? (
+            <div className="rounded-md bg-zinc-50 p-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
+              <p>
+                SailPoint score: {riskInputs.score ?? "unavailable"} → {riskInputs.severity}
+                {riskInputs.modified ? ` · modified ${riskInputs.modified}` : ""}
+              </p>
+              <p>
+                Owners: {ownerSummary(riskInputs.owners)} · entitlements:{" "}
+                {riskInputs.userEntitlements.length} · business apps:{" "}
+                {riskInputs.businessApplicationRefs.length} · sanction:{" "}
+                {riskInputs.effectiveSanctionedStatus || "unavailable"}
+              </p>
+              <p>
+                Dataset: {riskInputs.datasetId || "unavailable"} · owner correlation configs:{" "}
+                {riskInputs.ownershipCorrelationConfigs.length}
+              </p>
+              {calibration ? (
+                <p>
+                  Proven levels:{" "}
+                  {Object.keys(calibration.profiles).map(labelLevel).join(", ") || "none"}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {scoreView ? (
             <div className="space-y-1 text-xs text-zinc-600 dark:text-zinc-300">
               <p>CAEP level sent: {labelLevel(scoreView.sentLevel)}</p>
@@ -442,6 +608,17 @@ export function SafPocPanel({
 function labelLevel(value: string): string {
   const level = value.trim().toLowerCase();
   return level ? level.charAt(0).toUpperCase() + level.slice(1) : "Unavailable";
+}
+
+function ownerSummary(owners: Record<string, unknown>): string {
+  const primary =
+    owners.primaryIdentity && typeof owners.primaryIdentity === "object"
+      ? (owners.primaryIdentity as { name?: unknown; id?: unknown })
+      : null;
+  if (!primary) {
+    return "none";
+  }
+  return String(primary.name || primary.id || "configured");
 }
 
 function usableEmail(value?: string): string {
