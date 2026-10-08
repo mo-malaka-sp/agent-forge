@@ -198,7 +198,40 @@ describe("tenant agents", () => {
     const snapshot = await readAgentRiskSnapshot("mi-1", config(), fetchImpl);
     assert.equal(snapshot.calculatedSeverity, "Low");
     assert.deepEqual(snapshot.findings, []);
-    assert.match(snapshot.findingsNote, /did not return findings/i);
+    assert.match(snapshot.findingsNote, /did not return the anomalies list/i);
+  });
+
+  it("reads findings stored on the machine identity when the anomalies list is empty", async () => {
+    const fetchImpl: typeof fetch = async (url) => {
+      const target = String(url);
+      if (target.endsWith("/oauth/token")) {
+        return Response.json({ access_token: "token" });
+      }
+      if (target.endsWith("/machine-identities/v1/mi-1")) {
+        return Response.json({
+          id: "mi-1",
+          displayName: "POLICY_CONCIERGE",
+          subtype: "AI Agent",
+          risk: { severity: "MEDIUM" },
+          insights: [
+            {
+              type: "NO_HUMAN_OWNER",
+              description: "No attributed owner means weak accountability.",
+              detectedAt: "2026-10-08T17:21:00.000Z",
+            },
+          ],
+        });
+      }
+      if (target.endsWith("/anomalies")) {
+        return Response.json({ count: 0 });
+      }
+      return new Response("missing", { status: 404 });
+    };
+
+    const snapshot = await readAgentRiskSnapshot("mi-1", config(), fetchImpl);
+    assert.equal(snapshot.calculatedSeverity, "Medium");
+    assert.equal(snapshot.findings[0]?.title, "No Human Owner");
+    assert.equal(snapshot.findings[0]?.detectedAt, "2026-10-08T17:21:00.000Z");
   });
 
 });

@@ -100,7 +100,11 @@ export async function readAgentRiskSnapshot(
     if (!(error instanceof SailPointApiError) || (error.status !== 404 && error.status !== 403)) {
       throw error;
     }
-    findingsNote = "SailPoint did not return findings for this agent.";
+    findingsNote = "SailPoint did not return the anomalies list for this agent.";
+  }
+  findings = mergeFindings(parseAgentFindings(collectFindingRecords(identity)), findings);
+  if (findings.length === 0 && !findingsNote) {
+    findingsNote = "SailPoint returned no findings for this agent.";
   }
   return {
     calculatedSeverity: agent?.riskLevel || "Unavailable",
@@ -188,29 +192,122 @@ export async function resolveAgentOwnerEmail(
 }
 
 function parseAgentFinding(value: unknown): AgentFinding | null {
+  if (typeof value === "string" && value.trim()) {
+    return { title: value.trim(), detectedAt: "" };
+  }
   const record = asRecord(value);
   if (!record) {
     return null;
   }
+  const nested = asRecord(record.details) || asRecord(record.insight) || asRecord(record.finding);
   const title =
-    text(record.title) ||
-    text(record.name) ||
-    text(record.summary) ||
-    text(record.description) ||
-    text(record.anomalyType) ||
-    text(record.type);
+    findingTitle(record) ||
+    (nested ? findingTitle(nested) : "");
   if (!title) {
     return null;
   }
   return {
     title,
-    detectedAt:
-      text(record.detectedAt) ||
-      text(record.detected) ||
-      text(record.firstDetectedAt) ||
-      text(record.created) ||
-      text(record.detectedDate),
+    detectedAt: findingTime(record) || (nested ? findingTime(nested) : ""),
   };
+}
+
+function findingTitle(record: Record<string, unknown>): string {
+  return (
+    text(record.title) ||
+    text(record.name) ||
+    text(record.displayName) ||
+    text(record.summary) ||
+    text(record.message) ||
+    text(record.label) ||
+    text(record.reason) ||
+    text(record.factor) ||
+    text(record.anomalyType) ||
+    humanizeToken(text(record.type) || text(record.code)) ||
+    text(record.description)
+  );
+}
+
+function findingTime(record: Record<string, unknown>): string {
+  return (
+    text(record.detectedAt) ||
+    text(record.detected) ||
+    text(record.firstDetectedAt) ||
+    text(record.firstSeen) ||
+    text(record.lastDetected) ||
+    text(record.detectedDate) ||
+    text(record.created) ||
+    text(record.createdAt) ||
+    text(record.timestamp)
+  );
+}
+
+function humanizeToken(value: string): string {
+  if (
+    !value ||
+    value.includes(" ") ||
+    /^[0-9a-f-]{16,}$/i.test(value) ||
+    ["low", "medium", "high", "critical", "unknown", "benign"].includes(value.toLowerCase())
+  ) {
+    return "";
+  }
+  return value
+    .replace(/[_-]+/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function collectFindingRecords(payload: unknown): unknown[] {
+  const record = asRecord(payload);
+  if (!record) {
+    return unwrapList(payload);
+  }
+  const risk = asRecord(record.risk);
+  return [
+    ...recordsFrom(record.insights),
+    ...recordsFrom(record.findings),
+    ...recordsFrom(record.anomalies),
+    ...recordsFrom(risk?.findings),
+    ...recordsFrom(risk?.insights),
+    ...recordsFrom(risk?.factors),
+  ];
+}
+
+function recordsFrom(value: unknown): unknown[] {
+  const listed = unwrapList(value);
+  if (listed.length > 0) {
+    return listed;
+  }
+  const record = asRecord(value);
+  if (!record) {
+    return [];
+  }
+  return Object.entries(record).flatMap(([key, entry]) => {
+    if (entry === true) {
+      const title = humanizeToken(key);
+      return title ? [{ title }] : [];
+    }
+    const child = asRecord(entry);
+    if (!child || (!findingTitle(child) && !findingTime(child))) {
+      return [];
+    }
+    return [child.title || child.name || child.displayName ? child : { ...child, title: humanizeToken(key) }];
+  });
+}
+
+function mergeFindings(primary: AgentFinding[], extra: AgentFinding[]): AgentFinding[] {
+  const seen = new Set(primary.map((finding) => finding.title.toLowerCase()));
+  return [
+    ...primary,
+    ...extra.filter((finding) => {
+      const key = finding.title.toLowerCase();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    }),
+  ];
 }
 
 function unwrapList(payload: unknown): unknown[] {
@@ -218,11 +315,13 @@ function unwrapList(payload: unknown): unknown[] {
     return payload;
   }
   const record = asRecord(payload);
-  if (record && Array.isArray(record.items)) {
-    return record.items;
+  if (!record) {
+    return [];
   }
-  if (record && Array.isArray(record.anomalies)) {
-    return record.anomalies;
+  for (const key of ["items", "anomalies", "findings", "insights", "factors", "data", "results", "content", "records"]) {
+    if (Array.isArray(record[key])) {
+      return record[key];
+    }
   }
   return [];
 }
