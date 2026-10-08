@@ -111,45 +111,6 @@ export async function resolveAgentOwnerEmail(
   );
 }
 
-export async function updateTenantAgentRisk(
-  agentId: string,
-  riskLevel: string,
-  config: SailPointSetupConfig = loadSafPocConfig(),
-  fetchImpl?: FetchLike,
-): Promise<string> {
-  const client = createSailPointClient(config, fetchImpl);
-  const value = riskLevel.toUpperCase();
-  const attempts = [[{ op: "add", path: "/attributes/riskLevel", value }]];
-  let lastError: unknown;
-  for (const body of attempts) {
-    try {
-      await client.request(
-        "PATCH",
-        `/machine-identities/v1/${encodeURIComponent(agentId)}`,
-        body,
-        "application/json-patch+json",
-        EXPERIMENTAL_HEADER,
-      );
-      return `SailPoint stored ${value} on the agent.`;
-    } catch (error) {
-      lastError = error;
-      if (
-        !(error instanceof SailPointApiError) ||
-        (error.status !== 400 && error.status !== 404 && error.status !== 422)
-      ) {
-        throw error;
-      }
-    }
-  }
-  return `SailPoint did not store the risk on the agent. ${riskRejection(lastError)}`;
-}
-
-function riskRejection(error: unknown): string {
-  const raw = error instanceof Error ? error.message : "";
-  const text = raw.match(/"text":"([^"]+)"/)?.[1];
-  return text || "The machine identity API rejected the risk field.";
-}
-
 function parseTenantAgent(value: unknown): TenantAgent | null {
   const record = asRecord(value);
   if (!record) {

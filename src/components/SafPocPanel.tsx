@@ -235,10 +235,11 @@ export function SafPocPanel({
         </article>
 
         <article className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <h2 className="text-sm font-semibold">Change an agent’s risk</h2>
+          <h2 className="text-sm font-semibold">Emit a CAEP risk-level signal</h2>
           <p className="text-xs text-zinc-500">
             The event subject is the selected agent’s owner. The workflow email still goes
-            to the address saved on the workflow.
+            to the address saved on the workflow. Agentic Fabric calculates the agent’s
+            Risk Severity from aggregated findings; this signal does not write that score.
           </p>
           <label className="block text-xs">
             Tenant agent
@@ -271,7 +272,7 @@ export function SafPocPanel({
           </label>
           {agentsError ? <p className="text-xs text-red-700 dark:text-red-300">{agentsError}</p> : null}
           <label className="block text-xs">
-            New risk level
+            CAEP current level
             <select
               value={riskLevel}
               onChange={(event) => setRiskLevel(event.target.value)}
@@ -312,13 +313,6 @@ export function SafPocPanel({
                     };
                   }
                 ).result;
-                if (result?.riskUpdate?.startsWith("SailPoint stored")) {
-                  setAgentOptions((current) =>
-                    current.map((agent) =>
-                      agent.id === agentId ? { ...agent, riskLevel } : agent,
-                    ),
-                  );
-                }
                 const delivery = result?.caep?.deliveries?.[0]?.detail;
                 setMessage(
                   [delivery, result?.riskUpdate].filter(Boolean).join(" ") ||
@@ -328,7 +322,7 @@ export function SafPocPanel({
             }
             className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
           >
-            {busy === "risk" ? "Sending…" : "Change risk and emit events"}
+            {busy === "risk" ? "Sending…" : "Emit CAEP and SAF events"}
           </button>
         </article>
       </section>

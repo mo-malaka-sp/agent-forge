@@ -7,7 +7,6 @@ import {
   parseTenantAgents,
   resolveAgentOwnerEmail,
   selectTenantAgents,
-  updateTenantAgentRisk,
 } from "@/lib/saf-poc/tenant-agents";
 
 function config(): SailPointSetupConfig {
@@ -134,21 +133,4 @@ describe("tenant agents", () => {
     assert.equal(await resolveAgentOwnerEmail(agent!, config(), fetchImpl), "mo.malaka@sailpoint.com");
   });
 
-  it("adds the risk attribute instead of replacing the severity field", async () => {
-    const patches: string[] = [];
-    const fetchImpl: typeof fetch = async (url, init) => {
-      if (String(url).endsWith("/oauth/token")) {
-        return Response.json({ access_token: "token" });
-      }
-      patches.push(String(init?.body ?? ""));
-      return Response.json({ id: "mi-1" });
-    };
-
-    const message = await updateTenantAgentRisk("mi-1", "high", config(), fetchImpl);
-    assert.match(message, /stored HIGH/);
-    assert.equal(patches.length, 1);
-    assert.match(patches[0] ?? "", /"op":"add"/);
-    assert.match(patches[0] ?? "", /\/attributes\/riskLevel/);
-    assert.equal(patches[0]?.includes("/risk/severity"), false);
-  });
 });
