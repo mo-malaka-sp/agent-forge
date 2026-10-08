@@ -180,6 +180,23 @@ curl -s -X POST "http://127.0.0.1:3000/api/demo/run?mode=full-sync" \
 curl -s http://127.0.0.1:3000/api/demo/task/{taskId} | jq
 ```
 
+## SAF event bus and Datadog
+
+Open **SAF POC** after the app is deployed. AgentForge is the CAEP transmitter and the Datadog intake; there is no second process and no tunnel.
+
+Two event paths stay separate:
+
+- **Test 1** is a SailPoint Workflow on **CAEP Risk Level Change Events**. Changing an AgentForge agent’s risk signs a Security Event Token and pushes it to the receiver SailPoint registered against `/.well-known/ssf-configuration`. The workflow sends `[POC-SUCCESS] SAF Agentic Event Bus Triggered`.
+- **Test 2** is the Agentic Fabric fire-and-forget webhook. Point it at `/webhooks/saf`. When `DD_API_KEY` is set, the same JSON is posted to Datadog with the `DD-API-KEY` header. Without that key the run stays in dry-run and the evidence stays in DynamoDB (or `data/saf-poc-state.json` locally).
+
+Hosted checks, after Amplify is up:
+
+1. Deploy `infra/saf-poc-dynamodb.yaml` and set `SAF_POC_TABLE_NAME` so evidence and the signing key survive cold starts.
+2. Save the ISC tenant connection. Set `SAF_NOTIFY_EMAIL`. Optional `SAF_TRIGGER_NAME` defaults to `CAEP Risk Level Change Events`.
+3. On `/saf-poc`, reveal the receiver token and register a SailPoint SSF receiver for **Risk level change** using the discovery URL. The issuer must be the HTTPS AgentForge origin.
+4. Create the email workflow, then change an existing agent’s risk. Confirm the email and, for Test 2, the log in Datadog Live Tail (`source:sailpoint`).
+5. The critical detection query is `source:sailpoint @risk_severity:critical`.
+
 ## Scripts
 
 | Command | Description |
@@ -188,4 +205,5 @@ curl -s http://127.0.0.1:3000/api/demo/task/{taskId} | jq
 | `npm run build` | Production build |
 | `npm run start` | Start production server |
 | `npm run lint` | Run ESLint |
+| `npm test` | Run the SAF POC tests |
 | `npm run db:reset` | Clear stored agents |

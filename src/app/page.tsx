@@ -13,6 +13,14 @@ const PATHS = [
     primary: true,
   },
   {
+    href: "/saf-poc",
+    title: "SAF event bus and Datadog",
+    description:
+      "Change an agent’s risk, prove the CAEP email workflow, and forward the same event to Datadog.",
+    cta: "Open SAF POC",
+    primary: false,
+  },
+  {
     href: "/agents",
     title: "Manage agents",
     description:

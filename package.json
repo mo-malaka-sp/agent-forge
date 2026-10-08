@@ -7,9 +7,12 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
     "lint": "eslint",
+    "test": "node --import ./test/register.mjs --experimental-strip-types --test test/saf-poc/*.test.ts",
     "db:reset": "rm -f data/agents.json"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1147.0",
+    "@aws-sdk/lib-dynamodb": "^3.1147.0",
     "better-sqlite3": "^12.10.0",
     "drizzle-orm": "^0.45.2",
     "nanoid": "^5.1.11",
