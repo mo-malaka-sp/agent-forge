@@ -39,19 +39,24 @@ describe("tenant agents", () => {
     assert.equal(selected[0]?.source, "AI Agents Bedrock");
   });
 
-  it("lists machine identities from the tenant", async () => {
-    const calls: string[] = [];
+  it("lists machine identities from the current Human Fabric API", async () => {
+    const calls: Array<{ url: string; experimental: string | null }> = [];
     const fetchImpl: typeof fetch = async (url, init) => {
-      calls.push(`${init?.method ?? "GET"} ${url}`);
+      const headers = new Headers(init?.headers);
+      calls.push({
+        url: String(url),
+        experimental: headers.get("X-SailPoint-Experimental"),
+      });
       if (String(url).endsWith("/oauth/token")) {
         return Response.json({ access_token: "token" });
       }
-      if (String(url).includes("/v2026/machine-identities")) {
+      if (String(url).includes("/machine-identities/v1")) {
         return Response.json([
           {
             id: "mi-1",
-            name: "Foundry assistant",
-            attributes: { subtype: "AI Agent", risk_level: "low" },
+            displayName: "Foundry assistant",
+            subtype: "AI Agent",
+            risk: { severity: "low" },
           },
         ]);
       }
@@ -59,23 +64,23 @@ describe("tenant agents", () => {
     };
 
     const agents = await listTenantAgents(config(), fetchImpl);
+    const listCall = calls.find((call) => call.url.includes("/machine-identities/v1"));
     assert.equal(agents[0]?.id, "mi-1");
+    assert.equal(agents[0]?.name, "Foundry assistant");
     assert.equal(agents[0]?.riskLevel, "Low");
-    assert.equal(
-      calls.some((call) => call.includes("/v2026/machine-identities?limit=250&offset=0")),
-      true,
-    );
+    assert.equal(listCall?.experimental, "true");
+    assert.equal(listCall?.url.includes("/machine-identities/v1?limit=250&offset=0"), true);
   });
 
-  it("falls back to the previous machine identity API", async () => {
+  it("falls back to the yearly machine identity API", async () => {
     const fetchImpl: typeof fetch = async (url) => {
       if (String(url).endsWith("/oauth/token")) {
         return Response.json({ access_token: "token" });
       }
-      if (String(url).includes("/v2026/machine-identities")) {
+      if (String(url).includes("/machine-identities/v1")) {
         return new Response("missing", { status: 404 });
       }
-      if (String(url).includes("/v2025/machine-identities")) {
+      if (String(url).includes("/v2026/machine-identities")) {
         return Response.json([{ id: "mi-old", businessApplication: "Legacy agent" }]);
       }
       return new Response("missing", { status: 404 });

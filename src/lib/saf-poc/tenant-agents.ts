@@ -15,9 +15,10 @@ export type TenantAgent = {
 };
 
 const MACHINE_IDENTITY_PATHS = [
+  "/machine-identities/v1",
   "/v2026/machine-identities",
-  "/v2025/machine-identities",
 ] as const;
+const EXPERIMENTAL_HEADER = { "X-SailPoint-Experimental": "true" };
 
 type FetchLike = typeof fetch;
 
@@ -39,21 +40,13 @@ export async function listTenantAgents(
 ): Promise<TenantAgent[]> {
   const client = createSailPointClient(config, fetchImpl);
   let lastError: unknown;
-  for (const [index, requestPath] of MACHINE_IDENTITY_PATHS.entries()) {
+  for (const requestPath of MACHINE_IDENTITY_PATHS) {
     try {
-      const records = await client.listRecords(
-        requestPath,
-        index === 0 ? undefined : { "X-SailPoint-Experimental": "true" },
-      );
+      const records = await client.listRecords(requestPath, EXPERIMENTAL_HEADER);
       return selectTenantAgents(parseTenantAgents(records));
     } catch (error) {
       lastError = error;
       if (!(error instanceof SailPointApiError) || error.status !== 404) {
-        if (error instanceof SailPointApiError && error.status === 403) {
-          throw new Error(
-            `${error.message} The personal access token needs the idn:machine-identity:read scope.`,
-          );
-        }
         throw error;
       }
     }
@@ -69,11 +62,13 @@ function parseTenantAgent(value: unknown): TenantAgent | null {
     return null;
   }
   const attributes = asRecord(record.attributes) ?? {};
+  const risk = asRecord(record.risk);
   const id = text(record.id);
   const name =
+    text(record.displayName) ||
     text(record.name) ||
-    text(record.businessApplication) ||
     text(record.nativeIdentity) ||
+    text(record.businessApplication) ||
     text(attributes.displayName) ||
     text(attributes.name);
   if (!id || !name) {
@@ -84,7 +79,8 @@ function parseTenantAgent(value: unknown): TenantAgent | null {
     id,
     name,
     riskLevel: knownRiskLevel(
-      text(record.riskLevel) ||
+      text(risk?.severity) ||
+        text(record.riskLevel) ||
         text(attributes.riskLevel) ||
         text(attributes.risk_level) ||
         text(attributes.risk),
