@@ -284,7 +284,7 @@ export function SafPocPanel({
             </select>
           </label>
           <label className="block text-xs">
-            Owner email
+            Subject email (defaults to the owner)
             <input
               value={identityEmail}
               onChange={(event) => setIdentityEmail(event.target.value)}

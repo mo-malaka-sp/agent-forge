@@ -42,8 +42,8 @@ export async function changeAgentRisk(input: {
   const agentName = agent?.name || input.agentName?.trim() || agentId;
   const ownerEmail = agent ? await resolveAgentOwnerEmail(agent, config) : "";
   const identityEmail =
-    emailAddress(ownerEmail) ||
     emailAddress(input.identityEmail ?? "") ||
+    emailAddress(ownerEmail) ||
     emailAddress(config.notifyEmail);
   if (!identityEmail) {
     const owner = agent?.ownerName ? `Owner ${agent.ownerName}` : "The agent owner";
