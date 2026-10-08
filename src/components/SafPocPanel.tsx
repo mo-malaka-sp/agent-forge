@@ -78,7 +78,7 @@ export function SafPocPanel({
   const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
   const [riskLevel, setRiskLevel] = useState("High");
   const [identityEmail, setIdentityEmail] = useState(
-    agents[0]?.ownerEmail || initialState?.notifyEmail || "",
+    usableEmail(agents[0]?.ownerEmail) || initialState?.notifyEmail || "",
   );
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -247,7 +247,9 @@ export function SafPocPanel({
               onChange={(event) => {
                 const nextId = event.target.value;
                 setAgentId(nextId);
-                const ownerEmail = agentOptions.find((agent) => agent.id === nextId)?.ownerEmail;
+                const ownerEmail = usableEmail(
+                  agentOptions.find((agent) => agent.id === nextId)?.ownerEmail,
+                );
                 if (ownerEmail) {
                   setIdentityEmail(ownerEmail);
                 }
@@ -394,6 +396,11 @@ export function SafPocPanel({
       {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : null}
     </div>
   );
+}
+
+function usableEmail(value?: string): string {
+  const email = value?.trim().toLowerCase() ?? "";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
 }
 
 function Endpoint({ label, value }: { label: string; value: string }) {

@@ -59,35 +59,56 @@ export async function listTenantAgents(
     : new Error("SailPoint did not return machine identities.");
 }
 
+export function emailAddress(value: string): string {
+  const email = value.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
 export async function resolveAgentOwnerEmail(
   agent: TenantAgent,
   config: SailPointSetupConfig = loadSafPocConfig(),
   fetchImpl?: FetchLike,
 ): Promise<string> {
-  if (agent.ownerEmail) {
-    return agent.ownerEmail.toLowerCase();
-  }
-  if (!agent.ownerId) {
-    return "";
+  const direct = emailAddress(agent.ownerEmail);
+  if (direct) {
+    return direct;
   }
   const client = createSailPointClient(config, fetchImpl);
-  for (const requestPath of [
-    `/identities/v1/${encodeURIComponent(agent.ownerId)}`,
-    `/v3/identities/${encodeURIComponent(agent.ownerId)}`,
-  ]) {
-    try {
-      const identity = await client.request("GET", requestPath, undefined, "application/json");
-      const email = emailFromIdentity(identity);
-      if (email) {
-        return email;
-      }
-    } catch (error) {
-      if (!(error instanceof SailPointApiError) || error.status !== 404) {
-        throw error;
-      }
+  const paths = agent.ownerId
+    ? [
+        `/identities/v1/${encodeURIComponent(agent.ownerId)}`,
+        `/v3/identities/${encodeURIComponent(agent.ownerId)}`,
+      ]
+    : [];
+  for (const requestPath of paths) {
+    const email = await readIdentityEmail(() =>
+      client.request("GET", requestPath, undefined, "application/json"),
+    );
+    if (email) {
+      return email;
     }
   }
-  return "";
+  const ownerName = agent.ownerName.replaceAll('"', "").trim();
+  if (!ownerName) {
+    return "";
+  }
+  const filter = encodeURIComponent(`alias eq "${ownerName}" or name eq "${ownerName}"`);
+  for (const requestPath of [
+    `/v3/public-identities?filters=${filter}`,
+    `/v3/identities?filters=${filter}`,
+  ]) {
+    const email = await readIdentityEmail(() => client.listRecords(requestPath));
+    if (email) {
+      return email;
+    }
+  }
+  return readIdentityEmail(() =>
+    client.request("POST", "/v3/search", {
+      indices: ["identities"],
+      query: { query: `alias:${ownerName} OR name:"${ownerName}"` },
+      sort: ["name"],
+    }),
+  );
 }
 
 export async function updateTenantAgentRisk(
@@ -193,19 +214,41 @@ function primaryOwner(record: Record<string, unknown>): {
   };
 }
 
+async function readIdentityEmail(load: () => Promise<unknown>): Promise<string> {
+  try {
+    return emailFromIdentity(await load());
+  } catch (error) {
+    if (error instanceof SailPointApiError && (error.status === 401 || error.status >= 500)) {
+      throw error;
+    }
+    return "";
+  }
+}
+
 function emailFromIdentity(value: unknown): string {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const email = emailFromIdentity(item);
+      if (email) {
+        return email;
+      }
+    }
+    return "";
+  }
   const record = asRecord(value);
   if (!record) {
     return "";
   }
   const attributes = asRecord(record.attributes);
+  const items = record.items;
   return (
-    text(record.email) ||
-    text(record.alias) ||
-    text(attributes?.email) ||
-    text(attributes?.workEmail) ||
-    text(attributes?.mail)
-  ).toLowerCase();
+    emailAddress(text(record.email)) ||
+    emailAddress(text(record.alias)) ||
+    emailAddress(text(attributes?.email)) ||
+    emailAddress(text(attributes?.workEmail)) ||
+    emailAddress(text(attributes?.mail)) ||
+    (Array.isArray(items) ? emailFromIdentity(items) : "")
+  );
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

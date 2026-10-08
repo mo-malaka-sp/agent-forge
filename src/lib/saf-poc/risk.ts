@@ -2,6 +2,7 @@ import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import { buildAgentRiskEvent, ingestSafEvent } from "@/lib/saf-poc/events";
 import { publishRiskLevelChange, type DeliveryReport } from "@/lib/saf-poc/transmitter";
 import {
+  emailAddress,
   listTenantAgents,
   resolveAgentOwnerEmail,
   updateTenantAgentRisk,
@@ -41,11 +42,13 @@ export async function changeAgentRisk(input: {
   const agent = agents.find((candidate) => candidate.id === agentId);
   const agentName = agent?.name || input.agentName?.trim() || agentId;
   const ownerEmail = agent ? await resolveAgentOwnerEmail(agent, config) : "";
-  const identityEmail = (ownerEmail || input.identityEmail || config.notifyEmail)
-    .trim()
-    .toLowerCase();
+  const identityEmail =
+    emailAddress(ownerEmail) ||
+    emailAddress(input.identityEmail ?? "") ||
+    emailAddress(config.notifyEmail);
   if (!identityEmail) {
-    throw new Error("Set an owner on the agent, or pass the owner's email.");
+    const owner = agent?.ownerName ? `Owner ${agent.ownerName}` : "The agent owner";
+    throw new Error(`${owner} has no email address SailPoint can correlate.`);
   }
   const riskUpdate = await updateTenantAgentRisk(agentId, currentLevel, config);
 

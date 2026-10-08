@@ -5,6 +5,7 @@ import type { SailPointSetupConfig } from "@/lib/saf-poc/sailpoint";
 import {
   listTenantAgents,
   parseTenantAgents,
+  resolveAgentOwnerEmail,
   selectTenantAgents,
   updateTenantAgentRisk,
 } from "@/lib/saf-poc/tenant-agents";
@@ -102,6 +103,35 @@ describe("tenant agents", () => {
 
     const agents = await listTenantAgents(config(), fetchImpl);
     assert.equal(agents[0]?.name, "Legacy agent");
+  });
+
+  it("looks up the owner email when the identity name is not an address", async () => {
+    const [agent] = parseTenantAgents([
+      {
+        id: "mi-1",
+        name: "POLICY_CONCIERGE",
+        subtype: "AI Agent",
+        owners: { primaryIdentity: { id: "owner-1", name: "mo.malaka", email: "mo.malaka" } },
+      },
+    ]);
+    assert.equal(agent?.ownerEmail, "");
+    assert.equal(agent?.ownerName, "mo.malaka");
+
+    const fetchImpl: typeof fetch = async (url) => {
+      if (String(url).endsWith("/oauth/token")) {
+        return Response.json({ access_token: "token" });
+      }
+      if (String(url).includes("/identities/v1/owner-1")) {
+        return Response.json({
+          id: "owner-1",
+          alias: "mo.malaka",
+          attributes: { email: "mo.malaka@sailpoint.com" },
+        });
+      }
+      return new Response("missing", { status: 404 });
+    };
+
+    assert.equal(await resolveAgentOwnerEmail(agent!, config(), fetchImpl), "mo.malaka@sailpoint.com");
   });
 
   it("stores the agent risk when the severity path is rejected", async () => {
