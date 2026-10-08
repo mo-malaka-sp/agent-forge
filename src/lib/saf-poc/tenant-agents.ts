@@ -119,10 +119,7 @@ export async function updateTenantAgentRisk(
 ): Promise<string> {
   const client = createSailPointClient(config, fetchImpl);
   const value = riskLevel.toUpperCase();
-  const attempts = [
-    [{ op: "replace", path: "/risk/severity", value }],
-    [{ op: "replace", path: "/attributes/riskLevel", value }],
-  ];
+  const attempts = [[{ op: "add", path: "/attributes/riskLevel", value }]];
   let lastError: unknown;
   for (const body of attempts) {
     try {
@@ -144,8 +141,13 @@ export async function updateTenantAgentRisk(
       }
     }
   }
-  const detail = lastError instanceof Error ? lastError.message : "SailPoint rejected the risk update.";
-  return `SailPoint did not store the risk on the agent. ${detail}`;
+  return `SailPoint did not store the risk on the agent. ${riskRejection(lastError)}`;
+}
+
+function riskRejection(error: unknown): string {
+  const raw = error instanceof Error ? error.message : "";
+  const text = raw.match(/"text":"([^"]+)"/)?.[1];
+  return text || "The machine identity API rejected the risk field.";
 }
 
 function parseTenantAgent(value: unknown): TenantAgent | null {

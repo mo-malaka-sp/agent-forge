@@ -134,21 +134,21 @@ describe("tenant agents", () => {
     assert.equal(await resolveAgentOwnerEmail(agent!, config(), fetchImpl), "mo.malaka@sailpoint.com");
   });
 
-  it("stores the agent risk when the severity path is rejected", async () => {
+  it("adds the risk attribute instead of replacing the severity field", async () => {
     const patches: string[] = [];
     const fetchImpl: typeof fetch = async (url, init) => {
       if (String(url).endsWith("/oauth/token")) {
         return Response.json({ access_token: "token" });
       }
       patches.push(String(init?.body ?? ""));
-      if (String(init?.body ?? "").includes("/risk/severity")) {
-        return new Response("not patchable", { status: 400 });
-      }
       return Response.json({ id: "mi-1" });
     };
 
     const message = await updateTenantAgentRisk("mi-1", "high", config(), fetchImpl);
     assert.match(message, /stored HIGH/);
-    assert.equal(patches.some((body) => body.includes("/attributes/riskLevel")), true);
+    assert.equal(patches.length, 1);
+    assert.match(patches[0] ?? "", /"op":"add"/);
+    assert.match(patches[0] ?? "", /\/attributes\/riskLevel/);
+    assert.equal(patches[0]?.includes("/risk/severity"), false);
   });
 });

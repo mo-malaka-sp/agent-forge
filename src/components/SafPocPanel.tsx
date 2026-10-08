@@ -304,11 +304,6 @@ export function SafPocPanel({
                   previousLevel: selected?.riskLevel || "Low",
                   identityEmail,
                 });
-                setAgentOptions((current) =>
-                  current.map((agent) =>
-                    agent.id === agentId ? { ...agent, riskLevel } : agent,
-                  ),
-                );
                 const result = (
                   payload as {
                     result?: {
@@ -317,6 +312,13 @@ export function SafPocPanel({
                     };
                   }
                 ).result;
+                if (result?.riskUpdate?.startsWith("SailPoint stored")) {
+                  setAgentOptions((current) =>
+                    current.map((agent) =>
+                      agent.id === agentId ? { ...agent, riskLevel } : agent,
+                    ),
+                  );
+                }
                 const delivery = result?.caep?.deliveries?.[0]?.detail;
                 setMessage(
                   [delivery, result?.riskUpdate].filter(Boolean).join(" ") ||
