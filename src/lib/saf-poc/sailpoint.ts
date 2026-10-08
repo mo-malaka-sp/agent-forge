@@ -7,6 +7,7 @@ export const WORKFLOW_TRIGGERS_PATH = "/workflow-library/v1/triggers";
 const RISK_LEVEL_CHANGE_TRIGGER_ID = "idn:caep-risk-level-change-events";
 const RISK_LEVEL_CHANGE_EVENT =
   "https://schemas.openid.net/secevent/caep/event-type/risk-level-change";
+const RISK_LEVEL_CHANGE_FILTER = `$.ssfEvent.events["${RISK_LEVEL_CHANGE_EVENT}"]`;
 
 export class SailPointApiError extends Error {
   readonly status: number;
@@ -144,7 +145,16 @@ export function buildWorkflowBody(input: {
         success: { type: "success" },
       },
     },
-    trigger: { type: input.trigger.type, attributes: { id: input.trigger.id } },
+    trigger: {
+      type: input.trigger.type,
+      attributes: {
+        id: input.trigger.id,
+        ...(input.trigger.id === RISK_LEVEL_CHANGE_TRIGGER_ID ||
+        input.trigger.name === "CAEP Risk Level Change Events"
+          ? { "filter.$": RISK_LEVEL_CHANGE_FILTER }
+          : {}),
+      },
+    },
   };
 }
 

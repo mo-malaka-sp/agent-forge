@@ -71,7 +71,7 @@ describe("SailPoint Test 1 setup", () => {
       definition: {
         steps: { "Send Email": { attributes: { subject: string } } };
       };
-      trigger: { attributes: { id: string } };
+      trigger: { attributes: { id: string; "filter.$"?: string } };
     };
     const enableCall = calls.find((call) => call.method === "PATCH");
 
@@ -83,6 +83,10 @@ describe("SailPoint Test 1 setup", () => {
       NOTIFICATION_SUBJECT,
     );
     assert.equal(created.trigger.attributes.id, "idn:caep-risk-level-change-events");
+    assert.equal(
+      created.trigger.attributes["filter.$"],
+      '$.ssfEvent.events["https://schemas.openid.net/secevent/caep/event-type/risk-level-change"]',
+    );
     assert.equal(enableCall?.contentType, "application/json-patch+json");
   });
 
