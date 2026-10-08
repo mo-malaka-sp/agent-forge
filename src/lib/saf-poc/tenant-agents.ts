@@ -59,6 +59,82 @@ export async function listTenantAgents(
     : new Error("SailPoint did not return machine identities.");
 }
 
+export type AgentFinding = {
+  title: string;
+  detectedAt: string;
+};
+
+export type AgentRiskSnapshot = {
+  calculatedSeverity: string;
+  findings: AgentFinding[];
+  findingsNote: string;
+};
+
+export function parseAgentFindings(records: unknown[]): AgentFinding[] {
+  return records.flatMap((record) => {
+    const finding = parseAgentFinding(record);
+    return finding ? [finding] : [];
+  });
+}
+
+export async function readAgentRiskSnapshot(
+  agentId: string,
+  config: SailPointSetupConfig = loadSafPocConfig(),
+  fetchImpl?: FetchLike,
+): Promise<AgentRiskSnapshot> {
+  const client = createSailPointClient(config, fetchImpl);
+  const identity = await readMachineIdentity(client, agentId);
+  const agent = identity ? parseTenantAgent(identity) : null;
+  let findings: AgentFinding[] = [];
+  let findingsNote = "";
+  try {
+    const payload = await client.request(
+      "GET",
+      `/machine-identities/v1/${encodeURIComponent(agentId)}/anomalies`,
+      undefined,
+      "application/json",
+      EXPERIMENTAL_HEADER,
+    );
+    findings = parseAgentFindings(unwrapList(payload));
+  } catch (error) {
+    if (!(error instanceof SailPointApiError) || (error.status !== 404 && error.status !== 403)) {
+      throw error;
+    }
+    findingsNote = "SailPoint did not return findings for this agent.";
+  }
+  return {
+    calculatedSeverity: agent?.riskLevel || "Unavailable",
+    findings,
+    findingsNote,
+  };
+}
+
+async function readMachineIdentity(
+  client: ReturnType<typeof createSailPointClient>,
+  agentId: string,
+): Promise<unknown> {
+  const encoded = encodeURIComponent(agentId);
+  for (const requestPath of [
+    `/machine-identities/v1/${encoded}`,
+    `/v2026/machine-identities/${encoded}`,
+  ]) {
+    try {
+      return await client.request(
+        "GET",
+        requestPath,
+        undefined,
+        "application/json",
+        EXPERIMENTAL_HEADER,
+      );
+    } catch (error) {
+      if (!(error instanceof SailPointApiError) || error.status !== 404) {
+        throw error;
+      }
+    }
+  }
+  return null;
+}
+
 export function emailAddress(value: string): string {
   const email = value.trim().toLowerCase();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
@@ -109,6 +185,46 @@ export async function resolveAgentOwnerEmail(
       sort: ["name"],
     }),
   );
+}
+
+function parseAgentFinding(value: unknown): AgentFinding | null {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+  const title =
+    text(record.title) ||
+    text(record.name) ||
+    text(record.summary) ||
+    text(record.description) ||
+    text(record.anomalyType) ||
+    text(record.type);
+  if (!title) {
+    return null;
+  }
+  return {
+    title,
+    detectedAt:
+      text(record.detectedAt) ||
+      text(record.detected) ||
+      text(record.firstDetectedAt) ||
+      text(record.created) ||
+      text(record.detectedDate),
+  };
+}
+
+function unwrapList(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  const record = asRecord(payload);
+  if (record && Array.isArray(record.items)) {
+    return record.items;
+  }
+  if (record && Array.isArray(record.anomalies)) {
+    return record.anomalies;
+  }
+  return [];
 }
 
 function parseTenantAgent(value: unknown): TenantAgent | null {

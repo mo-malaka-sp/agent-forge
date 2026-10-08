@@ -189,13 +189,15 @@ Two event paths stay separate:
 - **Test 1** is a SailPoint Workflow on **CAEP Risk Level Change Events**. Changing an AgentForge agent’s risk signs a Security Event Token and pushes it to the receiver SailPoint registered against `/.well-known/ssf-configuration`. The workflow sends `[POC-SUCCESS] SAF Agentic Event Bus Triggered`.
 - **Test 2** is the Agentic Fabric fire-and-forget webhook. Point it at `/webhooks/saf`. When `DD_API_KEY` is set, the same JSON is posted to Datadog with the `DD-API-KEY` header. Without that key the run stays in dry-run and the evidence stays in DynamoDB (or `data/saf-poc-state.json` locally).
 
+The CAEP level sent from `/saf-poc` does not write Agentic Fabric Risk Severity. After each emit, the page reads `GET /machine-identities/v1/{id}` and `GET /machine-identities/v1/{id}/anomalies` and shows the calculated severity and finding titles. On Snowflake SaaS, open the Cortex Agent resource, choose **Owner Correlation**, and map a real owner attribute such as email to the human identity Email attribute. The next dataset aggregation can clear **No human owner confirmed**. That can lower the calculated score. It does not set the score to the selected CAEP level.
+
 Hosted checks, after Amplify is up:
 
 1. Deploy `infra/saf-poc-dynamodb.yaml` and set `SAF_POC_TABLE_NAME` so evidence and the signing key survive cold starts.
 2. Save the ISC tenant connection. Set `SAF_NOTIFY_EMAIL`. Optional `SAF_TRIGGER_NAME` defaults to `CAEP Risk Level Change Events`.
 3. On `/saf-poc`, reveal the receiver token and register a SailPoint SSF receiver for **Risk level change** using the discovery URL. The issuer must be the HTTPS AgentForge origin.
-4. Create the email workflow, then change an existing agent’s risk. Confirm the email and, for Test 2, the log in Datadog Live Tail (`source:sailpoint`).
-5. The critical detection query is `source:sailpoint @risk_severity:critical`.
+4. Create the email workflow, then emit a CAEP risk-level signal. Compare the sent level with the calculated Risk Severity and findings on the page.
+5. For Test 2, set Amplify env vars `DD_API_KEY` and `WEBHOOK_TOKEN` for all branches, then redeploy `main`. Point the SailPoint fire-and-forget webhook at `https://<host>/webhooks/saf` and send header `x-saf-webhook-token`. The body needs `eventType` (`RiskStateChanged` or `ExposedCredentialDetected`), `risk`, `identity`, and `agent`. Exposed-credential events also need `credential`. Confirm a `/saf-poc` row of `datadog/delivered` and a Datadog Live Tail line for `source:sailpoint`. The critical detection query is `source:sailpoint @risk_severity:critical`.
 
 ## Scripts
 

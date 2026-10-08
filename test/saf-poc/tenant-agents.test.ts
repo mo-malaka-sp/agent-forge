@@ -4,7 +4,9 @@ import { describe, it } from "node:test";
 import type { SailPointSetupConfig } from "@/lib/saf-poc/sailpoint";
 import {
   listTenantAgents,
+  parseAgentFindings,
   parseTenantAgents,
+  readAgentRiskSnapshot,
   resolveAgentOwnerEmail,
   selectTenantAgents,
 } from "@/lib/saf-poc/tenant-agents";
@@ -131,6 +133,72 @@ describe("tenant agents", () => {
     };
 
     assert.equal(await resolveAgentOwnerEmail(agent!, config(), fetchImpl), "mo.malaka@sailpoint.com");
+  });
+
+  it("reads the calculated severity and findings", async () => {
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      const target = String(url);
+      calls.push(target);
+      if (target.endsWith("/oauth/token")) {
+        return Response.json({ access_token: "token" });
+      }
+      if (target.endsWith("/machine-identities/v1/mi-1")) {
+        return Response.json({
+          id: "mi-1",
+          displayName: "POLICY_CONCIERGE",
+          subtype: "AI Agent",
+          risk: { severity: "LOW" },
+        });
+      }
+      if (target.endsWith("/anomalies")) {
+        assert.equal(new Headers(init?.headers).get("X-SailPoint-Experimental"), "true");
+        return Response.json({
+          items: [
+            {
+              title: "No human owner confirmed",
+              detectedAt: "2026-10-08T17:21:00.000Z",
+            },
+          ],
+        });
+      }
+      return new Response("missing", { status: 404 });
+    };
+
+    const snapshot = await readAgentRiskSnapshot("mi-1", config(), fetchImpl);
+    assert.equal(snapshot.calculatedSeverity, "Low");
+    assert.equal(snapshot.findings[0]?.title, "No human owner confirmed");
+    assert.equal(snapshot.findings[0]?.detectedAt, "2026-10-08T17:21:00.000Z");
+    assert.equal(
+      parseAgentFindings([
+        { title: "No human owner confirmed", detectedAt: "2026-10-08T17:21:00.000Z" },
+      ])[0]?.title,
+      "No human owner confirmed",
+    );
+    assert.equal(calls.some((url) => url.endsWith("/machine-identities/v1/mi-1/anomalies")), true);
+  });
+
+  it("keeps the calculated severity when findings are unavailable", async () => {
+    const fetchImpl: typeof fetch = async (url) => {
+      const target = String(url);
+      if (target.endsWith("/oauth/token")) {
+        return Response.json({ access_token: "token" });
+      }
+      if (target.endsWith("/machine-identities/v1/mi-1")) {
+        return Response.json({
+          id: "mi-1",
+          displayName: "POLICY_CONCIERGE",
+          subtype: "AI Agent",
+          risk: { severity: "LOW" },
+        });
+      }
+      return new Response("missing", { status: 404 });
+    };
+
+    const snapshot = await readAgentRiskSnapshot("mi-1", config(), fetchImpl);
+    assert.equal(snapshot.calculatedSeverity, "Low");
+    assert.deepEqual(snapshot.findings, []);
+    assert.match(snapshot.findingsNote, /did not return findings/i);
   });
 
 });

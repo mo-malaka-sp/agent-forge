@@ -47,6 +47,15 @@ type SafState = {
   }>;
 };
 
+type AgentFinding = { title: string; detectedAt: string };
+
+type ScoreView = {
+  sentLevel: string;
+  calculatedSeverity: string;
+  findings: AgentFinding[];
+  findingsNote: string;
+};
+
 type AgentOption = {
   id: string;
   name: string;
@@ -83,6 +92,7 @@ export function SafPocPanel({
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [scoreView, setScoreView] = useState<ScoreView | null>(null);
   const [error, setError] = useState<string | null>(initialError);
 
   const load = useCallback(async () => {
@@ -308,22 +318,53 @@ export function SafPocPanel({
                 const result = (
                   payload as {
                     result?: {
+                      currentLevel?: string;
+                      calculatedSeverity?: string;
+                      findings?: AgentFinding[];
+                      findingsNote?: string;
                       riskUpdate?: string;
                       caep?: { deliveries?: Array<{ detail: string }> } | null;
                     };
                   }
                 ).result;
-                const delivery = result?.caep?.deliveries?.[0]?.detail;
-                setMessage(
-                  [delivery, result?.riskUpdate].filter(Boolean).join(" ") ||
-                    "Risk change recorded.",
+                const calculatedSeverity = result?.calculatedSeverity || "Unavailable";
+                setScoreView({
+                  sentLevel: result?.currentLevel || riskLevel,
+                  calculatedSeverity,
+                  findings: result?.findings ?? [],
+                  findingsNote: result?.findingsNote || "",
+                });
+                setAgentOptions((current) =>
+                  current.map((agent) =>
+                    agent.id === agentId ? { ...agent, riskLevel: calculatedSeverity } : agent,
+                  ),
                 );
+                const delivery = result?.caep?.deliveries?.[0]?.detail;
+                setMessage(delivery || result?.riskUpdate || "CAEP signal sent.");
               })
             }
             className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
           >
             {busy === "risk" ? "Sending…" : "Emit CAEP and SAF events"}
           </button>
+          {scoreView ? (
+            <div className="space-y-1 text-xs text-zinc-600 dark:text-zinc-300">
+              <p>CAEP level sent: {labelLevel(scoreView.sentLevel)}</p>
+              <p>Calculated Risk Severity: {scoreView.calculatedSeverity}</p>
+              {scoreView.findings.length > 0 ? (
+                <ul className="list-disc pl-4">
+                  {scoreView.findings.map((finding) => (
+                    <li key={`${finding.title}-${finding.detectedAt}`}>
+                      {finding.title}
+                      {finding.detectedAt ? ` · detected ${finding.detectedAt}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>{scoreView.findingsNote || "No findings returned."}</p>
+              )}
+            </div>
+          ) : null}
         </article>
       </section>
 
@@ -333,8 +374,12 @@ export function SafPocPanel({
           <Endpoint label="Webhook" value={state?.webhookUrl ?? ""} />
         </div>
         <p className="mt-2 text-xs text-zinc-500">
-          Point a SailPoint fire-and-forget webhook at this URL. Simulated events exercise
-          the same pipeline without a tenant.
+          Intake mode is {state?.mode === "datadog" ? "Datadog" : "dry-run"}. Point the
+          SailPoint fire-and-forget webhook at this URL and send header{" "}
+          <span className="font-mono">x-saf-webhook-token</span>. After a live event, confirm
+          Datadog Live Tail with <span className="font-mono">source:sailpoint</span>. The
+          critical query is{" "}
+          <span className="font-mono">source:sailpoint @risk_severity:critical</span>.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {(
@@ -392,6 +437,11 @@ export function SafPocPanel({
       {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : null}
     </div>
   );
+}
+
+function labelLevel(value: string): string {
+  const level = value.trim().toLowerCase();
+  return level ? level.charAt(0).toUpperCase() + level.slice(1) : "Unavailable";
 }
 
 function usableEmail(value?: string): string {

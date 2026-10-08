@@ -4,7 +4,9 @@ import { publishRiskLevelChange, type DeliveryReport } from "@/lib/saf-poc/trans
 import {
   emailAddress,
   listTenantAgents,
+  readAgentRiskSnapshot,
   resolveAgentOwnerEmail,
+  type AgentFinding,
 } from "@/lib/saf-poc/tenant-agents";
 import type { StoredEvent } from "@/lib/saf-poc/types";
 
@@ -26,6 +28,9 @@ export async function changeAgentRisk(input: {
   currentLevel: string;
   identityEmail: string;
   riskUpdate: string;
+  calculatedSeverity: string;
+  findings: AgentFinding[];
+  findingsNote: string;
   caep: { deliveries: DeliveryReport[] } | null;
   event: StoredEvent | null;
 }> {
@@ -49,9 +54,6 @@ export async function changeAgentRisk(input: {
     const owner = agent?.ownerName ? `Owner ${agent.ownerName}` : "The agent owner";
     throw new Error(`${owner} has no email address SailPoint can correlate.`);
   }
-  const riskUpdate =
-    "CAEP signal emitted only. Agentic Fabric calculates Risk Severity from aggregated findings; the SHF machine identity API does not allow that score to be written.";
-
   const caep =
     input.transmit === false
       ? null
@@ -78,6 +80,9 @@ export async function changeAgentRisk(input: {
           }),
         });
 
+  const snapshot = await readAgentRiskSnapshot(agentId, config);
+  const riskUpdate = `CAEP level sent: ${currentLevel}. Calculated Risk Severity: ${snapshot.calculatedSeverity}.`;
+
   return {
     agentId,
     agentName,
@@ -85,6 +90,9 @@ export async function changeAgentRisk(input: {
     currentLevel,
     identityEmail,
     riskUpdate,
+    calculatedSeverity: snapshot.calculatedSeverity,
+    findings: snapshot.findings,
+    findingsNote: snapshot.findingsNote,
     caep,
     event,
   };
