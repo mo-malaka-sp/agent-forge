@@ -10,6 +10,9 @@ export type TenantAgent = {
   name: string;
   riskLevel: string;
   email: string;
+  ownerId: string;
+  ownerName: string;
+  ownerEmail: string;
   source: string;
   subtype: string;
 };
@@ -56,6 +59,74 @@ export async function listTenantAgents(
     : new Error("SailPoint did not return machine identities.");
 }
 
+export async function resolveAgentOwnerEmail(
+  agent: TenantAgent,
+  config: SailPointSetupConfig = loadSafPocConfig(),
+  fetchImpl?: FetchLike,
+): Promise<string> {
+  if (agent.ownerEmail) {
+    return agent.ownerEmail.toLowerCase();
+  }
+  if (!agent.ownerId) {
+    return "";
+  }
+  const client = createSailPointClient(config, fetchImpl);
+  for (const requestPath of [
+    `/identities/v1/${encodeURIComponent(agent.ownerId)}`,
+    `/v3/identities/${encodeURIComponent(agent.ownerId)}`,
+  ]) {
+    try {
+      const identity = await client.request("GET", requestPath, undefined, "application/json");
+      const email = emailFromIdentity(identity);
+      if (email) {
+        return email;
+      }
+    } catch (error) {
+      if (!(error instanceof SailPointApiError) || error.status !== 404) {
+        throw error;
+      }
+    }
+  }
+  return "";
+}
+
+export async function updateTenantAgentRisk(
+  agentId: string,
+  riskLevel: string,
+  config: SailPointSetupConfig = loadSafPocConfig(),
+  fetchImpl?: FetchLike,
+): Promise<string> {
+  const client = createSailPointClient(config, fetchImpl);
+  const value = riskLevel.toUpperCase();
+  const attempts = [
+    [{ op: "replace", path: "/risk/severity", value }],
+    [{ op: "replace", path: "/attributes/riskLevel", value }],
+  ];
+  let lastError: unknown;
+  for (const body of attempts) {
+    try {
+      await client.request(
+        "PATCH",
+        `/machine-identities/v1/${encodeURIComponent(agentId)}`,
+        body,
+        "application/json-patch+json",
+        EXPERIMENTAL_HEADER,
+      );
+      return `SailPoint stored ${value} on the agent.`;
+    } catch (error) {
+      lastError = error;
+      if (
+        !(error instanceof SailPointApiError) ||
+        (error.status !== 400 && error.status !== 404 && error.status !== 422)
+      ) {
+        throw error;
+      }
+    }
+  }
+  const detail = lastError instanceof Error ? lastError.message : "SailPoint rejected the risk update.";
+  return `SailPoint did not store the risk on the agent. ${detail}`;
+}
+
 function parseTenantAgent(value: unknown): TenantAgent | null {
   const record = asRecord(value);
   if (!record) {
@@ -75,6 +146,7 @@ function parseTenantAgent(value: unknown): TenantAgent | null {
     return null;
   }
   const source = asRecord(record.source);
+  const owner = primaryOwner(record);
   return {
     id,
     name,
@@ -90,6 +162,9 @@ function parseTenantAgent(value: unknown): TenantAgent | null {
       text(attributes.email) ||
       text(attributes.identityEmail) ||
       text(attributes.mail),
+    ownerId: owner.id,
+    ownerName: owner.name,
+    ownerEmail: owner.email,
     source: text(source?.name),
     subtype:
       text(record.subtype) ||
@@ -99,6 +174,38 @@ function parseTenantAgent(value: unknown): TenantAgent | null {
       text(attributes.subType) ||
       text(attributes.type),
   };
+}
+
+function primaryOwner(record: Record<string, unknown>): {
+  id: string;
+  name: string;
+  email: string;
+} {
+  const owners = asRecord(record.owners);
+  const primary =
+    asRecord(owners?.primaryIdentity) ||
+    asRecord(owners?.primary) ||
+    asRecord(record.owner);
+  return {
+    id: text(primary?.id),
+    name: text(primary?.name) || text(primary?.displayName),
+    email: emailFromIdentity(primary),
+  };
+}
+
+function emailFromIdentity(value: unknown): string {
+  const record = asRecord(value);
+  if (!record) {
+    return "";
+  }
+  const attributes = asRecord(record.attributes);
+  return (
+    text(record.email) ||
+    text(record.alias) ||
+    text(attributes?.email) ||
+    text(attributes?.workEmail) ||
+    text(attributes?.mail)
+  ).toLowerCase();
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

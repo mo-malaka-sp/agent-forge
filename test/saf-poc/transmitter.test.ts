@@ -141,6 +141,7 @@ describe("CAEP transmitter", () => {
     process.env.SAF_CLIENT_SECRET = "client-secret";
     process.env.SAF_API_BASE = "https://beta-25503.api.identitynow-demo.com";
     const endpoint = "https://beta-25503.api.identitynow-demo.com/v2025/ssf-event/stream-1";
+    const shfEndpoint = "https://beta-25503.api.identitynow-demo.com/ssf-event/v1/stream-1";
     const calls: Array<{ url: string; authorization: string | null; contentType: string | null }> = [];
     const fetchImpl: typeof fetch = async (url, init) => {
       const headers = new Headers(init?.headers);
@@ -176,7 +177,7 @@ describe("CAEP transmitter", () => {
       fetchImpl,
     });
 
-    const push = calls.find((call) => call.url === endpoint);
+    const push = calls.find((call) => call.url === shfEndpoint);
     assert.equal(emitted.deliveries[0]?.accepted, true);
     assert.equal(push?.authorization, "Bearer tenant-access-token");
     assert.equal(push?.contentType, "application/secevent+jwt");

@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import type { SailPointSetupConfig } from "@/lib/saf-poc/sailpoint";
-import { listTenantAgents, parseTenantAgents, selectTenantAgents } from "@/lib/saf-poc/tenant-agents";
+import {
+  listTenantAgents,
+  parseTenantAgents,
+  selectTenantAgents,
+  updateTenantAgentRisk,
+} from "@/lib/saf-poc/tenant-agents";
 
 function config(): SailPointSetupConfig {
   return {
@@ -26,6 +31,13 @@ describe("tenant agents", () => {
         subtype: "AI Agent",
         attributes: { riskLevel: "HIGH" },
         source: { name: "AI Agents Bedrock" },
+        owners: {
+          primaryIdentity: {
+            id: "owner-1",
+            name: "mo.malaka",
+            email: "Mo.Malaka@sailpoint.com",
+          },
+        },
       },
       { id: "app-1", name: "Payroll", subtype: "Application" },
       { id: "", name: "missing id" },
@@ -37,6 +49,8 @@ describe("tenant agents", () => {
     );
     assert.equal(selected[0]?.riskLevel, "High");
     assert.equal(selected[0]?.source, "AI Agents Bedrock");
+    assert.equal(selected[0]?.ownerEmail, "mo.malaka@sailpoint.com");
+    assert.equal(selected[0]?.ownerName, "mo.malaka");
   });
 
   it("lists machine identities from the current Human Fabric API", async () => {
@@ -88,5 +102,23 @@ describe("tenant agents", () => {
 
     const agents = await listTenantAgents(config(), fetchImpl);
     assert.equal(agents[0]?.name, "Legacy agent");
+  });
+
+  it("stores the agent risk when the severity path is rejected", async () => {
+    const patches: string[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      if (String(url).endsWith("/oauth/token")) {
+        return Response.json({ access_token: "token" });
+      }
+      patches.push(String(init?.body ?? ""));
+      if (String(init?.body ?? "").includes("/risk/severity")) {
+        return new Response("not patchable", { status: 400 });
+      }
+      return Response.json({ id: "mi-1" });
+    };
+
+    const message = await updateTenantAgentRisk("mi-1", "high", config(), fetchImpl);
+    assert.match(message, /stored HIGH/);
+    assert.equal(patches.some((body) => body.includes("/attributes/riskLevel")), true);
   });
 });

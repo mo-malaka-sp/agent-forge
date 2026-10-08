@@ -481,26 +481,39 @@ function signEvent(
   return signSet(runtime.key, payload);
 }
 
+export function shfEventUrls(endpointUrl: string): string[] {
+  const current = endpointUrl.replace(/\/v20\d{2}\/ssf-event\//, "/ssf-event/v1/");
+  return current === endpointUrl ? [endpointUrl] : [current, endpointUrl];
+}
+
 async function pushSet(
   endpointUrl: string,
   set: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ ok: boolean; status: number; body: string }> {
-  const response = await fetchImpl(endpointUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/secevent+jwt",
-      Accept: "application/json",
-      ...(await sailPointAuthorization(endpointUrl, fetchImpl)),
-    },
-    body: set,
-    signal: AbortSignal.timeout(15_000),
-  });
-  return {
-    ok: response.ok,
-    status: response.status,
-    body: (await response.text()).slice(0, 500),
-  };
+  const authorization = await sailPointAuthorization(endpointUrl, fetchImpl);
+  let result = { ok: false, status: 0, body: "" };
+  for (const url of shfEventUrls(endpointUrl)) {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/secevent+jwt",
+        Accept: "application/json",
+        ...authorization,
+      },
+      body: set,
+      signal: AbortSignal.timeout(15_000),
+    });
+    result = {
+      ok: response.ok,
+      status: response.status,
+      body: (await response.text()).slice(0, 500),
+    };
+    if (response.ok || response.status !== 404) {
+      return result;
+    }
+  }
+  return result;
 }
 
 async function flushPush(

@@ -1,6 +1,11 @@
 import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import { buildAgentRiskEvent, ingestSafEvent } from "@/lib/saf-poc/events";
 import { publishRiskLevelChange, type DeliveryReport } from "@/lib/saf-poc/transmitter";
+import {
+  listTenantAgents,
+  resolveAgentOwnerEmail,
+  updateTenantAgentRisk,
+} from "@/lib/saf-poc/tenant-agents";
 import type { StoredEvent } from "@/lib/saf-poc/types";
 
 const LEVELS = new Set(["low", "medium", "high", "critical"]);
@@ -20,11 +25,11 @@ export async function changeAgentRisk(input: {
   previousLevel: string;
   currentLevel: string;
   identityEmail: string;
+  riskUpdate: string;
   caep: { deliveries: DeliveryReport[] } | null;
   event: StoredEvent | null;
 }> {
   const agentId = input.agentId.trim();
-  const agentName = input.agentName?.trim() || agentId;
   if (!agentId) {
     throw new Error("Select an agent from the tenant.");
   }
@@ -32,10 +37,17 @@ export async function changeAgentRisk(input: {
   const currentLevel = normalizeLevel(input.riskLevel);
   const previousLevel = normalizeLevel(input.previousLevel || "low");
   const config = loadSafPocConfig();
-  const identityEmail = (input.identityEmail || config.notifyEmail).trim().toLowerCase();
+  const agents = await listTenantAgents(config);
+  const agent = agents.find((candidate) => candidate.id === agentId);
+  const agentName = agent?.name || input.agentName?.trim() || agentId;
+  const ownerEmail = agent ? await resolveAgentOwnerEmail(agent, config) : "";
+  const identityEmail = (ownerEmail || input.identityEmail || config.notifyEmail)
+    .trim()
+    .toLowerCase();
   if (!identityEmail) {
-    throw new Error("Set SAF_NOTIFY_EMAIL or pass the correlated identity email.");
+    throw new Error("Set an owner on the agent, or pass the owner's email.");
   }
+  const riskUpdate = await updateTenantAgentRisk(agentId, currentLevel, config);
 
   const caep =
     input.transmit === false
@@ -69,6 +81,7 @@ export async function changeAgentRisk(input: {
     previousLevel,
     currentLevel,
     identityEmail,
+    riskUpdate,
     caep,
     event,
   };

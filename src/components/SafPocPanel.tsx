@@ -52,6 +52,8 @@ type AgentOption = {
   name: string;
   riskLevel: string;
   email?: string;
+  ownerName?: string;
+  ownerEmail?: string;
   source?: string;
 };
 
@@ -75,7 +77,9 @@ export function SafPocPanel({
   const [agentsError, setAgentsError] = useState(initialAgentsError);
   const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
   const [riskLevel, setRiskLevel] = useState("High");
-  const [identityEmail, setIdentityEmail] = useState(initialState?.notifyEmail ?? "");
+  const [identityEmail, setIdentityEmail] = useState(
+    agents[0]?.ownerEmail || initialState?.notifyEmail || "",
+  );
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -233,13 +237,21 @@ export function SafPocPanel({
         <article className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
           <h2 className="text-sm font-semibold">Change an agent’s risk</h2>
           <p className="text-xs text-zinc-500">
-            Agents are machine identities on {state?.tenant || "the configured tenant"}.
+            The event subject is the selected agent’s owner. The workflow email still goes
+            to the address saved on the workflow.
           </p>
           <label className="block text-xs">
             Tenant agent
             <select
               value={agentId}
-              onChange={(event) => setAgentId(event.target.value)}
+              onChange={(event) => {
+                const nextId = event.target.value;
+                setAgentId(nextId);
+                const ownerEmail = agentOptions.find((agent) => agent.id === nextId)?.ownerEmail;
+                if (ownerEmail) {
+                  setIdentityEmail(ownerEmail);
+                }
+              }}
               className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
             >
               {agentOptions.length === 0 ? (
@@ -248,6 +260,7 @@ export function SafPocPanel({
                 agentOptions.map((agent) => (
                   <option key={agent.id} value={agent.id}>
                     {agent.name}
+                    {agent.ownerName ? ` · owner ${agent.ownerName}` : ""}
                     {agent.source ? ` · ${agent.source}` : ""} ({agent.riskLevel || "no risk"})
                   </option>
                 ))
@@ -268,7 +281,7 @@ export function SafPocPanel({
             </select>
           </label>
           <label className="block text-xs">
-            Correlated identity email
+            Owner email
             <input
               value={identityEmail}
               onChange={(event) => setIdentityEmail(event.target.value)}
@@ -294,12 +307,19 @@ export function SafPocPanel({
                     agent.id === agentId ? { ...agent, riskLevel } : agent,
                   ),
                 );
-                const delivery = (
+                const result = (
                   payload as {
-                    result?: { caep?: { deliveries?: Array<{ detail: string }> } | null };
+                    result?: {
+                      riskUpdate?: string;
+                      caep?: { deliveries?: Array<{ detail: string }> } | null;
+                    };
                   }
-                ).result?.caep?.deliveries?.[0]?.detail;
-                setMessage(delivery ?? "Risk change recorded.");
+                ).result;
+                const delivery = result?.caep?.deliveries?.[0]?.detail;
+                setMessage(
+                  [delivery, result?.riskUpdate].filter(Boolean).join(" ") ||
+                    "Risk change recorded.",
+                );
               })
             }
             className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
