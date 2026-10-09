@@ -220,8 +220,9 @@ export function SafPocPanel({
             <span className="font-mono">/workflows/v1</span>,{" "}
             <span className="font-mono">/workflow-library/v1/triggers</span>,{" "}
             <span className="font-mono">/trigger-subscriptions/v1</span>, and{" "}
-            <span className="font-mono">/machine-identities/v1</span>. Deprecated yearly
-            and <span className="font-mono">/v3</span> fallbacks are not used.
+            <span className="font-mono">/machine-identities/v1</span>. Management calls
+            do not use deprecated yearly or <span className="font-mono">/v3</span>{" "}
+            fallbacks.
           </p>
         </div>
 

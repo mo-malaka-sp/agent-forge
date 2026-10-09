@@ -199,7 +199,7 @@ Test 1 has three independent proofs:
 
 The workflow test button bypasses proofs 1–2. It verifies only that the workflow email action works.
 
-The SAF POC uses SailPoint's current per-service SHF paths, including `/workflows/v1`, `/workflow-library/v1/triggers`, `/trigger-subscriptions/v1`, `/machine-identities/v1` and `/machine-identities/v2`. Deprecated yearly, `/v3`, and `/beta` paths are not used for this flow.
+The SAF POC uses SailPoint's current per-service SHF paths, including `/workflows/v1`, `/workflow-library/v1/triggers`, `/trigger-subscriptions/v1`, `/machine-identities/v1` and `/machine-identities/v2`. Management calls do not use deprecated yearly, `/v3`, or `/beta` paths. For receiver compatibility only, a configured yearly SSF stream URL is retried after the current `/ssf-event/v1` URL returns `404`.
 
 Hosted checks, after Amplify is up:
 
