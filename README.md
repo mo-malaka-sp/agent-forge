@@ -207,7 +207,7 @@ Hosted checks, after Amplify is up:
 2. Save the ISC tenant connection. Set `SAF_NOTIFY_EMAIL`. Optional `SAF_TRIGGER_NAME` defaults to `CAEP Risk Level Change Events`.
 3. On `/saf-poc`, reveal the receiver token and register a SailPoint SSF receiver for **Risk level change** using the discovery URL. The issuer must be the HTTPS AgentForge origin.
 4. Create or repair the email workflow, then send a real CAEP event. Match AgentForge’s event ID to the correlated Test1POC row, workflow activity, and email.
-5. For Test 2, set Amplify env vars `DD_API_KEY` and `WEBHOOK_TOKEN` for all branches, then redeploy `main`. Point the SailPoint fire-and-forget webhook at `https://<host>/webhooks/saf` and send header `x-saf-webhook-token`. The body needs `eventType` (`RiskStateChanged` or `ExposedCredentialDetected`), `risk`, `identity`, and `agent`. Exposed-credential events also need `credential`. Confirm a `/saf-poc` row of `datadog/delivered` and a Datadog Live Tail line for `source:sailpoint`. The critical detection query is `source:sailpoint @risk_severity:critical`.
+5. For Test 2, set Amplify env vars `DD_API_KEY` and `WEBHOOK_TOKEN` for all branches, then redeploy `main`. On `/saf-poc`, use **Create or repair Datadog workflow + send test**. That calls `/workflows/v1` and `/workflow-library/v1/triggers`, creates an external-trigger workflow whose HTTP step posts to `https://<host>/webhooks/saf` with header `x-saf-webhook-token`, and runs `POST /workflows/v1/{id}/test`. Confirm a `/saf-poc` row of `datadog/delivered` with an empty scenario and a Datadog Live Tail line for `source:sailpoint`. The critical detection query is `source:sailpoint @risk_severity:critical`. The scenario buttons only prove AgentForge can reach Datadog.
 
 ## Scripts
 

@@ -44,6 +44,14 @@ type SafState = {
       filter: string;
     } | null;
   } | null;
+  datadogWorkflow: {
+    workflowName: string;
+    workflowId: string;
+    trigger: { name: string; id: string };
+    webhookUrl: string;
+    enabled: boolean;
+    testExecutionId: string | null;
+  } | null;
   events: Array<{
     id: string;
     source: string;
@@ -499,13 +507,50 @@ export function SafPocPanel({
           <Endpoint label="Webhook" value={state?.webhookUrl ?? ""} />
         </div>
         <p className="mt-2 text-xs text-zinc-500">
-          Intake mode is {state?.mode === "datadog" ? "Datadog" : "dry-run"}. Point the
-          SailPoint fire-and-forget webhook at this URL and send header{" "}
-          <span className="font-mono">x-saf-webhook-token</span>. After a live event, confirm
-          Datadog Live Tail with <span className="font-mono">source:sailpoint</span>. The
-          critical query is{" "}
+          Intake mode is {state?.mode === "datadog" ? "Datadog" : "dry-run"}. The setup
+          button creates the SailPoint workflow through{" "}
+          <span className="font-mono">/workflows/v1</span> and{" "}
+          <span className="font-mono">/workflow-library/v1/triggers</span>, then runs its
+          test so SailPoint posts to this webhook. The scenario buttons below only prove
+          AgentForge can reach Datadog. Confirm Live Tail with{" "}
+          <span className="font-mono">source:sailpoint</span>. The critical query is{" "}
           <span className="font-mono">source:sailpoint @risk_severity:critical</span>.
         </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() =>
+              void run("datadog-setup", async () => {
+                await post("/api/saf-poc/setup-test2", { sendTest: true });
+                setMessage(
+                  "Datadog workflow saved and SailPoint was asked to post the webhook. Confirm a datadog/delivered row whose scenario is empty.",
+                );
+              })
+            }
+            className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+          >
+            {busy === "datadog-setup"
+              ? "Preparing…"
+              : "Create or repair Datadog workflow + send test"}
+          </button>
+        </div>
+        {state?.datadogWorkflow ? (
+          <div className="mt-3 space-y-1 text-xs text-zinc-600 dark:text-zinc-300">
+            <p>
+              Workflow: <strong>{state.datadogWorkflow.workflowName}</strong> ·{" "}
+              {state.datadogWorkflow.enabled ? "enabled" : "disabled"}
+            </p>
+            <p>
+              Trigger: {state.datadogWorkflow.trigger.name} (
+              {state.datadogWorkflow.trigger.id})
+            </p>
+            <p>Webhook: {state.datadogWorkflow.webhookUrl}</p>
+            {state.datadogWorkflow.testExecutionId ? (
+              <p>SailPoint workflow test: {state.datadogWorkflow.testExecutionId}</p>
+            ) : null}
+          </div>
+        ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
           {(
             [

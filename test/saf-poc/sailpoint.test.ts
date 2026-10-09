@@ -4,8 +4,10 @@ import { describe, it } from "node:test";
 
 import { NOTIFICATION_SUBJECT } from "@/lib/saf-poc/events";
 import {
+  POC_DATADOG_WORKFLOW_NAME,
   POC_WORKFLOW_NAME,
   setupTest1,
+  setupTest2,
   type SailPointSetupConfig,
 } from "@/lib/saf-poc/sailpoint";
 
@@ -118,5 +120,99 @@ describe("SailPoint Test 1 setup", () => {
       return Response.json([]);
     };
     await assert.rejects(() => setupTest1(config(), { fetchImpl }), /Other Trigger/);
+  });
+});
+
+describe("SailPoint Test 2 setup", () => {
+  it("creates an external-trigger workflow that posts the Datadog webhook", async () => {
+    const calls: Array<{ url: string; method: string; body: string }> = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      calls.push({
+        url: String(url),
+        method: init?.method ?? "GET",
+        body: typeof init?.body === "string" ? init.body : "",
+      });
+      if (String(url).endsWith("/oauth/token")) {
+        return Response.json({ access_token: accessToken() });
+      }
+      if (String(url).includes("/workflow-library/v1/triggers")) {
+        return Response.json([
+          {
+            id: "idn:external-trigger",
+            name: "External Trigger",
+            type: "EXTERNAL",
+          },
+        ]);
+      }
+      if (String(url).includes("/workflows/v1?") && init?.method === "GET") {
+        return Response.json([]);
+      }
+      if (String(url).endsWith("/workflows/v1") && init?.method === "POST") {
+        return Response.json({
+          id: "wf-datadog",
+          name: POC_DATADOG_WORKFLOW_NAME,
+          enabled: false,
+        });
+      }
+      if (String(url).endsWith("/workflows/v1/wf-datadog/test")) {
+        return Response.json({ workflowExecutionId: "exec-2" });
+      }
+      if (String(url).endsWith("/workflows/v1/wf-datadog") && init?.method === "PATCH") {
+        return Response.json({ id: "wf-datadog", enabled: true });
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const result = await setupTest2(config(), {
+      fetchImpl,
+      webhookUrl: "https://agentforge.example/webhooks/saf",
+      webhookToken: "webhook-secret",
+      sendTest: true,
+    });
+    const createCall = calls.find(
+      (call) => call.method === "POST" && call.url.endsWith("/workflows/v1"),
+    );
+    const created = JSON.parse(createCall?.body ?? "{}") as {
+      name: string;
+      definition: {
+        steps: {
+          "Post Datadog Webhook": {
+            actionId: string;
+            attributes: {
+              method: string;
+              url: string;
+              requestHeaders: Record<string, string>;
+              jsonRequestBody: { eventType: string };
+            };
+          };
+        };
+      };
+      trigger: { type: string; attributes: { id: string } };
+    };
+
+    assert.equal(result.workflowId, "wf-datadog");
+    assert.equal(result.testExecutionId, "exec-2");
+    assert.equal(created.name, POC_DATADOG_WORKFLOW_NAME);
+    assert.equal(created.trigger.type, "EXTERNAL");
+    assert.equal(created.trigger.attributes.id, "idn:external-trigger");
+    assert.equal(created.definition.steps["Post Datadog Webhook"].actionId, "sp:http");
+    assert.equal(
+      created.definition.steps["Post Datadog Webhook"].attributes.url,
+      "https://agentforge.example/webhooks/saf",
+    );
+    assert.equal(
+      created.definition.steps["Post Datadog Webhook"].attributes.requestHeaders[
+        "x-saf-webhook-token"
+      ],
+      "webhook-secret",
+    );
+    assert.equal(
+      created.definition.steps["Post Datadog Webhook"].attributes.jsonRequestBody.eventType,
+      "RiskStateChanged",
+    );
+    assert.equal(
+      calls.some((call) => call.url.includes("/workflows/v1/wf-datadog/test")),
+      true,
+    );
   });
 });

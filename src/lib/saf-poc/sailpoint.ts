@@ -2,6 +2,7 @@ import type { SafPocConfig } from "@/lib/saf-poc/config";
 import { NOTIFICATION_SUBJECT } from "@/lib/saf-poc/events";
 
 export const POC_WORKFLOW_NAME = "POC SAF Event Bus Email";
+export const POC_DATADOG_WORKFLOW_NAME = "POC SAF Datadog Intake";
 export const WORKFLOWS_PATH = "/workflows/v1";
 export const WORKFLOW_TRIGGERS_PATH = "/workflow-library/v1/triggers";
 export const TRIGGER_SUBSCRIPTIONS_PATH = "/trigger-subscriptions/v1";
@@ -24,6 +25,18 @@ export type WorkflowTrigger = {
   id: string;
   name: string;
   type: "EVENT" | "SCHEDULED" | "EXTERNAL";
+};
+
+export type DatadogWorkflowSetup = {
+  tenant: string;
+  origin: string;
+  trigger: WorkflowTrigger;
+  workflowId: string;
+  workflowName: string;
+  enabled: boolean;
+  webhookUrl: string;
+  created: boolean;
+  testExecutionId: string | null;
 };
 
 export type WorkflowSetup = {
@@ -329,9 +342,9 @@ export function createSailPointClient(
         return parsed ? [parsed] : [];
       });
     },
-    async findWorkflow(): Promise<WorkflowRecord | null> {
+    async findWorkflow(name = POC_WORKFLOW_NAME): Promise<WorkflowRecord | null> {
       const workflows = await listAll<WorkflowRecord>(WORKFLOWS_PATH);
-      return workflows.find((workflow) => workflow.name === POC_WORKFLOW_NAME) ?? null;
+      return workflows.find((workflow) => workflow.name === name) ?? null;
     },
     async findWorkflowSubscription(
       workflowId: string,
@@ -468,5 +481,188 @@ export async function setupTest1(
           filter: subscriptionRecord.filter ?? "",
         }
       : null,
+  };
+}
+
+export function buildDatadogWebhookPayload(): Record<string, unknown> {
+  return {
+    eventType: "RiskStateChanged",
+    risk: {
+      id: "databricks-policy-risk",
+      severity: "critical",
+      status: "open",
+      previousStatus: "low",
+      title: "Policy Concierge risk changed",
+    },
+    identity: {
+      id: "sp-agent-policy",
+      name: "sp-agent-policy",
+      type: "service-principal",
+    },
+    agent: {
+      id: "ka-9ba32b9f-endpoint",
+      name: "Policy-Concierge",
+    },
+  };
+}
+
+export function selectExternalTrigger(
+  triggers: WorkflowTrigger[],
+): WorkflowTrigger | null {
+  return (
+    triggers.find((trigger) => trigger.type === "EXTERNAL") ??
+    triggers.find((trigger) => trigger.name.toLowerCase().includes("external")) ??
+    null
+  );
+}
+
+export function buildDatadogWorkflowBody(input: {
+  ownerId: string;
+  ownerName: string;
+  trigger: WorkflowTrigger;
+  webhookUrl: string;
+  webhookToken: string;
+}): Record<string, unknown> {
+  const owner: Record<string, string> = { type: "IDENTITY", id: input.ownerId };
+  if (input.ownerName) {
+    owner.name = input.ownerName;
+  }
+  const requestHeaders: Record<string, string> = {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+  if (input.webhookToken) {
+    requestHeaders["x-saf-webhook-token"] = input.webhookToken;
+  }
+  return {
+    name: POC_DATADOG_WORKFLOW_NAME,
+    owner,
+    description: "Posts a SAF risk event to the AgentForge Datadog webhook.",
+    enabled: false,
+    definition: {
+      start: "Post Datadog Webhook",
+      steps: {
+        "Post Datadog Webhook": {
+          actionId: "sp:http",
+          versionNumber: 2,
+          attributes: {
+            method: "post",
+            url: input.webhookUrl,
+            requestContentType: "json",
+            requestHeaders,
+            jsonRequestBody: buildDatadogWebhookPayload(),
+          },
+          nextStep: "success",
+          type: "action",
+        },
+        success: { type: "success" },
+      },
+    },
+    trigger: {
+      type: input.trigger.type,
+      attributes: {
+        id: input.trigger.id,
+      },
+    },
+  };
+}
+
+export async function setupTest2(
+  config: SailPointSetupConfig,
+  options: {
+    webhookUrl: string;
+    webhookToken: string;
+    fetchImpl?: FetchLike;
+    sendTest?: boolean;
+  },
+): Promise<DatadogWorkflowSetup> {
+  if (!config.tenant) {
+    throw new Error("Set SAF_TENANT or save the ISC tenant connection first.");
+  }
+  const webhookUrl = options.webhookUrl.trim();
+  if (!webhookUrl.startsWith("https://")) {
+    throw new Error(
+      "SailPoint can call the Datadog webhook only at the public HTTPS AgentForge URL.",
+    );
+  }
+
+  const client = createSailPointClient(config, options.fetchImpl);
+  const token = await client.authorize();
+  const tokenIdentity = identityFromAccessToken(token);
+  const ownerId = config.ownerId || tokenIdentity.id;
+  const ownerName = config.ownerName || tokenIdentity.name;
+  if (!ownerId) {
+    throw new Error(
+      "Set SAF_OWNER_ID to the admin identity that will own the workflow.",
+    );
+  }
+
+  const trigger = selectExternalTrigger(await client.listTriggers());
+  if (!trigger) {
+    throw new Error(
+      "No external workflow trigger is available, so the Datadog workflow cannot be tested.",
+    );
+  }
+
+  const body = buildDatadogWorkflowBody({
+    ownerId,
+    ownerName,
+    trigger,
+    webhookUrl,
+    webhookToken: options.webhookToken,
+  });
+  const existing = await client.findWorkflow(POC_DATADOG_WORKFLOW_NAME);
+  let workflowId = existing?.id ?? "";
+  const created = !workflowId;
+
+  if (existing?.id && existing.enabled) {
+    await client.request(
+      "PATCH",
+      `${WORKFLOWS_PATH}/${existing.id}`,
+      [{ op: "replace", path: "/enabled", value: false }],
+      "application/json-patch+json",
+    );
+  }
+  if (workflowId) {
+    await client.request("PUT", `${WORKFLOWS_PATH}/${workflowId}`, body);
+  } else {
+    const createdWorkflow = (await client.request(
+      "POST",
+      WORKFLOWS_PATH,
+      body,
+    )) as WorkflowRecord;
+    workflowId = createdWorkflow.id ?? "";
+  }
+  if (!workflowId) {
+    throw new Error("SailPoint did not return a workflow id.");
+  }
+
+  let testExecutionId: string | null = null;
+  if (options.sendTest) {
+    const execution = (await client.request(
+      "POST",
+      `${WORKFLOWS_PATH}/${workflowId}/test`,
+      { input: {} },
+    )) as { workflowExecutionId?: string } | null;
+    testExecutionId = execution?.workflowExecutionId ?? null;
+  }
+
+  await client.request(
+    "PATCH",
+    `${WORKFLOWS_PATH}/${workflowId}`,
+    [{ op: "replace", path: "/enabled", value: true }],
+    "application/json-patch+json",
+  );
+
+  return {
+    tenant: config.tenant,
+    origin: client.origin,
+    trigger,
+    workflowId,
+    workflowName: POC_DATADOG_WORKFLOW_NAME,
+    enabled: true,
+    webhookUrl,
+    created,
+    testExecutionId,
   };
 }

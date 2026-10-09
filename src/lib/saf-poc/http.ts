@@ -10,9 +10,10 @@ import {
   readTransmitterSummary,
   type SsfResult,
 } from "@/lib/saf-poc/transmitter";
-import type { WorkflowSetup } from "@/lib/saf-poc/sailpoint";
+import type { DatadogWorkflowSetup, WorkflowSetup } from "@/lib/saf-poc/sailpoint";
 
 const WORKFLOW_KEY = "WORKFLOW#setup";
+const DATADOG_WORKFLOW_KEY = "WORKFLOW#datadog";
 
 export function safJson(body: unknown, status = 200): NextResponse {
   return NextResponse.json(body, {
@@ -71,11 +72,18 @@ export async function saveWorkflowSetup(setup: WorkflowSetup): Promise<void> {
   await getSafPocStore().put(WORKFLOW_KEY, setup);
 }
 
+export async function saveDatadogWorkflowSetup(
+  setup: DatadogWorkflowSetup,
+): Promise<void> {
+  await getSafPocStore().put(DATADOG_WORKFLOW_KEY, setup);
+}
+
 export async function safPocResponse(baseUrl: string) {
-  const [state, transmitter, workflow] = await Promise.all([
+  const [state, transmitter, workflow, datadogWorkflow] = await Promise.all([
     buildSafPocState(baseUrl),
     readTransmitterSummary(baseUrl),
     getSafPocStore().get<WorkflowSetup>(WORKFLOW_KEY),
+    getSafPocStore().get<DatadogWorkflowSetup>(DATADOG_WORKFLOW_KEY),
   ]);
-  return { ...state, transmitter, workflow };
+  return { ...state, transmitter, workflow, datadogWorkflow };
 }
