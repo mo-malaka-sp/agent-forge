@@ -198,8 +198,7 @@ export function SafPocPanel({
         </div>
         {state && !state.transmitter.https ? (
           <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
-            This origin is not HTTPS. SailPoint can register the receiver only after
-            AgentForge is deployed, or while AGENTFORGE_BASE_URL is the public HTTPS URL.
+            Not HTTPS. SailPoint can only reach the deployed AgentForge URL.
           </p>
         ) : null}
       </section>
@@ -217,20 +216,9 @@ export function SafPocPanel({
 
       <section className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
         <div>
-          <h2 className="text-base font-semibold">Test 1 — Prove the CAEP event bus</h2>
+          <h2 className="text-base font-semibold">Test 1 — CAEP event bus</h2>
           <p className="mt-1 text-xs text-zinc-500">
-            Goal: AgentForge sends a real signed CAEP risk-level-change SET, SailPoint
-            receiver Test1POC correlates it, and the enabled workflow sends the verification
-            email. This test does not change the agent’s SAF Risk Severity card.
-          </p>
-          <p className="mt-1 text-[11px] text-zinc-500">
-            API contract: current SHF per-service endpoints{" "}
-            <span className="font-mono">/workflows/v1</span>,{" "}
-            <span className="font-mono">/workflow-library/v1/triggers</span>,{" "}
-            <span className="font-mono">/trigger-subscriptions/v1</span>, and{" "}
-            <span className="font-mono">/machine-identities/v1</span>. Management calls
-            do not use deprecated yearly or <span className="font-mono">/v3</span>{" "}
-            fallbacks.
+            Signed CAEP risk event → Test1POC receiver → workflow email.
           </p>
         </div>
 
@@ -241,8 +229,7 @@ export function SafPocPanel({
             status={state?.transmitter.streamRegistered ? "Ready" : "Setup needed"}
             passed={Boolean(state?.transmitter.streamRegistered)}
           >
-            SailPoint registers a push stream against AgentForge’s current SHF transmitter.
-            The setup token is needed only while creating or repairing that receiver.
+            Register the receiver in SailPoint with the setup token.
           </StoryStep>
           <StoryStep
             number="2"
@@ -250,9 +237,7 @@ export function SafPocPanel({
             status={state?.workflow?.enabled ? "Ready" : "Setup needed"}
             passed={Boolean(state?.workflow?.enabled)}
           >
-            The workflow subscribes to <span className="font-mono">CAEP Risk Level Change</span>{" "}
-            and sends the POC verification email. Its test execution checks only the email
-            action; it bypasses the event bus.
+            Emails on <span className="font-mono">CAEP Risk Level Change</span>.
           </StoryStep>
           <StoryStep
             number="3"
@@ -266,20 +251,19 @@ export function SafPocPanel({
             }
             passed={Boolean(scoreView?.accepted)}
           >
-            Send the real SET below, then verify a correlated row under Test1POC, workflow
-            subscription activity, and the email. Those three checks prove the full path.
+            Send the event, then check Test1POC and your inbox.
           </StoryStep>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-            <h3 className="text-sm font-medium">Receiver and workflow setup</h3>
+            <h3 className="text-sm font-medium">Setup</h3>
             <Endpoint
-              label="SHF discovery URL"
+              label="Discovery URL"
               value={state?.transmitter.discoveryUrl ?? ""}
             />
             <Endpoint
-              label="SHF configuration endpoint"
+              label="Stream endpoint"
               value={state?.transmitter.streamEndpoint ?? ""}
             />
             <div className="flex flex-wrap gap-2">
@@ -301,7 +285,7 @@ export function SafPocPanel({
                 }
                 className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
               >
-                Show Test1POC setup token
+                Show setup token
               </button>
               <button
                 type="button"
@@ -309,19 +293,17 @@ export function SafPocPanel({
                 onClick={() =>
                   void run("setup", async () => {
                     await post("/api/saf-poc/setup-test1", { sendTest: true });
-                    setMessage(
-                      "Workflow saved and a direct test email was requested. That test bypasses the CAEP event bus.",
-                    );
+                    setMessage("Workflow saved. Test email sent (bypasses the event bus).");
                   })
                 }
                 className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
               >
-                {busy === "setup" ? "Preparing…" : "Create or repair workflow + test email"}
+                {busy === "setup" ? "Preparing…" : "Set up workflow + test email"}
               </button>
             </div>
             {token ? (
               <div className="rounded-md bg-zinc-100 p-2 text-[11px] dark:bg-zinc-900">
-                <p className="font-medium">Use as Test1POC receiver bearer token</p>
+                <p className="font-medium">Receiver bearer token</p>
                 <p className="mt-1 break-all font-mono">{token}</p>
               </div>
             ) : null}
@@ -342,23 +324,17 @@ export function SafPocPanel({
                     : "not returned yet"}
                 </p>
                 {state.workflow.testExecutionId ? (
-                  <p>
-                    Direct workflow test: {state.workflow.testExecutionId} — email-action
-                    evidence only
-                  </p>
+                  <p>Test run: {state.workflow.testExecutionId}</p>
                 ) : null}
               </div>
             ) : null}
           </div>
 
           <div className="space-y-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-            <h3 className="text-sm font-medium">Send the real CAEP event</h3>
-            <p className="text-xs text-zinc-500">
-              The selected agent resolves a human owner email for CAEP subject correlation.
-              The signal level is test data and does not write the SAF score.
-            </p>
+            <h3 className="text-sm font-medium">Send CAEP event</h3>
+            <p className="text-xs text-zinc-500">Does not change the SAF risk score.</p>
             <label className="block text-xs">
-              Agent used to resolve the subject
+              Agent
               <select
                 value={agentId}
                 onChange={(event) => {
@@ -392,7 +368,7 @@ export function SafPocPanel({
             ) : null}
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-xs">
-                Signal level to send
+                Risk level
                 <select
                   value={riskLevel}
                   onChange={(event) => setRiskLevel(event.target.value)}
@@ -404,7 +380,7 @@ export function SafPocPanel({
                 </select>
               </label>
               <label className="block text-xs">
-                Correlated subject email
+                Subject email
                 <input
                   value={identityEmail}
                   onChange={(event) => setIdentityEmail(event.target.value)}
@@ -465,56 +441,42 @@ export function SafPocPanel({
               }
               className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
             >
-              {busy === "risk" ? "Signing and sending…" : "Send real CAEP event to Test1POC"}
+              {busy === "risk" ? "Sending…" : "Send CAEP event"}
             </button>
             {scoreView ? (
               <div className="space-y-1 rounded-md bg-zinc-50 p-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
                 <p>
-                  Sent CAEP level: <strong>{labelLevel(scoreView.sentLevel)}</strong>
+                  Sent: <strong>{labelLevel(scoreView.sentLevel)}</strong> ·{" "}
+                  {scoreView.accepted ? "accepted" : "not accepted"}
+                  {scoreView.deliveryStatus ? ` (HTTP ${scoreView.deliveryStatus})` : ""}
                 </p>
-                <p>
-                  Receiver delivery: {scoreView.accepted ? "accepted" : "not accepted"}
-                  {scoreView.deliveryStatus ? ` · HTTP ${scoreView.deliveryStatus}` : ""}
-                  {scoreView.eventId ? ` · event ID ${scoreView.eventId}` : ""}
-                </p>
-                <p>
-                  Separate SAF calculated severity: {scoreView.calculatedSeverity}. This
-                  value is displayed for context and was not changed by the CAEP event.
-                </p>
+                {scoreView.eventId ? <p>Event ID: {scoreView.eventId}</p> : null}
+                <p>SAF risk score: {scoreView.calculatedSeverity} (unchanged)</p>
               </div>
             ) : null}
           </div>
         </div>
 
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
-          <p className="font-medium">How to decide whether Test 1 passed</p>
+          <p className="font-medium">Passes when</p>
           <ol className="mt-1 list-decimal space-y-1 pl-4">
-            <li>AgentForge reports the signed SET was accepted by the receiver endpoint.</li>
-            <li>Test1POC shows a correlated row with the same subject and event ID.</li>
-            <li>The workflow subscription activity increases and the email arrives.</li>
+            <li>The receiver accepts the event.</li>
+            <li>Test1POC shows it as Correlated.</li>
+            <li>The workflow email arrives.</li>
           </ol>
-          <p className="mt-2">
-            Current tenant finding: receiver correlation has been observed, while workflow
-            subscription activity remained at zero. The direct workflow test is not a
-            substitute for steps 1–3; it only proves the email action.
-          </p>
+          <p className="mt-2">Open issue: step 3 has not fired yet.</p>
         </div>
       </section>
 
       <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">Test 2 — Datadog intake</h2>
+          <h2 className="text-base font-semibold">Test 2 — Datadog</h2>
           <Endpoint label="Webhook" value={state?.webhookUrl ?? ""} />
         </div>
         <p className="mt-2 text-xs text-zinc-500">
-          Intake mode is {state?.mode === "datadog" ? "Datadog" : "dry-run"}. The setup
-          button creates the SailPoint workflow through{" "}
-          <span className="font-mono">/workflows/v1</span> and{" "}
-          <span className="font-mono">/workflow-library/v1/triggers</span>, then runs its
-          test so SailPoint posts to this webhook. The scenario buttons below only prove
-          AgentForge can reach Datadog. Confirm Live Tail with{" "}
-          <span className="font-mono">source:sailpoint</span>. The critical query is{" "}
-          <span className="font-mono">source:sailpoint @risk_severity:critical</span>.
+          SailPoint workflow → this webhook → Datadog. Mode:{" "}
+          {state?.mode === "datadog" ? "Datadog" : "dry-run"}. Search Datadog for{" "}
+          <span className="font-mono">source:sailpoint</span>.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <button
@@ -523,16 +485,14 @@ export function SafPocPanel({
             onClick={() =>
               void run("datadog-setup", async () => {
                 await post("/api/saf-poc/setup-test2", { sendTest: true });
-                setMessage(
-                  "Datadog workflow saved and SailPoint was asked to post the webhook. Confirm a datadog/delivered row whose scenario is empty.",
-                );
+                setMessage("Workflow saved and run. Refresh to see the delivery.");
               })
             }
             className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
           >
             {busy === "datadog-setup"
               ? "Preparing…"
-              : "Create or repair Datadog workflow + send test"}
+              : "Set up workflow + send test"}
           </button>
         </div>
         {state?.datadogWorkflow ? (
@@ -545,9 +505,8 @@ export function SafPocPanel({
               Trigger: {state.datadogWorkflow.trigger.name} (
               {state.datadogWorkflow.trigger.id})
             </p>
-            <p>Webhook: {state.datadogWorkflow.webhookUrl}</p>
             {state.datadogWorkflow.testExecutionId ? (
-              <p>SailPoint workflow test: {state.datadogWorkflow.testExecutionId}</p>
+              <p>Test run: {state.datadogWorkflow.testExecutionId}</p>
             ) : null}
           </div>
         ) : null}

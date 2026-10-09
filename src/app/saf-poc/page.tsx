@@ -27,9 +27,8 @@ export default async function SafPocPage() {
           SailPoint Agentic Fabric event tests
         </h1>
         <p className="max-w-3xl text-sm text-zinc-600 dark:text-zinc-400">
-          Test 1 proves a real CAEP event can cross the SailPoint receiver and workflow
-          bus. Test 2 independently proves that an Agentic Fabric webhook reaches
-          Datadog. Each section names exactly what its buttons prove.
+          Test 1: CAEP event → SailPoint workflow email. Test 2: SailPoint workflow →
+          Datadog.
         </p>
       </section>
       <SafPocPanel
