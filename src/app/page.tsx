@@ -34,9 +34,10 @@ export default function HomePage() {
   const isc = getIscPublicStatus();
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-12">
-      <section className="space-y-3 text-center">
-        <div className="flex justify-center">
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-10">
+      <section className="forge-hero space-y-3">
+        <span className="forge-eyebrow">Agentic identity governance</span>
+        <div className="flex">
           <span
             className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
               isc.configured
@@ -54,12 +55,12 @@ export default function HomePage() {
               : "ISC not configured"}
           </span>
         </div>
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-          AgentForge
+        <h1 className="relative z-10 text-3xl font-semibold tracking-tight">
+          Build governed agent demonstrations
         </h1>
-        <p className="mx-auto max-w-lg text-sm text-zinc-600 dark:text-zinc-400">
-          Mock AI agents for SailPoint Identity Security Cloud demos. Pick where
-          to start.
+        <p className="relative z-10 max-w-2xl text-sm text-zinc-600">
+          Create, connect, govern, and test synthetic AI agents with SailPoint
+          Identity Security Cloud. Choose a workflow to begin.
         </p>
       </section>
 
@@ -70,25 +71,17 @@ export default function HomePage() {
           <Link
             key={path.href}
             href={path.href}
-            className={`group rounded-lg border p-5 transition hover:shadow-sm ${
-              path.primary
-                ? "border-indigo-200 bg-indigo-50/50 hover:border-indigo-300 dark:border-indigo-900 dark:bg-indigo-950/30 dark:hover:border-indigo-800"
-                : "border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700"
+            className={`forge-card group p-5 ${
+              path.primary ? "forge-card--primary" : ""
             }`}
           >
-            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+            <h2 className="text-base font-semibold">
               {path.title}
             </h2>
-            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            <p className="mt-1 text-sm text-zinc-600">
               {path.description}
             </p>
-            <p
-              className={`mt-3 text-sm font-medium ${
-                path.primary
-                  ? "text-indigo-700 group-hover:text-indigo-800 dark:text-indigo-300 dark:group-hover:text-indigo-200"
-                  : "text-zinc-700 group-hover:text-zinc-900 dark:text-zinc-300 dark:group-hover:text-zinc-100"
-              }`}
-            >
+            <p className="forge-link mt-3 text-sm font-semibold">
               {path.cta} →
             </p>
           </Link>
