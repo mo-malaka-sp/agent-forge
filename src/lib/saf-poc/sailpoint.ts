@@ -4,6 +4,7 @@ import { NOTIFICATION_SUBJECT } from "@/lib/saf-poc/events";
 export const POC_WORKFLOW_NAME = "POC SAF Event Bus Email";
 export const WORKFLOWS_PATH = "/workflows/v1";
 export const WORKFLOW_TRIGGERS_PATH = "/workflow-library/v1/triggers";
+export const TRIGGER_SUBSCRIPTIONS_PATH = "/trigger-subscriptions/v1";
 const RISK_LEVEL_CHANGE_TRIGGER_ID = "idn:caep-risk-level-change-events";
 const RISK_LEVEL_CHANGE_EVENT =
   "https://schemas.openid.net/secevent/caep/event-type/risk-level-change";
@@ -35,6 +36,12 @@ export type WorkflowSetup = {
   email: string;
   created: boolean;
   testExecutionId: string | null;
+  subscription: {
+    id: string;
+    enabled: boolean;
+    triggerId: string;
+    filter: string;
+  } | null;
 };
 
 type LibraryTrigger = {
@@ -49,6 +56,14 @@ type WorkflowRecord = {
   id?: string;
   name?: string;
   enabled?: boolean;
+};
+
+type TriggerSubscriptionRecord = {
+  id?: string;
+  enabled?: boolean;
+  triggerId?: string;
+  filter?: string;
+  workflowConfig?: { workflowId?: string };
 };
 
 type FetchLike = typeof fetch;
@@ -318,6 +333,28 @@ export function createSailPointClient(
       const workflows = await listAll<WorkflowRecord>(WORKFLOWS_PATH);
       return workflows.find((workflow) => workflow.name === POC_WORKFLOW_NAME) ?? null;
     },
+    async findWorkflowSubscription(
+      workflowId: string,
+    ): Promise<TriggerSubscriptionRecord | null> {
+      try {
+        const subscriptions = await listAll<TriggerSubscriptionRecord>(
+          TRIGGER_SUBSCRIPTIONS_PATH,
+        );
+        return (
+          subscriptions.find(
+            (subscription) => subscription.workflowConfig?.workflowId === workflowId,
+          ) ?? null
+        );
+      } catch (error) {
+        if (
+          error instanceof SailPointApiError &&
+          (error.status === 403 || error.status === 404)
+        ) {
+          return null;
+        }
+        throw error;
+      }
+    },
     async listRecords(
       requestPath: string,
       extraHeaders?: Record<string, string>,
@@ -411,6 +448,7 @@ export async function setupTest1(
     [{ op: "replace", path: "/enabled", value: true }],
     "application/json-patch+json",
   );
+  const subscriptionRecord = await client.findWorkflowSubscription(workflowId);
 
   return {
     tenant: config.tenant,
@@ -422,5 +460,13 @@ export async function setupTest1(
     email: config.notifyEmail,
     created,
     testExecutionId,
+    subscription: subscriptionRecord?.id
+      ? {
+          id: subscriptionRecord.id,
+          enabled: Boolean(subscriptionRecord.enabled),
+          triggerId: subscriptionRecord.triggerId ?? "",
+          filter: subscriptionRecord.filter ?? "",
+        }
+      : null,
   };
 }

@@ -1,7 +1,6 @@
 import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import { buildAgentRiskEvent, ingestSafEvent } from "@/lib/saf-poc/events";
 import { publishRiskLevelChange, type DeliveryReport } from "@/lib/saf-poc/transmitter";
-import { applyCalibratedRiskProfile } from "@/lib/saf-poc/risk-calibration";
 import {
   emailAddress,
   listTenantAgents,
@@ -41,7 +40,7 @@ export async function changeAgentRisk(input: {
     throw new Error("Select an agent from the tenant.");
   }
 
-  const requestedLevel = normalizeLevel(input.riskLevel);
+  const currentLevel = normalizeLevel(input.riskLevel);
   const previousLevel = normalizeLevel(input.previousLevel || "low");
   const config = loadSafPocConfig();
   const agents = await listTenantAgents(config);
@@ -56,8 +55,6 @@ export async function changeAgentRisk(input: {
     const owner = agent?.ownerName ? `Owner ${agent.ownerName}` : "The agent owner";
     throw new Error(`${owner} has no email address SailPoint can correlate.`);
   }
-  const applied = await applyCalibratedRiskProfile(agentId, requestedLevel, config);
-  const currentLevel = normalizeLevel(applied.observed.severity);
   const caep =
     input.transmit === false
       ? null
@@ -85,17 +82,17 @@ export async function changeAgentRisk(input: {
         });
 
   const snapshot = await readAgentRiskSnapshot(agentId, config);
-  const riskUpdate = `SailPoint calculated ${applied.observed.severity} (score ${applied.observed.score ?? "unavailable"}); CAEP sent the same level.`;
+  const riskUpdate = `CAEP sent ${currentLevel}. SailPoint's separate calculated Risk Severity is ${snapshot.calculatedSeverity}.`;
 
   return {
     agentId,
     agentName,
     previousLevel,
     currentLevel,
-    requestedLevel,
+    requestedLevel: currentLevel,
     identityEmail,
     riskUpdate,
-    calculatedSeverity: applied.observed.severity,
+    calculatedSeverity: snapshot.calculatedSeverity,
     findings: snapshot.findings,
     findingsNote: snapshot.findingsNote,
     caep,

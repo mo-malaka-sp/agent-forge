@@ -17,10 +17,7 @@ export type TenantAgent = {
   subtype: string;
 };
 
-const MACHINE_IDENTITY_PATHS = [
-  "/machine-identities/v1",
-  "/v2026/machine-identities",
-] as const;
+const MACHINE_IDENTITY_PATHS = ["/machine-identities/v1"] as const;
 const EXPERIMENTAL_HEADER = { "X-SailPoint-Experimental": "true" };
 
 type FetchLike = typeof fetch;
@@ -70,22 +67,6 @@ export type AgentRiskSnapshot = {
   findingsNote: string;
 };
 
-export type AgentRiskInputs = {
-  agentId: string;
-  name: string;
-  modified: string;
-  score: number | null;
-  severity: string;
-  owners: Record<string, unknown>;
-  userEntitlements: unknown[];
-  businessApplicationRefs: unknown[];
-  effectiveSanctionedStatus: string;
-  sourceId: string;
-  resourceId: string;
-  datasetId: string;
-  ownershipCorrelationConfigs: unknown[];
-};
-
 export function parseAgentFindings(records: unknown[]): AgentFinding[] {
   return records.flatMap((record) => {
     const finding = parseAgentFinding(record);
@@ -129,115 +110,6 @@ export async function readAgentRiskSnapshot(
   };
 }
 
-export async function readAgentRiskInputs(
-  agentId: string,
-  config: SailPointSetupConfig = loadSafPocConfig(),
-  fetchImpl?: FetchLike,
-): Promise<AgentRiskInputs> {
-  const client = createSailPointClient(config, fetchImpl);
-  const encoded = encodeURIComponent(agentId);
-  const identity = asRecord(
-    await client.request(
-      "GET",
-      `/machine-identities/v2/${encoded}`,
-      undefined,
-      "application/json",
-      EXPERIMENTAL_HEADER,
-    ),
-  );
-  if (!identity) {
-    throw new Error(`Machine identity ${agentId} did not return a v2 record.`);
-  }
-  const risk = asRecord(identity.risk);
-  const source = asRecord(identity.source);
-  const resource = asRecord(identity.resource);
-  const sourceId = text(identity.sourceId) || text(source?.id);
-  const resourceId = text(resource?.id);
-  let ownershipCorrelationConfigs: unknown[] = [];
-  if (sourceId && resourceId) {
-    try {
-      const configs = await client.request(
-        "GET",
-        `/sources/v1/${encodeURIComponent(sourceId)}/resources/${encodeURIComponent(resourceId)}/correlation-configs?type=OWNER_PRIMARY`,
-        undefined,
-        "application/json",
-        EXPERIMENTAL_HEADER,
-      );
-      ownershipCorrelationConfigs = unwrapList(configs);
-    } catch (error) {
-      if (!(error instanceof SailPointApiError) || ![403, 404].includes(error.status)) {
-        throw error;
-      }
-    }
-  }
-  return {
-    agentId,
-    name: text(identity.name) || text(identity.displayName) || agentId,
-    modified: text(identity.modified),
-    score: typeof risk?.score === "number" ? risk.score : null,
-    severity: knownRiskLevel(text(risk?.severity)) || "Unavailable",
-    owners: asRecord(identity.owners) ?? {},
-    userEntitlements: Array.isArray(identity.userEntitlements)
-      ? identity.userEntitlements
-      : [],
-    businessApplicationRefs: Array.isArray(identity.businessApplicationRefs)
-      ? identity.businessApplicationRefs
-      : [],
-    effectiveSanctionedStatus: text(identity.effectiveSanctionedStatus),
-    sourceId,
-    resourceId,
-    datasetId: text(identity.datasetId),
-    ownershipCorrelationConfigs,
-  };
-}
-
-export async function patchAgentRiskInputs(
-  agentId: string,
-  changes: {
-    owners?: Record<string, unknown>;
-    userEntitlements?: unknown[];
-    businessApplicationRefs?: unknown[];
-  },
-  config: SailPointSetupConfig = loadSafPocConfig(),
-  fetchImpl?: FetchLike,
-): Promise<void> {
-  const patch = Object.entries(changes).map(([path, value]) => ({
-    op: "replace",
-    path: `/${path}`,
-    value,
-  }));
-  if (patch.length === 0) {
-    return;
-  }
-  const client = createSailPointClient(config, fetchImpl);
-  await client.request(
-    "PATCH",
-    `/machine-identities/v2/${encodeURIComponent(agentId)}`,
-    patch,
-    "application/json-patch+json",
-    EXPERIMENTAL_HEADER,
-  );
-}
-
-export async function aggregateAgentRiskInputs(
-  sourceId: string,
-  datasetId: string,
-  config: SailPointSetupConfig = loadSafPocConfig(),
-  fetchImpl?: FetchLike,
-): Promise<void> {
-  if (!sourceId || !datasetId) {
-    throw new Error("The machine identity did not return a source and dataset ID.");
-  }
-  const client = createSailPointClient(config, fetchImpl);
-  await client.request(
-    "POST",
-    `/sources/v1/${encodeURIComponent(sourceId)}/datasets/${encodeURIComponent(datasetId)}/aggregate`,
-    undefined,
-    "application/json",
-    EXPERIMENTAL_HEADER,
-  );
-}
-
 async function readMachineIdentity(
   client: ReturnType<typeof createSailPointClient>,
   agentId: string,
@@ -245,7 +117,6 @@ async function readMachineIdentity(
   const encoded = encodeURIComponent(agentId);
   for (const requestPath of [
     `/machine-identities/v1/${encoded}`,
-    `/v2026/machine-identities/${encoded}`,
   ]) {
     try {
       return await client.request(
@@ -282,7 +153,6 @@ export async function resolveAgentOwnerEmail(
   const paths = agent.ownerId
     ? [
         `/identities/v1/${encodeURIComponent(agent.ownerId)}`,
-        `/v3/identities/${encodeURIComponent(agent.ownerId)}`,
       ]
     : [];
   for (const requestPath of paths) {
@@ -299,8 +169,8 @@ export async function resolveAgentOwnerEmail(
   }
   const filter = encodeURIComponent(`alias eq "${ownerName}" or name eq "${ownerName}"`);
   for (const requestPath of [
-    `/v3/public-identities?filters=${filter}`,
-    `/v3/identities?filters=${filter}`,
+    `/public-identities/v1?filters=${filter}`,
+    `/identities/v1?filters=${filter}`,
   ]) {
     const email = await readIdentityEmail(() => client.listRecords(requestPath));
     if (email) {
@@ -308,7 +178,7 @@ export async function resolveAgentOwnerEmail(
     }
   }
   return readIdentityEmail(() =>
-    client.request("POST", "/v3/search", {
+    client.request("POST", "/search/v1", {
       indices: ["identities"],
       query: { query: `alias:${ownerName} OR name:"${ownerName}"` },
       sort: ["name"],

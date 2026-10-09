@@ -37,6 +37,12 @@ type SafState = {
     email: string;
     enabled: boolean;
     testExecutionId: string | null;
+    subscription?: {
+      id: string;
+      enabled: boolean;
+      triggerId: string;
+      filter: string;
+    } | null;
   } | null;
   events: Array<{
     id: string;
@@ -54,31 +60,9 @@ type ScoreView = {
   calculatedSeverity: string;
   findings: AgentFinding[];
   findingsNote: string;
-};
-
-type RiskInputs = {
-  name: string;
-  modified: string;
-  score: number | null;
-  severity: string;
-  owners: Record<string, unknown>;
-  userEntitlements: unknown[];
-  businessApplicationRefs: unknown[];
-  effectiveSanctionedStatus: string;
-  sourceId: string;
-  resourceId: string;
-  datasetId: string;
-  ownershipCorrelationConfigs: unknown[];
-};
-
-type RiskCalibration = {
-  baselineScore: number | null;
-  baselineSeverity: string;
-  profiles: Record<
-    string,
-    { candidate: string; score: number | null; severity: string; observedAt: string }
-  >;
-  attemptedCandidates: string[];
+  accepted: boolean;
+  eventId: string;
+  deliveryStatus: number | null;
 };
 
 type AgentOption = {
@@ -118,8 +102,6 @@ export function SafPocPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [scoreView, setScoreView] = useState<ScoreView | null>(null);
-  const [riskInputs, setRiskInputs] = useState<RiskInputs | null>(null);
-  const [calibration, setCalibration] = useState<RiskCalibration | null>(null);
   const [error, setError] = useState<string | null>(initialError);
 
   const load = useCallback(async () => {
@@ -177,34 +159,6 @@ export function SafPocPanel({
     return payload;
   }
 
-  async function calibrationRequest(body?: unknown) {
-    const url = body
-      ? "/api/saf-poc/calibration"
-      : `/api/saf-poc/calibration?agentId=${encodeURIComponent(agentId)}`;
-    const response = await fetch(url, body
-      ? {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }
-      : { cache: "no-store" });
-    const payload = (await response.json()) as {
-      error?: string;
-      inputs?: RiskInputs;
-      calibration?: RiskCalibration;
-    };
-    if (!response.ok) {
-      throw new Error(payload.error ?? `Calibration request failed (${response.status}).`);
-    }
-    if (payload.inputs) {
-      setRiskInputs(payload.inputs);
-    }
-    if (payload.calibration) {
-      setCalibration(payload.calibration);
-    }
-    return payload;
-  }
-
   return (
     <div className="space-y-4">
       <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -242,296 +196,300 @@ export function SafPocPanel({
         ) : null}
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <article className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <h2 className="text-sm font-semibold">Test 1 — CAEP email</h2>
-          <p className="text-xs text-zinc-500">
-            Workflows listen for a CAEP risk-level change. That is separate from the
-            Agentic Fabric fire-and-forget webhook used for Datadog.
-          </p>
-          <Endpoint label="Discovery" value={state?.transmitter.discoveryUrl ?? ""} />
-          <Endpoint label="Stream" value={state?.transmitter.streamEndpoint ?? ""} />
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={() =>
-                void run("token", async () => {
-                  const response = await fetch("/api/saf-poc/token");
-                  const body = (await response.json()) as { token?: string; error?: string };
-                  if (!response.ok) {
-                    throw new Error(body.error ?? "Could not read the API token.");
-                  }
-                  setToken(body.token ?? "");
-                })
-              }
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
-            >
-              Reveal receiver token
-            </button>
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={() =>
-                void run("setup", async () => {
-                  await post("/api/saf-poc/setup-test1", { sendTest: true });
-                  setMessage("Verification workflow saved and a test execution was sent.");
-                })
-              }
-              className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white"
-            >
-              {busy === "setup" ? "Setting up…" : "Create email workflow"}
-            </button>
-          </div>
-          {token ? (
-            <p className="break-all rounded-md bg-zinc-100 p-2 font-mono text-[11px] dark:bg-zinc-900">
-              {token}
-            </p>
-          ) : null}
-          {state?.workflow ? (
-            <p className="text-xs text-emerald-700 dark:text-emerald-300">
-              {state.workflow.workflowName} is {state.workflow.enabled ? "enabled" : "disabled"} on{" "}
-              {state.workflow.trigger.name}.
-              {state.workflow.testExecutionId
-                ? ` Test execution ${state.workflow.testExecutionId}.`
-                : ""}
-            </p>
-          ) : null}
-        </article>
+      {message ? (
+        <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+          {message}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+          {error}
+        </p>
+      ) : null}
 
-        <article className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-          <h2 className="text-sm font-semibold">Emit a CAEP risk-level signal</h2>
-          <p className="text-xs text-zinc-500">
-            The event subject is the selected agent’s owner. The workflow email still goes
-            to the address saved on the workflow. Agentic Fabric calculates the agent’s
-            Risk Severity from aggregated findings; this signal does not write that score.
+      <section className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+        <div>
+          <h2 className="text-base font-semibold">Test 1 — Prove the CAEP event bus</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Goal: AgentForge sends a real signed CAEP risk-level-change SET, SailPoint
+            receiver Test1POC correlates it, and the enabled workflow sends the verification
+            email. This test does not change the agent’s SAF Risk Severity card.
           </p>
-          <label className="block text-xs">
-            Tenant agent
-            <select
-              value={agentId}
-              onChange={(event) => {
-                const nextId = event.target.value;
-                setAgentId(nextId);
-                setRiskInputs(null);
-                setCalibration(null);
-                setScoreView(null);
-                const ownerEmail = usableEmail(
-                  agentOptions.find((agent) => agent.id === nextId)?.ownerEmail,
-                );
-                if (ownerEmail) {
-                  setIdentityEmail(ownerEmail);
-                }
-              }}
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-            >
-              {agentOptions.length === 0 ? (
-                <option value="">No tenant agents</option>
-              ) : (
-                agentOptions.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name}
-                    {agent.ownerName ? ` · owner ${agent.ownerName}` : ""}
-                    {agent.source ? ` · ${agent.source}` : ""} ({agent.riskLevel || "no risk"})
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
-          {agentsError ? <p className="text-xs text-red-700 dark:text-red-300">{agentsError}</p> : null}
-          <label className="block text-xs">
-            CAEP current level
-            <select
-              value={riskLevel}
-              onChange={(event) => setRiskLevel(event.target.value)}
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-            >
-              {RISK_LEVELS.map((level) => (
-                <option
-                  key={level}
-                  disabled={!calibration?.profiles[level.toLowerCase()]}
-                >
-                  {level}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-xs">
-            Subject email (defaults to the owner)
-            <input
-              value={identityEmail}
-              onChange={(event) => setIdentityEmail(event.target.value)}
-              placeholder="admin@example.com"
-              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-            />
-          </label>
-          <button
-            type="button"
-            disabled={
-              busy !== null ||
-              !agentId ||
-              !calibration?.profiles[riskLevel.toLowerCase()]
-            }
-            onClick={() =>
-              void run("risk", async () => {
-                const selected = agentOptions.find((agent) => agent.id === agentId);
-                const payload = await post("/api/saf-poc/risk", {
-                  agentId,
-                  agentName: selected?.name,
-                  riskLevel,
-                  previousLevel: selected?.riskLevel || "Low",
-                  identityEmail,
-                });
-                const result = (
-                  payload as {
-                    result?: {
-                      currentLevel?: string;
-                      calculatedSeverity?: string;
-                      findings?: AgentFinding[];
-                      findingsNote?: string;
-                      riskUpdate?: string;
-                      caep?: { deliveries?: Array<{ detail: string }> } | null;
-                    };
-                  }
-                ).result;
-                const calculatedSeverity = result?.calculatedSeverity || "Unavailable";
-                setScoreView({
-                  sentLevel: result?.currentLevel || riskLevel,
-                  calculatedSeverity,
-                  findings: result?.findings ?? [],
-                  findingsNote: result?.findingsNote || "",
-                });
-                const delivery = result?.caep?.deliveries?.[0]?.detail;
-                setMessage(delivery || result?.riskUpdate || "CAEP signal sent.");
-                await calibrationRequest();
-              })
-            }
-            className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+          <p className="mt-1 text-[11px] text-zinc-500">
+            API contract: current SHF per-service endpoints{" "}
+            <span className="font-mono">/workflows/v1</span>,{" "}
+            <span className="font-mono">/workflow-library/v1/triggers</span>,{" "}
+            <span className="font-mono">/trigger-subscriptions/v1</span>, and{" "}
+            <span className="font-mono">/machine-identities/v1</span>. Deprecated yearly
+            and <span className="font-mono">/v3</span> fallbacks are not used.
+          </p>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          <StoryStep
+            number="1"
+            title="Connect Test1POC"
+            status={state?.transmitter.streamRegistered ? "Ready" : "Setup needed"}
+            passed={Boolean(state?.transmitter.streamRegistered)}
           >
-            {busy === "risk" ? "Sending…" : "Emit CAEP and SAF events"}
-          </button>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={busy !== null || !agentId}
-              onClick={() =>
-                void run("inspect-risk", async () => {
-                  await calibrationRequest();
-                  setMessage("Loaded SailPoint’s current v2 risk inputs.");
-                })
-              }
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
-            >
-              Inspect risk inputs
-            </button>
-            <button
-              type="button"
-              disabled={busy !== null || !agentId}
-              onClick={() =>
-                void run("calibrate-risk", async () => {
-                  await calibrationRequest({ agentId, action: "capture" });
-                  const failures: string[] = [];
-                  for (const candidate of [
-                    "least-access",
-                    "unowned",
-                    "unowned-least-access",
-                  ]) {
-                    try {
-                      await calibrationRequest({
-                        agentId,
-                        action: "probe",
-                        candidate,
-                      });
-                    } catch (candidateError) {
-                      failures.push(
-                        `${candidate}: ${
-                          candidateError instanceof Error
-                            ? candidateError.message
-                            : "failed"
-                        }`,
-                      );
+            SailPoint registers a push stream against AgentForge’s current SHF transmitter.
+            The setup token is needed only while creating or repairing that receiver.
+          </StoryStep>
+          <StoryStep
+            number="2"
+            title="Prepare the workflow"
+            status={state?.workflow?.enabled ? "Ready" : "Setup needed"}
+            passed={Boolean(state?.workflow?.enabled)}
+          >
+            The workflow subscribes to <span className="font-mono">CAEP Risk Level Change</span>{" "}
+            and sends the POC verification email. Its test execution checks only the email
+            action; it bypasses the event bus.
+          </StoryStep>
+          <StoryStep
+            number="3"
+            title="Send and verify"
+            status={
+              scoreView
+                ? scoreView.accepted
+                  ? "Receiver accepted"
+                  : "Delivery failed"
+                : "Waiting"
+            }
+            passed={Boolean(scoreView?.accepted)}
+          >
+            Send the real SET below, then verify a correlated row under Test1POC, workflow
+            subscription activity, and the email. Those three checks prove the full path.
+          </StoryStep>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+            <h3 className="text-sm font-medium">Receiver and workflow setup</h3>
+            <Endpoint
+              label="SHF discovery URL"
+              value={state?.transmitter.discoveryUrl ?? ""}
+            />
+            <Endpoint
+              label="SHF configuration endpoint"
+              value={state?.transmitter.streamEndpoint ?? ""}
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() =>
+                  void run("token", async () => {
+                    const response = await fetch("/api/saf-poc/token");
+                    const body = (await response.json()) as {
+                      token?: string;
+                      error?: string;
+                    };
+                    if (!response.ok) {
+                      throw new Error(body.error ?? "Could not read the API token.");
                     }
+                    setToken(body.token ?? "");
+                  })
+                }
+                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
+              >
+                Show Test1POC setup token
+              </button>
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() =>
+                  void run("setup", async () => {
+                    await post("/api/saf-poc/setup-test1", { sendTest: true });
+                    setMessage(
+                      "Workflow saved and a direct test email was requested. That test bypasses the CAEP event bus.",
+                    );
+                  })
+                }
+                className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
+              >
+                {busy === "setup" ? "Preparing…" : "Create or repair workflow + test email"}
+              </button>
+            </div>
+            {token ? (
+              <div className="rounded-md bg-zinc-100 p-2 text-[11px] dark:bg-zinc-900">
+                <p className="font-medium">Use as Test1POC receiver bearer token</p>
+                <p className="mt-1 break-all font-mono">{token}</p>
+              </div>
+            ) : null}
+            {state?.workflow ? (
+              <div className="space-y-1 text-xs text-zinc-600 dark:text-zinc-300">
+                <p>
+                  Workflow: <strong>{state.workflow.workflowName}</strong> ·{" "}
+                  {state.workflow.enabled ? "enabled" : "disabled"} · email{" "}
+                  {state.workflow.email}
+                </p>
+                <p>
+                  Trigger: {state.workflow.trigger.name} ({state.workflow.trigger.id})
+                </p>
+                <p>
+                  Subscription:{" "}
+                  {state.workflow.subscription
+                    ? `${state.workflow.subscription.enabled ? "enabled" : "disabled"} · ${state.workflow.subscription.id}`
+                    : "not returned yet"}
+                </p>
+                {state.workflow.testExecutionId ? (
+                  <p>
+                    Direct workflow test: {state.workflow.testExecutionId} — email-action
+                    evidence only
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="space-y-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+            <h3 className="text-sm font-medium">Send the real CAEP event</h3>
+            <p className="text-xs text-zinc-500">
+              The selected agent resolves a human owner email for CAEP subject correlation.
+              The signal level is test data and does not write the SAF score.
+            </p>
+            <label className="block text-xs">
+              Agent used to resolve the subject
+              <select
+                value={agentId}
+                onChange={(event) => {
+                  const nextId = event.target.value;
+                  setAgentId(nextId);
+                  setScoreView(null);
+                  const ownerEmail = usableEmail(
+                    agentOptions.find((agent) => agent.id === nextId)?.ownerEmail,
+                  );
+                  if (ownerEmail) {
+                    setIdentityEmail(ownerEmail);
                   }
-                  const restored = await calibrationRequest({
-                    agentId,
-                    action: "restore",
-                  });
-                  const levels = Object.keys(restored.calibration?.profiles ?? {});
-                  setRiskLevel((current) =>
-                    levels.includes(current.toLowerCase())
-                      ? current
-                      : labelLevel(levels[0] || "Unavailable"),
-                  );
-                  setMessage(
-                    `Calibration finished. Proven levels: ${
-                      levels.map(labelLevel).join(", ") || "none"
-                    }.${failures.length ? ` ${failures.join(" ")}` : ""}`,
-                  );
-                })
-              }
-              className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white"
-            >
-              {busy === "calibrate-risk"
-                ? "Calibrating and restoring…"
-                : "Calibrate POLICY_CONCIERGE"}
-            </button>
+                }}
+                className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                {agentOptions.length === 0 ? (
+                  <option value="">No tenant agents</option>
+                ) : (
+                  agentOptions.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                      {agent.ownerName ? ` · owner ${agent.ownerName}` : ""}
+                      {agent.source ? ` · ${agent.source}` : ""}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+            {agentsError ? (
+              <p className="text-xs text-red-700 dark:text-red-300">{agentsError}</p>
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-xs">
+                Signal level to send
+                <select
+                  value={riskLevel}
+                  onChange={(event) => setRiskLevel(event.target.value)}
+                  className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  {RISK_LEVELS.map((level) => (
+                    <option key={level}>{level}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-xs">
+                Correlated subject email
+                <input
+                  value={identityEmail}
+                  onChange={(event) => setIdentityEmail(event.target.value)}
+                  placeholder="admin@example.com"
+                  className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                />
+              </label>
+            </div>
             <button
               type="button"
-              disabled={busy !== null || !calibration}
+              disabled={busy !== null || !agentId || !usableEmail(identityEmail)}
               onClick={() =>
-                void run("restore-risk", async () => {
-                  await calibrationRequest({ agentId, action: "restore" });
-                  setMessage("Restored the saved risk-factor baseline and started aggregation.");
+                void run("risk", async () => {
+                  const selected = agentOptions.find((agent) => agent.id === agentId);
+                  const payload = await post("/api/saf-poc/risk", {
+                    agentId,
+                    agentName: selected?.name,
+                    riskLevel,
+                    previousLevel: selected?.riskLevel || "Low",
+                    identityEmail,
+                    ingest: false,
+                  });
+                  const result = (
+                    payload as {
+                      result?: {
+                        currentLevel?: string;
+                        calculatedSeverity?: string;
+                        findings?: AgentFinding[];
+                        findingsNote?: string;
+                        riskUpdate?: string;
+                        caep?: {
+                          deliveries?: Array<{
+                            accepted?: boolean;
+                            status?: number | null;
+                            detail: string;
+                            jti?: string;
+                          }>;
+                        } | null;
+                      };
+                    }
+                  ).result;
+                  const delivery = result?.caep?.deliveries?.[0];
+                  setScoreView({
+                    sentLevel: result?.currentLevel || riskLevel,
+                    calculatedSeverity: result?.calculatedSeverity || "Unavailable",
+                    findings: result?.findings ?? [],
+                    findingsNote: result?.findingsNote || "",
+                    accepted: Boolean(delivery?.accepted),
+                    eventId: delivery?.jti || "",
+                    deliveryStatus: delivery?.status ?? null,
+                  });
+                  setMessage(
+                    delivery
+                      ? `${delivery.detail}${delivery.jti ? ` Event ID ${delivery.jti}.` : ""}`
+                      : result?.riskUpdate || "CAEP signal sent.",
+                  );
                 })
               }
-              className="rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-800 dark:border-amber-800 dark:text-amber-200"
+              className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
             >
-              Restore baseline
+              {busy === "risk" ? "Signing and sending…" : "Send real CAEP event to Test1POC"}
             </button>
-          </div>
-          {riskInputs ? (
-            <div className="rounded-md bg-zinc-50 p-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
-              <p>
-                SailPoint score: {riskInputs.score ?? "unavailable"} → {riskInputs.severity}
-                {riskInputs.modified ? ` · modified ${riskInputs.modified}` : ""}
-              </p>
-              <p>
-                Owners: {ownerSummary(riskInputs.owners)} · entitlements:{" "}
-                {riskInputs.userEntitlements.length} · business apps:{" "}
-                {riskInputs.businessApplicationRefs.length} · sanction:{" "}
-                {riskInputs.effectiveSanctionedStatus || "unavailable"}
-              </p>
-              <p>
-                Dataset: {riskInputs.datasetId || "unavailable"} · owner correlation configs:{" "}
-                {riskInputs.ownershipCorrelationConfigs.length}
-              </p>
-              {calibration ? (
+            {scoreView ? (
+              <div className="space-y-1 rounded-md bg-zinc-50 p-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
                 <p>
-                  Proven levels:{" "}
-                  {Object.keys(calibration.profiles).map(labelLevel).join(", ") || "none"}
+                  Sent CAEP level: <strong>{labelLevel(scoreView.sentLevel)}</strong>
                 </p>
-              ) : null}
-            </div>
-          ) : null}
-          {scoreView ? (
-            <div className="space-y-1 text-xs text-zinc-600 dark:text-zinc-300">
-              <p>CAEP level sent: {labelLevel(scoreView.sentLevel)}</p>
-              <p>Calculated Risk Severity: {scoreView.calculatedSeverity}</p>
-              {scoreView.findings.length > 0 ? (
-                <ul className="list-disc pl-4">
-                  {scoreView.findings.map((finding) => (
-                    <li key={`${finding.title}-${finding.detectedAt}`}>
-                      {finding.title}
-                      {finding.detectedAt ? ` · detected ${finding.detectedAt}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>{scoreView.findingsNote || "No findings returned."}</p>
-              )}
-            </div>
-          ) : null}
-        </article>
+                <p>
+                  Receiver delivery: {scoreView.accepted ? "accepted" : "not accepted"}
+                  {scoreView.deliveryStatus ? ` · HTTP ${scoreView.deliveryStatus}` : ""}
+                  {scoreView.eventId ? ` · event ID ${scoreView.eventId}` : ""}
+                </p>
+                <p>
+                  Separate SAF calculated severity: {scoreView.calculatedSeverity}. This
+                  value is displayed for context and was not changed by the CAEP event.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+          <p className="font-medium">How to decide whether Test 1 passed</p>
+          <ol className="mt-1 list-decimal space-y-1 pl-4">
+            <li>AgentForge reports the signed SET was accepted by the receiver endpoint.</li>
+            <li>Test1POC shows a correlated row with the same subject and event ID.</li>
+            <li>The workflow subscription activity increases and the email arrives.</li>
+          </ol>
+          <p className="mt-2">
+            Current tenant finding: receiver correlation has been observed, while workflow
+            subscription activity remained at zero. The direct workflow test is not a
+            substitute for steps 1–3; it only proves the email action.
+          </p>
+        </div>
       </section>
 
       <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -575,8 +533,7 @@ export function SafPocPanel({
             Reset evidence
           </button>
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <Checks title={state?.evidence.testCase1.title} checks={state?.evidence.testCase1.checks} />
+        <div className="mt-4">
           <Checks title={state?.evidence.testCase2.title} checks={state?.evidence.testCase2.checks} />
         </div>
       </section>
@@ -599,8 +556,6 @@ export function SafPocPanel({
         </ul>
       </section>
 
-      {message ? <p className="text-sm text-emerald-700 dark:text-emerald-300">{message}</p> : null}
-      {error ? <p className="text-sm text-red-700 dark:text-red-300">{error}</p> : null}
     </div>
   );
 }
@@ -610,20 +565,44 @@ function labelLevel(value: string): string {
   return level ? level.charAt(0).toUpperCase() + level.slice(1) : "Unavailable";
 }
 
-function ownerSummary(owners: Record<string, unknown>): string {
-  const primary =
-    owners.primaryIdentity && typeof owners.primaryIdentity === "object"
-      ? (owners.primaryIdentity as { name?: unknown; id?: unknown })
-      : null;
-  if (!primary) {
-    return "none";
-  }
-  return String(primary.name || primary.id || "configured");
-}
-
 function usableEmail(value?: string): string {
   const email = value?.trim().toLowerCase() ?? "";
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
+}
+
+function StoryStep({
+  number,
+  title,
+  status,
+  passed,
+  children,
+}: {
+  number: string;
+  title: string;
+  status: string;
+  passed: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
+      <div className="flex items-center gap-2">
+        <span className="flex size-5 items-center justify-center rounded-full bg-zinc-900 text-[11px] font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900">
+          {number}
+        </span>
+        <p className="text-xs font-medium">{title}</p>
+        <span
+          className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium ${
+            passed
+              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+              : "bg-zinc-100 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300"
+          }`}
+        >
+          {status}
+        </span>
+      </div>
+      <p className="mt-2 text-xs text-zinc-500">{children}</p>
+    </div>
+  );
 }
 
 function Endpoint({ label, value }: { label: string; value: string }) {

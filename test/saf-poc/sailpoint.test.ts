@@ -59,6 +59,18 @@ describe("SailPoint Test 1 setup", () => {
       if (String(url).endsWith("/workflows/v1/wf-1") && init?.method === "PATCH") {
         return Response.json({ id: "wf-1", enabled: true });
       }
+      if (String(url).includes("/trigger-subscriptions/v1")) {
+        return Response.json([
+          {
+            id: "sub-1",
+            enabled: true,
+            triggerId: "idn:caep-risk-level-change-events",
+            filter:
+              '$.ssfEvent.events["https://schemas.openid.net/secevent/caep/event-type/risk-level-change"]',
+            workflowConfig: { workflowId: "wf-1" },
+          },
+        ]);
+      }
       return new Response("unexpected", { status: 500 });
     };
 
@@ -88,6 +100,11 @@ describe("SailPoint Test 1 setup", () => {
       '$.ssfEvent.events["https://schemas.openid.net/secevent/caep/event-type/risk-level-change"]',
     );
     assert.equal(enableCall?.contentType, "application/json-patch+json");
+    assert.equal(result.subscription?.id, "sub-1");
+    assert.equal(
+      calls.some((call) => call.url.includes("/trigger-subscriptions/v1")),
+      true,
+    );
   });
 
   it("names the triggers on the tenant when the requested trigger is absent", async () => {

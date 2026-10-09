@@ -3,12 +3,9 @@ import { describe, it } from "node:test";
 
 import type { SailPointSetupConfig } from "@/lib/saf-poc/sailpoint";
 import {
-  aggregateAgentRiskInputs,
   listTenantAgents,
-  patchAgentRiskInputs,
   parseAgentFindings,
   parseTenantAgents,
-  readAgentRiskInputs,
   readAgentRiskSnapshot,
   resolveAgentOwnerEmail,
   selectTenantAgents,
@@ -91,22 +88,18 @@ describe("tenant agents", () => {
     assert.equal(listCall?.url.includes("/machine-identities/v1?limit=250&offset=0"), true);
   });
 
-  it("falls back to the yearly machine identity API", async () => {
+  it("does not call the deprecated yearly machine identity API", async () => {
+    const calls: string[] = [];
     const fetchImpl: typeof fetch = async (url) => {
+      calls.push(String(url));
       if (String(url).endsWith("/oauth/token")) {
         return Response.json({ access_token: "token" });
-      }
-      if (String(url).includes("/machine-identities/v1")) {
-        return new Response("missing", { status: 404 });
-      }
-      if (String(url).includes("/v2026/machine-identities")) {
-        return Response.json([{ id: "mi-old", businessApplication: "Legacy agent" }]);
       }
       return new Response("missing", { status: 404 });
     };
 
-    const agents = await listTenantAgents(config(), fetchImpl);
-    assert.equal(agents[0]?.name, "Legacy agent");
+    await assert.rejects(() => listTenantAgents(config(), fetchImpl));
+    assert.equal(calls.some((url) => url.includes("/v2026/")), false);
   });
 
   it("looks up the owner email when the identity name is not an address", async () => {
@@ -235,79 +228,6 @@ describe("tenant agents", () => {
     assert.equal(snapshot.calculatedSeverity, "Medium");
     assert.equal(snapshot.findings[0]?.title, "No Human Owner");
     assert.equal(snapshot.findings[0]?.detectedAt, "2026-10-08T17:21:00.000Z");
-  });
-
-  it("reads v2 score inputs and ownership correlation configuration", async () => {
-    const fetchImpl: typeof fetch = async (url, init) => {
-      const target = String(url);
-      if (target.endsWith("/oauth/token")) {
-        return Response.json({ access_token: "token" });
-      }
-      assert.equal(new Headers(init?.headers).get("X-SailPoint-Experimental"), "true");
-      if (target.endsWith("/machine-identities/v2/mi-1")) {
-        return Response.json({
-          id: "mi-1",
-          name: "POLICY_CONCIERGE",
-          modified: "2026-10-08T23:00:00Z",
-          risk: { score: 31, severity: "MEDIUM" },
-          owners: { primaryIdentity: { id: "owner-1", name: "mo.malaka" } },
-          userEntitlements: [{ id: "ent-1", name: "ACCOUNTADMIN" }],
-          businessApplicationRefs: [{ id: "app-1", name: "Snowflake" }],
-          effectiveSanctionedStatus: "SANCTIONED",
-          sourceId: "source-1",
-          resource: { id: "resource-1" },
-          datasetId: "dataset-1",
-        });
-      }
-      if (target.includes("/correlation-configs")) {
-        return Response.json([{ id: "correlation-1", type: "OWNER_PRIMARY" }]);
-      }
-      return new Response("missing", { status: 404 });
-    };
-
-    const inputs = await readAgentRiskInputs("mi-1", config(), fetchImpl);
-    assert.equal(inputs.score, 31);
-    assert.equal(inputs.severity, "Medium");
-    assert.equal(inputs.userEntitlements.length, 1);
-    assert.equal(inputs.effectiveSanctionedStatus, "SANCTIONED");
-    assert.equal(inputs.ownershipCorrelationConfigs.length, 1);
-  });
-
-  it("patches supported factors and starts dataset aggregation", async () => {
-    const requests: Array<{ url: string; method: string; body: unknown }> = [];
-    const fetchImpl: typeof fetch = async (url, init) => {
-      const target = String(url);
-      if (target.endsWith("/oauth/token")) {
-        return Response.json({ access_token: "token" });
-      }
-      requests.push({
-        url: target,
-        method: init?.method ?? "GET",
-        body: init?.body ? JSON.parse(String(init.body)) : null,
-      });
-      return Response.json({ ok: true });
-    };
-
-    await patchAgentRiskInputs(
-      "mi-1",
-      { owners: { primaryIdentity: null }, userEntitlements: [] },
-      config(),
-      fetchImpl,
-    );
-    await aggregateAgentRiskInputs("source-1", "dataset-1", config(), fetchImpl);
-
-    assert.equal(requests[0]?.method, "PATCH");
-    assert.deepEqual(requests[0]?.body, [
-      { op: "replace", path: "/owners", value: { primaryIdentity: null } },
-      { op: "replace", path: "/userEntitlements", value: [] },
-    ]);
-    assert.equal(
-      requests[1]?.url.endsWith(
-        "/sources/v1/source-1/datasets/dataset-1/aggregate",
-      ),
-      true,
-    );
-    assert.equal(requests[1]?.body, null);
   });
 
 });
