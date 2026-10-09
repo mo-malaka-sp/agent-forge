@@ -317,10 +317,59 @@ div.rounded-lg.border {
   box-shadow: var(--shadow-sm);
 }
 
+button,
+a.rounded-md,
+a.bg-zinc-900,
+summary {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 button.rounded-md,
 a.rounded-md {
   border-radius: var(--radius-md) !important;
   font-weight: 600;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    color 140ms ease;
+}
+
+/* Outline actions sit on white cards. Give them a fill, shadow, and hover so they read as buttons. */
+button.rounded-md.border:not(.bg-zinc-900):not([class*="bg-indigo"]):not([class*="bg-emerald"]):not([class*="bg-amber"]):not([class*="text-red"]):not([class*="border-red"]):not([class*="border-amber"]):not([class*="border-indigo"]) {
+  background: var(--semantic-surface);
+  border-color: #8b9bab !important;
+  color: var(--brand-navy);
+  box-shadow: var(--shadow-sm);
+}
+
+button.rounded-md.border:not(.bg-zinc-900):not([class*="bg-indigo"]):not([class*="bg-emerald"]):not([class*="bg-amber"]):not([class*="text-red"]):not([class*="border-red"]):not([class*="border-amber"]):not([class*="border-indigo"]):hover:not(:disabled) {
+  background: var(--brand-cobalt-tint);
+  border-color: var(--brand-cobalt) !important;
+  color: var(--brand-cobalt);
+}
+
+button.rounded-md.border[class*="text-red"],
+button.rounded-md.border[class*="border-red"] {
+  background: var(--semantic-surface);
+  border-color: var(--brand-error) !important;
+  color: var(--brand-error);
+  box-shadow: var(--shadow-sm);
+}
+
+button.rounded-md.border[class*="text-red"]:hover:not(:disabled),
+button.rounded-md.border[class*="border-red"]:hover:not(:disabled) {
+  background: var(--brand-error-bg);
+}
+
+button.rounded-md:active:not(:disabled),
+a.rounded-md:active {
+  transform: translateY(1px);
 }
 
 button.bg-zinc-900,
@@ -328,9 +377,10 @@ a.bg-zinc-900 {
   border-color: var(--brand-cobalt) !important;
   background: var(--brand-cobalt) !important;
   color: var(--brand-white) !important;
+  box-shadow: 0 1px 2px rgba(0, 50, 161, 0.28);
 }
 
-button.bg-zinc-900:hover,
+button.bg-zinc-900:hover:not(:disabled),
 a.bg-zinc-900:hover {
   background: var(--brand-navy) !important;
 }
