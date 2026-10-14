@@ -560,6 +560,9 @@ export function SafPocPanel({
               </span>{" "}
               {event.event.risk.title} · {event.delivery.mode}/{event.delivery.status}
               {event.scenario ? ` · ${event.scenario}` : ""}
+              {event.delivery.detail ? (
+                <span className="mt-0.5 block text-zinc-500">{event.delivery.detail}</span>
+              ) : null}
             </li>
           ))}
           {(state?.events.length ?? 0) === 0 ? (

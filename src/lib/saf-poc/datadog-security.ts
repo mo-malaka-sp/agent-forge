@@ -61,7 +61,6 @@ function ruleBody(version?: number): Record<string, unknown> {
     message:
       "SailPoint reported {{@evt.name}} for {{@usr.name}} ({{@usr.id}}) on agent {{@agent.name}}. Severity {{@evt.outcome}}.",
     tags: ["source:sailpoint", "env:poc"],
-    filters: [],
     queries: [
       {
         name: "a",
@@ -98,7 +97,7 @@ function ruleBody(version?: number): Record<string, unknown> {
       detectionMethod: "threshold",
       evaluationWindow: 0,
       keepAlive: 3600,
-      maxSignalDuration: 86400,
+      maxSignalDuration: 21600,
     },
   };
 }
@@ -148,7 +147,23 @@ function rulesFrom(body: unknown): Array<{ id?: string; name?: string; version?:
   }
   const data = (body as { data?: unknown }).data;
   const list = Array.isArray(data) ? data : Array.isArray(body) ? body : [];
-  return list.filter((item): item is { id?: string; name?: string; version?: number } => {
-    return Boolean(item) && typeof item === "object";
+  return list.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const record = item as { id?: unknown; name?: unknown; version?: unknown; attributes?: unknown };
+    const attributes =
+      record.attributes && typeof record.attributes === "object"
+        ? (record.attributes as { name?: unknown; version?: unknown })
+        : undefined;
+    const name = typeof attributes?.name === "string" ? attributes.name : record.name;
+    const version = typeof attributes?.version === "number" ? attributes.version : record.version;
+    return [
+      {
+        id: typeof record.id === "string" ? record.id : undefined,
+        name: typeof name === "string" ? name : undefined,
+        version: typeof version === "number" ? version : undefined,
+      },
+    ];
   });
 }
