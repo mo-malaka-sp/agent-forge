@@ -9,6 +9,7 @@ type SafState = {
   tenant: string;
   notifyEmail: string;
   mode: "dry-run" | "datadog";
+  signalRuleReady?: boolean;
   webhookUrl: string;
   evidence: {
     passed: boolean;
@@ -474,10 +475,16 @@ export function SafPocPanel({
           <Endpoint label="Webhook" value={state?.webhookUrl ?? ""} />
         </div>
         <p className="mt-2 text-xs text-zinc-500">
-          SailPoint workflow → this webhook → Datadog. Mode:{" "}
-          {state?.mode === "datadog" ? "Datadog" : "dry-run"}. Search Datadog for{" "}
-          <span className="font-mono">source:sailpoint</span>.
+          SailPoint workflow → this webhook → Datadog Security Inbox. Mode:{" "}
+          {state?.mode === "datadog" ? "Datadog" : "dry-run"}. High and critical events
+          open a signal. Search{" "}
+          <span className="font-mono">source:sailpoint @evt.category:security</span>.
         </p>
+        {state?.mode === "datadog" && !state.signalRuleReady ? (
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+            Add DD_APP_KEY so Datadog can open those signals.
+          </p>
+        ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"

@@ -187,7 +187,7 @@ Open **SAF POC** after the app is deployed. AgentForge is the CAEP transmitter a
 Two event paths stay separate:
 
 - **Test 1** is a SailPoint Workflow on **CAEP Risk Level Change Events**. AgentForge signs a real Security Event Token and pushes it to the receiver SailPoint registered against `/.well-known/ssf-configuration`. The workflow sends `[POC-SUCCESS] SAF Agentic Event Bus Triggered`.
-- **Test 2** is the Agentic Fabric fire-and-forget webhook. Point it at `/webhooks/saf`. When `DD_API_KEY` is set, the same JSON is posted to Datadog with the `DD-API-KEY` header. Without that key the run stays in dry-run and the evidence stays in DynamoDB (or `data/saf-poc-state.json` locally).
+- **Test 2** is the Agentic Fabric fire-and-forget webhook. Point it at `/webhooks/saf`. When `DD_API_KEY` is set, the same JSON is posted to Datadog with the `DD-API-KEY` header. When `DD_APP_KEY` is also set, AgentForge creates a Cloud SIEM detection rule so high and critical events open a Security Inbox signal. Without the API key the run stays in dry-run and the evidence stays in DynamoDB (or `data/saf-poc-state.json` locally).
 
 The CAEP level sent from `/saf-poc` is test data for the event bus. It does not write Agentic Fabric Risk Severity. The page reads the calculated severity only to show that these are separate values.
 
@@ -207,7 +207,7 @@ Hosted checks, after Amplify is up:
 2. Save the ISC tenant connection. Set `SAF_NOTIFY_EMAIL`. Optional `SAF_TRIGGER_NAME` defaults to `CAEP Risk Level Change Events`.
 3. On `/saf-poc`, reveal the receiver token and register a SailPoint SSF receiver for **Risk level change** using the discovery URL. The issuer must be the HTTPS AgentForge origin.
 4. Create or repair the email workflow, then send a real CAEP event. Match AgentForge’s event ID to the correlated Test1POC row, workflow activity, and email.
-5. For Test 2, set Amplify env vars `DD_API_KEY` and `WEBHOOK_TOKEN` for all branches, then redeploy `main`. On `/saf-poc`, use **Create or repair Datadog workflow + send test**. That calls `/workflows/v1` and `/workflow-library/v1/triggers`, creates an external-trigger workflow whose HTTP step posts to `https://<host>/webhooks/saf` with header `x-saf-webhook-token`, and runs `POST /workflows/v1/{id}/test`. Confirm a `/saf-poc` row of `datadog/delivered` with an empty scenario and a Datadog Live Tail line for `source:sailpoint`. The critical detection query is `source:sailpoint @risk_severity:critical`. The scenario buttons only prove AgentForge can reach Datadog.
+5. For Test 2, set Amplify env vars `DD_API_KEY`, `DD_APP_KEY`, and `WEBHOOK_TOKEN` for all branches, then redeploy `main`. The application key needs permission to write Cloud SIEM detection rules. On `/saf-poc`, use **Set up workflow + send test**. That calls `/workflows/v1` and `/workflow-library/v1/triggers`, creates an external-trigger workflow whose HTTP step posts to `https://<host>/webhooks/saf` with header `x-saf-webhook-token`, and runs `POST /workflows/v1/{id}/test`. Confirm a `/saf-poc` row of `datadog/delivered` with an empty scenario, a Live Tail line for `source:sailpoint @evt.category:security`, and a Security Inbox signal for `source:sailpoint @evt.category:security @evt.outcome:critical`. The scenario buttons only prove AgentForge can reach Datadog.
 
 ## Scripts
 

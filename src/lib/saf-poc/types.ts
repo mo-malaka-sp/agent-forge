@@ -75,6 +75,15 @@ export interface DatadogLog {
   risk_severity: Severity;
   identity_name: string;
   agent_id: string;
+  evt: {
+    category: "security";
+    name: IncomingEvent["eventType"];
+    outcome: Severity;
+  };
+  usr: {
+    id: string;
+    name: string;
+  };
 }
 
 export interface DeliveryResult {

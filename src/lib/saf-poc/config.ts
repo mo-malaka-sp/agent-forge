@@ -14,6 +14,7 @@ export interface SafPocConfig {
   notifyEmail: string;
   triggerName: string;
   datadogApiKey: string;
+  datadogAppKey: string;
   datadogIntakeUrl: string;
   webhookToken: string;
   ssfApiToken: string;
@@ -69,6 +70,7 @@ export function loadSafPocConfig(): SafPocConfig {
     triggerName:
       process.env.SAF_TRIGGER_NAME?.trim() || "CAEP Risk Level Change Events",
     datadogApiKey: process.env.DD_API_KEY?.trim() || "",
+    datadogAppKey: process.env.DD_APP_KEY?.trim() || "",
     datadogIntakeUrl:
       process.env.DATADOG_INTAKE_URL?.trim() ||
       "https://http-intake.logs.datadoghq.com/api/v2/logs",

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { loadSafPocConfig, safPocMode } from "@/lib/saf-poc/config";
+import { DETECTION_QUERY, ensureSecuritySignalRule, SIGNAL_TITLE } from "@/lib/saf-poc/datadog-security";
 import { getSafPocStore } from "@/lib/saf-poc/storage";
 import {
   completeEvent,
@@ -13,9 +14,7 @@ import {
 
 export const NOTIFICATION_SUBJECT =
   "[POC-SUCCESS] SAF Agentic Event Bus Triggered";
-export const DETECTION_QUERY = "source:sailpoint @risk_severity:critical";
-export const SIGNAL_TITLE =
-  "Critical Risk Detected by SailPoint Agentic Fabric";
+export { DETECTION_QUERY, SIGNAL_TITLE };
 const EVENT_PREFIX = "EVENT#";
 
 export function normalizeEvent(event: SafEvent): DatadogLog {
@@ -43,6 +42,15 @@ export function normalizeEvent(event: SafEvent): DatadogLog {
     risk_severity: event.risk.severity,
     identity_name: event.identity.name,
     agent_id: event.agent.id,
+    evt: {
+      category: "security",
+      name: event.eventType,
+      outcome: event.risk.severity,
+    },
+    usr: {
+      id: event.identity.id,
+      name: event.identity.name,
+    },
   };
 }
 
@@ -58,6 +66,7 @@ async function forwardLog(log: DatadogLog, now: Date) {
     };
   }
   try {
+    const ruleNote = await ensureSecuritySignalRule(config);
     const response = await fetch(config.datadogIntakeUrl, {
       method: "POST",
       headers: {
@@ -72,7 +81,9 @@ async function forwardLog(log: DatadogLog, now: Date) {
       mode: "datadog" as const,
       status: response.ok ? ("delivered" as const) : ("failed" as const),
       httpStatus: response.status,
-      detail: response.ok ? "Datadog accepted the log." : detail || response.statusText,
+      detail: response.ok
+        ? `Datadog accepted the log. ${ruleNote}`
+        : detail || response.statusText,
       attemptedAt: now.toISOString(),
     };
   } catch (error) {
@@ -248,6 +259,7 @@ export async function buildSafPocState(baseUrl: string) {
     tenant: config.tenant,
     notifyEmail: config.notifyEmail,
     mode: safPocMode(config),
+    signalRuleReady: Boolean(config.datadogAppKey),
     intakeUrl: config.datadogIntakeUrl,
     webhookUrl: `${baseUrl}/webhooks/saf`,
     discoveryUrl: baseUrl,
