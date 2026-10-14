@@ -67,7 +67,7 @@ function ruleBody(version?: number): Record<string, unknown> {
         query: DETECTION_QUERY,
         aggregation: "count",
         dataSource: "logs",
-        groupByFields: ["@usr.id"],
+        groupByFields: [],
         distinctFields: [],
       },
       {
@@ -75,7 +75,7 @@ function ruleBody(version?: number): Record<string, unknown> {
         query: HIGH_QUERY,
         aggregation: "count",
         dataSource: "logs",
-        groupByFields: ["@usr.id"],
+        groupByFields: [],
         distinctFields: [],
       },
     ],
