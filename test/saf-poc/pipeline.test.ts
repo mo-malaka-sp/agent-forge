@@ -123,7 +123,9 @@ describe("SAF pipeline", () => {
       assert.equal(listed?.appKey, "dd-app-key");
       assert.match(created?.body ?? "", /@evt\.outcome:critical/);
       assert.match(created?.body ?? "", /@evt\.outcome:high/);
-      assert.match(created?.body ?? "", /"maxSignalDuration":21600/);
+      assert.match(created?.body ?? "", /"evaluationWindow":0/);
+      assert.match(created?.body ?? "", /"keepAlive":0/);
+      assert.match(created?.body ?? "", /"maxSignalDuration":0/);
       const log = JSON.parse(posted?.body ?? "[]") as Array<{ evt: { category: string } }>;
       assert.equal(log[0]?.evt.category, "security");
       assert.equal(

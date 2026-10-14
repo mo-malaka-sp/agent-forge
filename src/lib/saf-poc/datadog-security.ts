@@ -96,8 +96,8 @@ function ruleBody(version?: number): Record<string, unknown> {
     options: {
       detectionMethod: "threshold",
       evaluationWindow: 0,
-      keepAlive: 3600,
-      maxSignalDuration: 21600,
+      keepAlive: 0,
+      maxSignalDuration: 0,
     },
   };
 }
