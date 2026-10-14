@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { loadSafPocConfig, safPocMode } from "@/lib/saf-poc/config";
+import { loadSafPocConfig, type SafPocConfig, safPocMode } from "@/lib/saf-poc/config";
 import { DETECTION_QUERY, ensureSecuritySignalRule, SIGNAL_TITLE } from "@/lib/saf-poc/datadog-security";
+import { parseIscTenantUrl } from "@/lib/isc/tenant-url";
 import { getSafPocStore } from "@/lib/saf-poc/storage";
+import { listTenantAgents, type TenantAgent } from "@/lib/saf-poc/tenant-agents";
 import {
   completeEvent,
   incomingEventSchema,
@@ -16,6 +18,13 @@ export const NOTIFICATION_SUBJECT =
   "[POC-SUCCESS] SAF Agentic Event Bus Triggered";
 export { DETECTION_QUERY, SIGNAL_TITLE };
 const EVENT_PREFIX = "EVENT#";
+
+const AGENT_CACHE_MS = 5 * 60 * 1000;
+let cachedAgents: { at: number; agents: TenantAgent[] } | null = null;
+
+export function resetSignalAgentsForTests(): void {
+  cachedAgents = null;
+}
 
 export function sailPointAgentUrl(
   tenant: string,
@@ -35,20 +44,36 @@ export function sailPointAgentUrl(
   ) {
     return null;
   }
-  return `https://${tenantLabel}.${domainName}/ui/a/admin/identities/${encodeURIComponent(agentId.trim())}/details/attributes`;
+  return `https://${tenantLabel}.${domainName}/ui/agentic-overview/agent-registry/${encodeURIComponent(agentId.trim())}/details/risk`;
 }
 
-export function normalizeEvent(
-  event: SafEvent,
-  domain = loadSafPocConfig().domain,
-): DatadogLog {
+export function sailPointSignalHost(
+  config: Pick<SafPocConfig, "tenant" | "domain" | "apiBase">,
+): { tenant: string; domain: string } {
+  const parsed = parseIscTenantUrl(config.apiBase);
+  return {
+    tenant: parsed?.tenant || config.tenant,
+    domain: parsed?.domain || config.domain || "identitynow.com",
+  };
+}
+
+export function pickSignalAgent<T>(agents: readonly T[], random: () => number = Math.random): T | null {
+  if (agents.length === 0) {
+    return null;
+  }
+  const index = Math.min(agents.length - 1, Math.floor(random() * agents.length));
+  return agents[index] ?? null;
+}
+
+export function normalizeEvent(event: SafEvent, config = loadSafPocConfig()): DatadogLog {
+  const host = sailPointSignalHost(config);
   const status =
     event.risk.severity === "critical"
       ? "error"
       : event.risk.severity === "high"
         ? "warn"
         : "info";
-  const agentUrl = sailPointAgentUrl(event.tenant, event.agent.id, domain);
+  const agentUrl = sailPointAgentUrl(host.tenant || event.tenant, event.agent.id, host.domain);
   return {
     message: `${event.eventType}: ${event.risk.title}`,
     ddsource: "sailpoint",
@@ -123,6 +148,42 @@ async function forwardLog(log: DatadogLog, now: Date) {
   }
 }
 
+async function signalEvent(
+  event: SafEvent,
+  source: StoredEvent["source"],
+  config: SafPocConfig,
+): Promise<SafEvent> {
+  if (source !== "simulator" || !config.clientId || !config.clientSecret || !config.apiBase) {
+    return event;
+  }
+  try {
+    const agent = pickSignalAgent(await tenantAgents());
+    if (!agent) {
+      return event;
+    }
+    const previousName = event.agent.name ?? "";
+    return {
+      ...event,
+      agent: { id: agent.id, name: agent.name },
+      risk: {
+        ...event.risk,
+        title: previousName ? event.risk.title.replaceAll(previousName, agent.name) : event.risk.title,
+      },
+    };
+  } catch {
+    return event;
+  }
+}
+
+async function tenantAgents(): Promise<TenantAgent[]> {
+  if (cachedAgents && Date.now() - cachedAgents.at < AGENT_CACHE_MS) {
+    return cachedAgents.agents;
+  }
+  const agents = await listTenantAgents();
+  cachedAgents = { at: Date.now(), agents };
+  return agents;
+}
+
 export async function ingestSafEvent(input: {
   payload: unknown;
   source: StoredEvent["source"];
@@ -133,8 +194,12 @@ export async function ingestSafEvent(input: {
   const config = loadSafPocConfig();
   const tenant =
     config.tenant || (input.source === "simulator" ? "local" : "");
-  const event = completeEvent(incomingEventSchema.parse(input.payload), tenant, now);
-  const normalized = normalizeEvent(event);
+  const event = await signalEvent(
+    completeEvent(incomingEventSchema.parse(input.payload), tenant, now),
+    input.source,
+    config,
+  );
+  const normalized = normalizeEvent(event, config);
   const stored: StoredEvent = {
     id: randomUUID(),
     receivedAt: now.toISOString(),

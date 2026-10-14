@@ -17,8 +17,11 @@ import {
   buildSailPointDemoEvents,
   ingestSafEvent,
   listSafEvents,
+  pickSignalAgent,
   resetSafEvents,
+  resetSignalAgentsForTests,
   sailPointAgentUrl,
+  sailPointSignalHost,
 } from "@/lib/saf-poc/events";
 import { resetSafPocStoreForTests } from "@/lib/saf-poc/storage";
 import { incomingEventSchema } from "@/lib/saf-poc/types";
@@ -31,11 +34,13 @@ beforeEach(async () => {
   process.env.AGENT_STORE_DIR = directory;
   process.env.SAF_POC_TABLE_NAME = "";
   process.env.SAF_TENANT = "poc-tenant";
+  delete process.env.SAF_API_BASE;
   process.env.SAF_NOTIFY_EMAIL = "admin@example.com";
   process.env.DD_API_KEY = "";
   process.env.DD_APP_KEY = "";
   resetDatadogSecurityForTests();
   resetSafPocStoreForTests();
+  resetSignalAgentsForTests();
 });
 
 afterEach(async () => {
@@ -72,7 +77,7 @@ describe("SAF pipeline", () => {
     assert.equal(stored.normalized.usr.id, "idn-alex");
     assert.match(
       stored.normalized.sailpoint?.url ?? "",
-      /^https:\/\/poc-tenant\..+\/ui\/a\/admin\/identities\/agent-af-42\/details\/attributes$/,
+      /^https:\/\/poc-tenant\..+\/ui\/agentic-overview\/agent-registry\/agent-af-42\/details\/risk$/,
     );
     assert.equal(stored.delivery.mode, "dry-run");
     assert.match(DETECTION_QUERY, /@evt\.outcome:critical/);
@@ -144,7 +149,7 @@ describe("SAF pipeline", () => {
         sailpoint?: { url: string };
       }>;
       assert.equal(log[0]?.evt.category, "security");
-      assert.match(log[0]?.sailpoint?.url ?? "", /\/identities\/agent-af-42\/details\/attributes$/);
+      assert.match(log[0]?.sailpoint?.url ?? "", /\/agent-registry\/agent-af-42\/details\/risk$/);
       assert.equal(
         datadogApiBase("https://http-intake.logs.us3.datadoghq.com/api/v2/logs"),
         "https://api.us3.datadoghq.com",
@@ -154,14 +159,72 @@ describe("SAF pipeline", () => {
     }
   });
 
-  it("builds tenant-aware ISC agent links and safely encodes the agent ID", () => {
+  it("builds the agent risk link from the demo API host", () => {
     assert.equal(
-      sailPointAgentUrl("Beta-25503", "agent/id with spaces", "identitynow-demo.com"),
-      "https://beta-25503.identitynow-demo.com/ui/a/admin/identities/agent%2Fid%20with%20spaces/details/attributes",
+      sailPointAgentUrl(
+        "beta-25503",
+        "edbbd8e8-3871-4246-a9a5-8ebc10bd1ab9",
+        "identitynow-demo.com",
+      ),
+      "https://beta-25503.identitynow-demo.com/ui/agentic-overview/agent-registry/edbbd8e8-3871-4246-a9a5-8ebc10bd1ab9/details/risk",
+    );
+    assert.deepEqual(
+      sailPointSignalHost({
+        tenant: "beta-25503",
+        domain: "identitynow.com",
+        apiBase: "https://beta-25503.api.identitynow-demo.com",
+      }),
+      { tenant: "beta-25503", domain: "identitynow-demo.com" },
     );
     assert.equal(sailPointAgentUrl("https://evil.example", "agent-1"), null);
     assert.equal(sailPointAgentUrl("beta-25503", "agent-1", "example..com"), null);
     assert.equal(sailPointAgentUrl("beta-25503", ""), null);
+  });
+
+  it("links a generated signal to a randomly selected tenant agent", async () => {
+    process.env.SAF_TENANT = "beta-25503";
+    process.env.SAF_API_BASE = "https://beta-25503.api.identitynow-demo.com";
+    process.env.SAF_CLIENT_ID = "client-id";
+    process.env.SAF_CLIENT_SECRET = "client-secret";
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      const target = String(url);
+      if (target.endsWith("/oauth/token")) {
+        return new Response(JSON.stringify({ access_token: "x.e30.y" }), { status: 200 });
+      }
+      if (target.includes("/machine-identities/v1")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "edbbd8e8-3871-4246-a9a5-8ebc10bd1ab9",
+              name: "Registry agent",
+              subtype: "AI Agent",
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+    try {
+      const first = pickSignalAgent(["one", "two"], () => 0.9);
+      assert.equal(first, "two");
+      const stored = await ingestSafEvent({
+        payload: buildFixture("critical-escalation"),
+        source: "simulator",
+        scenario: "critical-escalation",
+      });
+      assert.equal(stored.event.agent.id, "edbbd8e8-3871-4246-a9a5-8ebc10bd1ab9");
+      assert.equal(
+        stored.normalized.sailpoint?.url,
+        "https://beta-25503.identitynow-demo.com/ui/agentic-overview/agent-registry/edbbd8e8-3871-4246-a9a5-8ebc10bd1ab9/details/risk",
+      );
+    } finally {
+      delete process.env.SAF_CLIENT_ID;
+      delete process.env.SAF_CLIENT_SECRET;
+      delete process.env.SAF_API_BASE;
+      globalThis.fetch = original;
+    }
   });
 
   it("builds a SailPoint demo pack that the detection rule can match", () => {
