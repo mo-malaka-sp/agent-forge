@@ -84,6 +84,9 @@ export interface DatadogLog {
     id: string;
     name: string;
   };
+  sailpoint?: {
+    url: string;
+  };
 }
 
 export interface DeliveryResult {

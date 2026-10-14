@@ -17,13 +17,38 @@ export const NOTIFICATION_SUBJECT =
 export { DETECTION_QUERY, SIGNAL_TITLE };
 const EVENT_PREFIX = "EVENT#";
 
-export function normalizeEvent(event: SafEvent): DatadogLog {
+export function sailPointAgentUrl(
+  tenant: string,
+  agentId: string,
+  domain = "identitynow.com",
+): string | null {
+  const tenantLabel = tenant.trim().toLowerCase();
+  const domainName = domain.trim().toLowerCase().replace(/^\.+|\.+$/g, "");
+  const hostnameLabel = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+  const domainLabels = domainName.split(".");
+  if (
+    !hostnameLabel.test(tenantLabel) ||
+    domainName.length > 253 ||
+    domainLabels.length < 2 ||
+    !domainLabels.every((label) => hostnameLabel.test(label)) ||
+    !agentId.trim()
+  ) {
+    return null;
+  }
+  return `https://${tenantLabel}.${domainName}/ui/a/admin/identities/${encodeURIComponent(agentId.trim())}/details/attributes`;
+}
+
+export function normalizeEvent(
+  event: SafEvent,
+  domain = loadSafPocConfig().domain,
+): DatadogLog {
   const status =
     event.risk.severity === "critical"
       ? "error"
       : event.risk.severity === "high"
         ? "warn"
         : "info";
+  const agentUrl = sailPointAgentUrl(event.tenant, event.agent.id, domain);
   return {
     message: `${event.eventType}: ${event.risk.title}`,
     ddsource: "sailpoint",
@@ -51,6 +76,7 @@ export function normalizeEvent(event: SafEvent): DatadogLog {
       id: event.identity.id,
       name: event.identity.name,
     },
+    ...(agentUrl ? { sailpoint: { url: agentUrl } } : {}),
   };
 }
 

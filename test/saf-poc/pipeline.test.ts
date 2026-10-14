@@ -18,6 +18,7 @@ import {
   ingestSafEvent,
   listSafEvents,
   resetSafEvents,
+  sailPointAgentUrl,
 } from "@/lib/saf-poc/events";
 import { resetSafPocStoreForTests } from "@/lib/saf-poc/storage";
 import { incomingEventSchema } from "@/lib/saf-poc/types";
@@ -69,6 +70,10 @@ describe("SAF pipeline", () => {
     assert.equal(stored.normalized.evt.category, "security");
     assert.equal(stored.normalized.evt.outcome, "critical");
     assert.equal(stored.normalized.usr.id, "idn-alex");
+    assert.match(
+      stored.normalized.sailpoint?.url ?? "",
+      /^https:\/\/poc-tenant\..+\/ui\/a\/admin\/identities\/agent-af-42\/details\/attributes$/,
+    );
     assert.equal(stored.delivery.mode, "dry-run");
     assert.match(DETECTION_QUERY, /@evt\.outcome:critical/);
     assert.equal((await listSafEvents()).length, 1);
@@ -132,8 +137,14 @@ describe("SAF pipeline", () => {
       assert.match(created?.body ?? "", /"evaluationWindow":0/);
       assert.match(created?.body ?? "", /"keepAlive":0/);
       assert.match(created?.body ?? "", /"maxSignalDuration":0/);
-      const log = JSON.parse(posted?.body ?? "[]") as Array<{ evt: { category: string } }>;
+      assert.match(created?.body ?? "", /Open affected agent in SailPoint/);
+      assert.match(created?.body ?? "", /\{\{@sailpoint\.url\}\}/);
+      const log = JSON.parse(posted?.body ?? "[]") as Array<{
+        evt: { category: string };
+        sailpoint?: { url: string };
+      }>;
       assert.equal(log[0]?.evt.category, "security");
+      assert.match(log[0]?.sailpoint?.url ?? "", /\/identities\/agent-af-42\/details\/attributes$/);
       assert.equal(
         datadogApiBase("https://http-intake.logs.us3.datadoghq.com/api/v2/logs"),
         "https://api.us3.datadoghq.com",
@@ -141,6 +152,16 @@ describe("SAF pipeline", () => {
     } finally {
       globalThis.fetch = original;
     }
+  });
+
+  it("builds tenant-aware ISC agent links and safely encodes the agent ID", () => {
+    assert.equal(
+      sailPointAgentUrl("Beta-25503", "agent/id with spaces", "identitynow-demo.com"),
+      "https://beta-25503.identitynow-demo.com/ui/a/admin/identities/agent%2Fid%20with%20spaces/details/attributes",
+    );
+    assert.equal(sailPointAgentUrl("https://evil.example", "agent-1"), null);
+    assert.equal(sailPointAgentUrl("beta-25503", "agent-1", "example..com"), null);
+    assert.equal(sailPointAgentUrl("beta-25503", ""), null);
   });
 
   it("builds a SailPoint demo pack that the detection rule can match", () => {

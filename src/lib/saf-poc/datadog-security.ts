@@ -59,7 +59,7 @@ function ruleBody(version?: number): Record<string, unknown> {
     type: "log_detection",
     isEnabled: true,
     message:
-      "SailPoint reported {{@evt.name}} for {{@usr.name}} ({{@usr.id}}) on agent {{@agent.name}}. Severity {{@evt.outcome}}.",
+      "SailPoint reported {{@evt.name}} for {{@usr.name}} ({{@usr.id}}) on agent {{@agent.name}}. Severity {{@evt.outcome}}.\n\n[Open affected agent in SailPoint]({{@sailpoint.url}})",
     tags: ["source:sailpoint", "env:poc"],
     queries: [
       {
