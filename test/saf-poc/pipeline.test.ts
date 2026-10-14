@@ -136,4 +136,37 @@ describe("SAF pipeline", () => {
       globalThis.fetch = original;
     }
   });
+
+  it("treats an existing Security Inbox rule as ready", async () => {
+    process.env.DD_API_KEY = "dd-test-key";
+    process.env.DD_APP_KEY = "dd-app-key";
+    const original = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      const method = init?.method ?? "GET";
+      if (String(url).includes("/security_monitoring/rules") && method === "POST") {
+        return new Response(
+          JSON.stringify({
+            errors: [
+              {
+                code: "InvalidArgument",
+                details: [{ code: "AlreadyExists", message: "Rule name must be unique", target: "name" }],
+              },
+            ],
+          }),
+          { status: 400 },
+        );
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    };
+    try {
+      const stored = await ingestSafEvent({
+        payload: buildFixture("critical-escalation"),
+        source: "simulator",
+        scenario: "critical-escalation",
+      });
+      assert.match(stored.delivery.detail, /Security Inbox rule is ready/);
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });

@@ -129,6 +129,9 @@ async function createOrUpdateRule(
   });
   if (!saved.ok) {
     const detail = (await saved.text()).slice(0, 300);
+    if (detail.includes("AlreadyExists")) {
+      return "Security Inbox rule is ready.";
+    }
     throw new Error(detail || saved.statusText);
   }
   return "Security Inbox rule is ready.";
