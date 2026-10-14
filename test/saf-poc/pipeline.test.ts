@@ -7,8 +7,14 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import { datadogApiBase, resetDatadogSecurityForTests } from "@/lib/saf-poc/datadog-security";
 import {
+  SAILPOINT_DEMO_DURATION_MS,
+  countSailPointDemoTicks,
+  sailPointDemoDelayMs,
+} from "@/lib/saf-poc/demo-stream";
+import {
   DETECTION_QUERY,
   buildFixture,
+  buildSailPointDemoEvents,
   ingestSafEvent,
   listSafEvents,
   resetSafEvents,
@@ -137,6 +143,32 @@ describe("SAF pipeline", () => {
     }
   });
 
+  it("builds a SailPoint demo pack that the detection rule can match", () => {
+    const events = buildSailPointDemoEvents();
+    assert.equal(events.length, 8);
+    const signalEvents = events.filter(
+      (event) => event.risk.severity === "critical" || event.risk.severity === "high",
+    );
+    assert.ok(signalEvents.length >= 6);
+    assert.ok(events.some((event) => event.eventType === "ExposedCredentialDetected"));
+    for (const event of buildSailPointDemoEvents(40)) {
+      incomingEventSchema.parse(event);
+    }
+  });
+
+  it("spaces a 15-minute SailPoint demo into many more than 8 logs", () => {
+    const slow = sequence(0.99);
+    const fast = sequence(0);
+    assert.equal(sailPointDemoDelayMs(sequence(0, 0)), 2_000);
+    assert.equal(sailPointDemoDelayMs(sequence(0.99, 0)), 12_000);
+    assert.ok(sailPointDemoDelayMs(slow) <= 22_000);
+    const quietTicks = countSailPointDemoTicks(SAILPOINT_DEMO_DURATION_MS, () => 0.99);
+    const burstTicks = countSailPointDemoTicks(SAILPOINT_DEMO_DURATION_MS, fast);
+    assert.ok(quietTicks >= 30);
+    assert.ok(burstTicks > quietTicks);
+    assert.equal(SAILPOINT_DEMO_DURATION_MS, 15 * 60 * 1000);
+  });
+
   it("treats an existing Security Inbox rule as ready", async () => {
     process.env.DD_API_KEY = "dd-test-key";
     process.env.DD_APP_KEY = "dd-app-key";
@@ -170,3 +202,12 @@ describe("SAF pipeline", () => {
     }
   });
 });
+
+function sequence(...values: number[]): () => number {
+  let index = 0;
+  return () => {
+    const value = values[Math.min(index, values.length - 1)] ?? 0;
+    index += 1;
+    return value;
+  };
+}

@@ -205,6 +205,76 @@ export function buildFixture(
   };
 }
 
+const DEMO_IDENTITIES = [
+  { id: "idn-alex", name: "alex.morgan" },
+  { id: "idn-jordan", name: "jordan.lee" },
+  { id: "idn-sam", name: "sam.patel" },
+] as const;
+
+const DEMO_AGENTS = [
+  { id: "agent-af-42", name: "CloudOps Navigator" },
+  { id: "agent-policy", name: "Policy Concierge" },
+  { id: "agent-access", name: "Access Broker" },
+] as const;
+
+const DEMO_SEVERITIES = ["critical", "high", "critical", "high", "medium"] as const;
+
+const DEMO_EXPOSURES = ["public-repository", "chat-transcript", "build-log"] as const;
+
+export function buildSailPointDemoEvent(index: number): IncomingEvent {
+  const identity = DEMO_IDENTITIES[index % DEMO_IDENTITIES.length];
+  const agent = DEMO_AGENTS[index % DEMO_AGENTS.length];
+  const severity = DEMO_SEVERITIES[index % DEMO_SEVERITIES.length];
+  if (index % 4 === 3) {
+    return {
+      eventType: "ExposedCredentialDetected",
+      risk: {
+        id: `demo-exposed-${index}`,
+        severity: "critical",
+        status: "Open",
+        title: `${identity.name} credential found in a ${DEMO_EXPOSURES[index % DEMO_EXPOSURES.length]}`,
+      },
+      identity: { ...identity, type: "identity" },
+      agent,
+      credential: {
+        id: `cred-demo-${index}`,
+        type: index % 2 === 0 ? "api-token" : "password",
+        exposure: DEMO_EXPOSURES[index % DEMO_EXPOSURES.length],
+      },
+    };
+  }
+  return {
+    eventType: "RiskStateChanged",
+    risk: {
+      id: `demo-risk-${index}`,
+      severity,
+      status: severity,
+      previousStatus: "low",
+      title: `${agent.name} risk is ${severity}`,
+    },
+    identity: { ...identity, type: "identity" },
+    agent,
+  };
+}
+
+export function buildSailPointDemoEvents(count = 8, startIndex = 0): IncomingEvent[] {
+  return Array.from({ length: count }, (_, offset) => buildSailPointDemoEvent(startIndex + offset));
+}
+
+export async function runSailPointDemoStream(count = 1, startIndex = 0): Promise<StoredEvent[]> {
+  const events: StoredEvent[] = [];
+  for (const payload of buildSailPointDemoEvents(count, startIndex)) {
+    events.push(
+      await ingestSafEvent({
+        payload,
+        source: "simulator",
+        scenario: "sailpoint-demo",
+      }),
+    );
+  }
+  return events;
+}
+
 export async function runFullDemo(): Promise<StoredEvent[]> {
   await resetSafEvents();
   const scenarios = [

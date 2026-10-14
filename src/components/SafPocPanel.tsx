@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { SAILPOINT_DEMO_DURATION_MS, sailPointDemoDelayMs } from "@/lib/saf-poc/demo-stream";
 
 type Check = { label: string; passed: boolean };
 
@@ -112,6 +114,12 @@ export function SafPocPanel({
   const [message, setMessage] = useState<string | null>(null);
   const [scoreView, setScoreView] = useState<ScoreView | null>(null);
   const [error, setError] = useState<string | null>(initialError);
+  const [demo, setDemo] = useState<{ until: number; sent: number } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const demoStop = useRef(false);
+  const demoRunning = useRef(false);
+  const demoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const demoSent = useRef(0);
 
   const load = useCallback(async () => {
     const response = await fetch("/api/saf-poc/state", { cache: "no-store" });
@@ -150,13 +158,90 @@ export function SafPocPanel({
     }
   }
 
+  useEffect(() => {
+    if (!demo) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [demo]);
+
+  useEffect(() => {
+    return () => {
+      demoStop.current = true;
+      if (demoTimer.current !== null) window.clearTimeout(demoTimer.current);
+    };
+  }, []);
+
+  function stopSailPointDemo(reason: "stopped" | "finished" | "failed") {
+    demoStop.current = true;
+    demoRunning.current = false;
+    if (demoTimer.current !== null) {
+      window.clearTimeout(demoTimer.current);
+      demoTimer.current = null;
+    }
+    const sent = demoSent.current;
+    setDemo(null);
+    if (reason === "failed") {
+      setError("SailPoint demo stopped after repeated delivery failures.");
+      return;
+    }
+    setMessage(
+      reason === "stopped"
+        ? `SailPoint demo stopped after ${sent} logs.`
+        : `SailPoint demo finished after 15 minutes. Sent ${sent} logs. Open the SailPoint rule and click View Signals.`,
+    );
+  }
+
+  function startSailPointDemo() {
+    if (demoRunning.current) return;
+    demoRunning.current = true;
+    demoStop.current = false;
+    demoSent.current = 0;
+    const until = Date.now() + SAILPOINT_DEMO_DURATION_MS;
+    let index = 0;
+    let failures = 0;
+    setError(null);
+    setNow(Date.now());
+    setDemo({ until, sent: 0 });
+    setMessage(
+      "SailPoint demo is streaming for 15 minutes. Keep this tab open, then open the SailPoint rule and click View Signals.",
+    );
+
+    const tick = async () => {
+      if (demoStop.current || Date.now() >= until) {
+        stopSailPointDemo(demoStop.current ? "stopped" : "finished");
+        return;
+      }
+      try {
+        const payload = await post("/api/saf-poc/demo-stream", { index });
+        failures = 0;
+        index += 1;
+        demoSent.current += typeof payload.sent === "number" ? payload.sent : 1;
+        if (!demoStop.current) setDemo({ until, sent: demoSent.current });
+      } catch (actionError) {
+        failures += 1;
+        setError(actionError instanceof Error ? actionError.message : "Request failed.");
+        if (failures >= 3) {
+          stopSailPointDemo("failed");
+          return;
+        }
+      }
+      if (demoStop.current || Date.now() >= until) {
+        stopSailPointDemo(demoStop.current ? "stopped" : "finished");
+        return;
+      }
+      demoTimer.current = setTimeout(() => void tick(), sailPointDemoDelayMs());
+    };
+
+    void tick();
+  }
+
   async function post(path: string, body?: unknown) {
     const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body ?? {}),
     });
-    const payload = (await response.json()) as { error?: string; state?: SafState };
+    const payload = (await response.json()) as { error?: string; state?: SafState; sent?: number };
     if (!response.ok) {
       throw new Error(payload.error ?? `Request failed (${response.status}).`);
     }
@@ -538,6 +623,16 @@ export function SafPocPanel({
           ))}
           <button
             type="button"
+            disabled={demo === null && busy !== null}
+            onClick={() => (demo ? stopSailPointDemo("stopped") : startSailPointDemo())}
+            className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+          >
+            {demo
+              ? `Stop demo · ${formatRemaining(demo.until - now)} · ${demo.sent} sent`
+              : "SailPoint demo"}
+          </button>
+          <button
+            type="button"
             disabled={busy !== null}
             onClick={() => void run("reset", () => post("/api/saf-poc/reset").then(() => undefined))}
             className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 dark:border-red-900 dark:text-red-300"
@@ -573,6 +668,13 @@ export function SafPocPanel({
 
     </div>
   );
+}
+
+function formatRemaining(ms: number): string {
+  const seconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `${minutes}:${rest.toString().padStart(2, "0")}`;
 }
 
 function labelLevel(value: string): string {
