@@ -126,7 +126,7 @@ describe("SAF pipeline", () => {
       });
       assert.equal(stored.delivery.status, "delivered");
       assert.match(stored.delivery.detail, /Security Inbox rule is ready/);
-      const listed = calls.find((call) => call.url.endsWith("/security_monitoring/rules"));
+      const listed = calls.find((call) => call.url.includes("/security_monitoring/rules?page"));
       const created = calls.find(
         (call) => call.url.endsWith("/security_monitoring/rules") && call.method === "POST",
       );
@@ -188,6 +188,54 @@ describe("SAF pipeline", () => {
     assert.ok(quietTicks >= 30);
     assert.ok(burstTicks > quietTicks);
     assert.equal(SAILPOINT_DEMO_DURATION_MS, 15 * 60 * 1000);
+  });
+
+  it("finds the SailPoint rule past the first page and updates its message", async () => {
+    process.env.DD_API_KEY = "dd-test-key";
+    process.env.DD_APP_KEY = "dd-app-key";
+    const original = globalThis.fetch;
+    const calls: Array<{ url: string; method: string; body: string }> = [];
+    const filler = Array.from({ length: 100 }, (_, index) => ({
+      id: `other-${index}`,
+      attributes: { name: `CloudTrail rule ${index}`, version: 1 },
+    }));
+    globalThis.fetch = async (url, init) => {
+      const target = String(url);
+      const method = init?.method ?? "GET";
+      calls.push({ url: target, method, body: String(init?.body ?? "") });
+      if (target.includes("page[number]=0")) {
+        return new Response(JSON.stringify({ data: filler }), { status: 200 });
+      }
+      if (target.includes("page[number]=1")) {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "q4-rg6-1rh",
+                attributes: { name: "Critical Risk Detected by SailPoint Agentic Fabric", version: 3 },
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    };
+    try {
+      await ingestSafEvent({
+        payload: buildFixture("critical-escalation"),
+        source: "simulator",
+        scenario: "critical-escalation",
+      });
+      const updated = calls.find((call) => call.method === "PUT");
+      assert.ok(updated?.url.endsWith("/security_monitoring/rules/q4-rg6-1rh"));
+      assert.match(updated?.body ?? "", /Open affected agent in SailPoint/);
+      assert.match(updated?.body ?? "", /"version":3/);
+      assert.doesNotMatch(updated?.body ?? "", /"type":/);
+      assert.equal(calls.some((call) => call.method === "POST" && call.url.includes("/rules")), false);
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 
   it("treats an existing Security Inbox rule as ready", async () => {

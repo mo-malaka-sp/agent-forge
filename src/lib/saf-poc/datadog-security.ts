@@ -113,19 +113,18 @@ async function createOrUpdateRule(
     "DD-API-KEY": config.datadogApiKey,
     "DD-APPLICATION-KEY": config.datadogAppKey,
   };
-  const listed = await fetchImpl(`${api}/api/v2/security_monitoring/rules`, { headers });
-  const listedText = await listed.text();
-  if (!listed.ok) {
-    throw new Error(listedText.slice(0, 300) || listed.statusText);
-  }
-  const existing = rulesFrom(parseJson(listedText)).find((rule) => rule.name === SIGNAL_TITLE);
+  const existing = await findRule(api, headers, fetchImpl);
   const url = existing?.id
     ? `${api}/api/v2/security_monitoring/rules/${existing.id}`
     : `${api}/api/v2/security_monitoring/rules`;
+  const body = ruleBody(existing?.version);
+  if (existing?.id) {
+    delete body.type;
+  }
   const saved = await fetchImpl(url, {
     method: existing?.id ? "PUT" : "POST",
     headers,
-    body: JSON.stringify(ruleBody(existing?.version)),
+    body: JSON.stringify(body),
   });
   if (!saved.ok) {
     const detail = (await saved.text()).slice(0, 300);
@@ -135,6 +134,32 @@ async function createOrUpdateRule(
     throw new Error(detail || saved.statusText);
   }
   return "Security Inbox rule is ready.";
+}
+
+const RULE_PAGE_SIZE = 100;
+const RULE_PAGE_LIMIT = 20;
+
+async function findRule(
+  api: string,
+  headers: Record<string, string>,
+  fetchImpl: typeof fetch,
+): Promise<{ id?: string; name?: string; version?: number } | undefined> {
+  for (let page = 0; page < RULE_PAGE_LIMIT; page += 1) {
+    const listed = await fetchImpl(
+      `${api}/api/v2/security_monitoring/rules?page[size]=${RULE_PAGE_SIZE}&page[number]=${page}`,
+      { headers },
+    );
+    const listedText = await listed.text();
+    if (!listed.ok) {
+      throw new Error(listedText.slice(0, 300) || listed.statusText);
+    }
+    const rules = rulesFrom(parseJson(listedText));
+    const match = rules.find((rule) => rule.name === SIGNAL_TITLE);
+    if (match || rules.length < RULE_PAGE_SIZE) {
+      return match;
+    }
+  }
+  return undefined;
 }
 
 function parseJson(value: string): unknown {
