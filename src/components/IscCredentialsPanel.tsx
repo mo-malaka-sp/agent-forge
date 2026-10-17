@@ -23,10 +23,12 @@ interface CredentialsView {
 
 interface IscCredentialsPanelProps {
   onCredentialsChange?: () => void;
+  embedded?: boolean;
 }
 
 export function IscCredentialsPanel({
   onCredentialsChange,
+  embedded = false,
 }: IscCredentialsPanelProps) {
   const [view, setView] = useState<CredentialsView | null>(null);
   const [tenantUrl, setTenantUrl] = useState("");
@@ -121,11 +123,19 @@ export function IscCredentialsPanel({
   }
 
   return (
-    <section className="space-y-3 rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-950">
+    <section
+      className={
+        embedded
+          ? "space-y-3"
+          : "space-y-3 rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-950"
+      }
+    >
       <div>
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-          ISC tenant connection
-        </h2>
+        {embedded ? null : (
+          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            ISC tenant connection
+          </h2>
+        )}
         <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
           Connect AgentForge to your target ISC tenant. Paste your tenant URL
           from the browser address bar, then add a{" "}

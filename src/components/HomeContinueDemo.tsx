@@ -13,7 +13,10 @@ export function HomeContinueDemo() {
   const [summary, setSummary] = useState<DemoProgressSummary | null>(null);
 
   useEffect(() => {
-    setSummary(summarizeDemoProgress(loadDemoProgress()));
+    const frame = window.requestAnimationFrame(() => {
+      setSummary(summarizeDemoProgress(loadDemoProgress()));
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   if (!summary) {
@@ -23,20 +26,22 @@ export function HomeContinueDemo() {
   return (
     <Link
       href={summary.continueHref}
-      className="group block rounded-lg border border-indigo-300 bg-indigo-50 p-5 transition hover:border-indigo-400 hover:shadow-sm dark:border-indigo-800 dark:bg-indigo-950/40 dark:hover:border-indigo-700"
+      className="home-continue"
     >
-      <p className="text-xs font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
-        Pick up where you left off
-      </p>
-      <h2 className="mt-1 text-base font-semibold text-zinc-900 dark:text-zinc-100">
-        {summary.label}
-      </h2>
-      <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        {summary.detail}
-      </p>
-      <p className="mt-3 text-sm font-medium text-indigo-700 group-hover:text-indigo-800 dark:text-indigo-300 dark:group-hover:text-indigo-200">
-        Continue demo →
-      </p>
+      <span className="home-continue__icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M8 5v14l11-7L8 5Z" />
+        </svg>
+      </span>
+      <span className="home-continue__content">
+        <span className="home-continue__eyebrow">Pick up where you left off</span>
+        <strong>{summary.label}</strong>
+        <span>{summary.detail}</span>
+      </span>
+      <span className="home-continue__cta">
+        Continue
+        <span aria-hidden="true">→</span>
+      </span>
     </Link>
   );
 }

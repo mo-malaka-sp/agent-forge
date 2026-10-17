@@ -1,5 +1,5 @@
 interface DemoPhaseHeaderProps {
-  phase: number;
+  phase?: number;
   title: string;
   description: string;
   optional?: boolean;
@@ -13,9 +13,11 @@ export function DemoPhaseHeader({
 }: DemoPhaseHeaderProps) {
   return (
     <div className="flex items-start gap-3">
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900">
-        {phase}
-      </span>
+      {typeof phase === "number" ? (
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-semibold text-white dark:bg-zinc-100 dark:text-zinc-900">
+          {phase}
+        </span>
+      ) : null}
       <div className="min-w-0 flex-1 space-y-0.5">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">

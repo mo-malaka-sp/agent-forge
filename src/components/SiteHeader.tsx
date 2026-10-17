@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { SiteNav } from "@/components/SiteNav";
+import { SignOutButton } from "@/components/SignOutButton";
 
 export function SiteHeader() {
   return (
@@ -25,10 +25,12 @@ export function SiteHeader() {
             </p>
           </div>
         </Link>
-        <SiteNav />
-        <span className="brand-header__badge">
-          <span className="brand-header__badge-dot" aria-hidden="true" />
-          Agentic Fabric
+        <span className="brand-header__actions">
+          <span className="brand-header__badge">
+            <span className="brand-header__badge-dot" aria-hidden="true" />
+            Agentic Fabric
+          </span>
+          <SignOutButton />
         </span>
       </div>
     </header>

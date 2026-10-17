@@ -314,7 +314,6 @@ export function DemoOrchestratorPanel() {
   const [preflightRefreshKey, setPreflightRefreshKey] = useState(0);
   const [resettingDemo, setResettingDemo] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
-  const [iscSetupOpen, setIscSetupOpen] = useState(true);
   const [bootstrapOpen, setBootstrapOpen] = useState(false);
 
   const refreshIscStatus = useCallback(() => {
@@ -357,12 +356,6 @@ export function DemoOrchestratorPanel() {
       setPreflightRefreshKey((current) => current + 1);
     }
   }, [refreshIscStatus]);
-
-  useEffect(() => {
-    if (iscStatus?.credentialsConfigured) {
-      setIscSetupOpen(false);
-    }
-  }, [iscStatus?.credentialsConfigured]);
 
   useEffect(() => {
     const phase = searchParams.get("phase");
@@ -1017,63 +1010,28 @@ export function DemoOrchestratorPanel() {
   const completedCount = activeSteps.filter(
     (step) => stepStatus[step]?.status === "success",
   ).length;
+  const phase = searchParams.get("phase");
+  const setupView = phase === "setup" || phase === "connect" || phase === "bootstrap";
 
   return (
     <div className="space-y-8">
-      <section className="space-y-3">
+      {setupView ? (
+      <>
+      <section id="connect" className="scroll-mt-28 space-y-3">
         <DemoPhaseHeader
           phase={1}
           title="Connect to ISC"
-          description="Save tenant credentials once. Source IDs come after bootstrap import (phase 2)."
+          description="Save tenant credentials once. Source IDs come after bootstrap import."
         />
-        <details
-          open={iscSetupOpen}
-          onToggle={(event) =>
-            setIscSetupOpen((event.target as HTMLDetailsElement).open)
-          }
-          className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950"
-        >
-          <summary className="cursor-pointer list-none px-4 py-3 [&::-webkit-details-marker]:hidden">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                  ISC tenant connection
-                </p>
-                <p className="text-xs text-zinc-500">
-                  {iscCredentialsReady ? (
-                    <>
-                      Connected ·{" "}
-                      <span className="font-mono">
-                        {iscStatus?.tenantUrl ?? iscStatus?.tenant}
-                      </span>
-                      {iscStatus?.credentialSource === "ui"
-                        ? " (saved)"
-                        : iscStatus?.credentialSource === "session"
-                          ? " (browser session)"
-                          : null}
-                    </>
-                  ) : (
-                    "Tenant URL, Client ID, and secret"
-                  )}
-                </p>
-              </div>
-              <span className="text-xs text-zinc-400">
-                {iscSetupOpen ? "Collapse" : "Expand"}
-              </span>
-            </div>
-          </summary>
-          <div className="border-t border-zinc-200 px-4 pb-4 pt-3 dark:border-zinc-700">
-            <IscCredentialsPanel
-              onCredentialsChange={() => {
-                refreshIscStatus();
-                bumpPreflightRefresh();
-              }}
-            />
-          </div>
-        </details>
+        <IscCredentialsPanel
+          onCredentialsChange={() => {
+            refreshIscStatus();
+            bumpPreflightRefresh();
+          }}
+        />
       </section>
 
-      <section className="space-y-3">
+      <section id="bootstrap" className="scroll-mt-28 space-y-3">
         <DemoPhaseHeader
           phase={2}
           title="Bootstrap tenant"
@@ -1133,17 +1091,22 @@ export function DemoOrchestratorPanel() {
           </a>
         </p>
       </section>
+      </>
+      ) : null}
 
+      {setupView ? null : (
       <section className="space-y-4">
         <DemoPhaseHeader
-          phase={3}
-          title="Run demo"
-          description="Prepare agents, sync to ISC, and run govern + enforce. Source IDs are registered in bootstrap step 3."
+          title="Run Demo"
+          description="Prepare agents, sync to ISC, and run govern + enforce. Source IDs are registered during tenant setup."
         />
         {!platformSourceConfigured ? (
           <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
             Register and verify source IDs in{" "}
-            <strong>Bootstrap → step 3</strong> before running ISC sync steps.
+            <a href="/demo?phase=setup" className="font-medium underline underline-offset-2">
+              tenant setup
+            </a>{" "}
+            before running ISC sync steps.
           </p>
         ) : (
           <p className="rounded-md border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
@@ -1332,6 +1295,7 @@ export function DemoOrchestratorPanel() {
       )}
         </div>
       </section>
+      )}
     </div>
   );
 }
