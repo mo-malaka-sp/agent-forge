@@ -87,6 +87,7 @@ type AgentOption = {
 };
 
 type SafPocPanelProps = {
+  section: "caep" | "datadog";
   initialState: SafState | null;
   initialError: string | null;
   agents: AgentOption[];
@@ -96,6 +97,7 @@ type SafPocPanelProps = {
 const RISK_LEVELS = ["Low", "Medium", "High", "Critical"];
 
 export function SafPocPanel({
+  section,
   initialState,
   initialError,
   agents,
@@ -262,10 +264,13 @@ export function SafPocPanel({
               {state?.tenant ? `Tenant ${state.tenant}` : "Tenant not configured"}
             </p>
             <p className="text-xs text-zinc-500">
-              Datadog mode: {state?.mode ?? "…"} · CAEP receiver:{" "}
-              {state?.transmitter.streamRegistered
-                ? state.transmitter.streamStatus
-                : "not registered"}
+              {section === "caep"
+                ? `CAEP receiver: ${
+                    state?.transmitter.streamRegistered
+                      ? state.transmitter.streamStatus
+                      : "not registered"
+                  }`
+                : `Datadog mode: ${state?.mode ?? "…"}`}
             </p>
           </div>
           <button
@@ -300,12 +305,13 @@ export function SafPocPanel({
         </p>
       ) : null}
 
+      {section === "caep" ? (
       <section
         id="risk-response"
         className="space-y-4 scroll-mt-28 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950"
       >
         <div>
-          <h2 className="text-base font-semibold">Test 1 — CAEP event bus</h2>
+          <h2 className="text-base font-semibold">CAEP event bus</h2>
           <p className="mt-1 text-xs text-zinc-500">
             Signed CAEP risk event → Test1POC receiver → workflow email.
           </p>
@@ -556,13 +562,13 @@ export function SafPocPanel({
           <p className="mt-2">Open issue: step 3 has not fired yet.</p>
         </div>
       </section>
-
+      ) : (
       <section
         id="security-signals"
         className="scroll-mt-28 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950"
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-base font-semibold">Test 2 — Datadog</h2>
+          <h2 className="text-base font-semibold">Datadog Security Signals</h2>
           <Endpoint label="Webhook" value={state?.webhookUrl ?? ""} />
         </div>
         <p className="mt-2 text-xs text-zinc-500">
@@ -650,7 +656,9 @@ export function SafPocPanel({
           <Checks title={state?.evidence.testCase2.title} checks={state?.evidence.testCase2.checks} />
         </div>
       </section>
+      )}
 
+      {section === "datadog" ? (
       <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
         <h2 className="text-sm font-semibold">Recent events</h2>
         <ul className="mt-2 space-y-2">
@@ -671,6 +679,7 @@ export function SafPocPanel({
           ) : null}
         </ul>
       </section>
+      ) : null}
 
     </div>
   );

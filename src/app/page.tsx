@@ -27,26 +27,26 @@ const PATHS = [
     accent: "cobalt",
   },
   {
-    href: "/saf-poc#risk-response",
+    href: "/saf-poc?section=caep",
     step: "03",
     eyebrow: "Protect",
-    title: "Automate Risk Response",
+    title: "CAEP Event Bus",
     description:
-      "Send CAEP risk changes into SailPoint and prove the workflow response with an email.",
-    cta: "Test risk workflow",
+      "Send a signed CAEP risk event into SailPoint and confirm the workflow email.",
+    cta: "Open event bus",
     icon: "automate",
     accent: "pink",
   },
   {
-    href: "/saf-poc#security-signals",
+    href: "/saf-poc?section=datadog",
     step: "04",
     eyebrow: "Protect",
-    title: "Investigate Security Signals",
+    title: "Datadog Security Signals",
     description:
-      "Forward agent risk to Datadog, open security signals, and link back to the agent in SailPoint.",
-    cta: "Open signal lab",
+      "Stream agent risk into Datadog and open the signals that link back to SailPoint.",
+    cta: "Open security signals",
     icon: "detect",
-    accent: "pink",
+    accent: "green",
   },
 ] as const;
 

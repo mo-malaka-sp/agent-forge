@@ -738,6 +738,11 @@ select {
   --card-tint: rgba(214, 13, 181, 0.08);
 }
 
+.home-feature-card--green {
+  --card-accent: #5a8a00;
+  --card-tint: var(--brand-neon-green-tint);
+}
+
 .home-feature-card__top {
   position: relative;
   display: flex;
