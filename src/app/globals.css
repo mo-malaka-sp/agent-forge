@@ -897,6 +897,27 @@ a.rounded-md:active {
   transform: translateY(1px);
 }
 
+a.datadog-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: #632ca6;
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(99, 44, 166, 0.35);
+}
+
+a.datadog-link:hover {
+  background: #53248c;
+  color: #ffffff;
+}
+
+a.datadog-link svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
 button.bg-zinc-900,
 a.bg-zinc-900 {
   border-color: var(--brand-cobalt) !important;
