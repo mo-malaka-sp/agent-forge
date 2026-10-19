@@ -84,7 +84,7 @@ describe("SailPoint Test 1 setup", () => {
     const created = JSON.parse(createCall?.body ?? "{}") as {
       name: string;
       definition: {
-        steps: { "Send Email": { attributes: { subject: string } } };
+        steps: { "Send Email": { attributes: { subject: string; body: string } } };
       };
       trigger: { attributes: { id: string; "filter.$"?: string } };
     };
@@ -99,10 +99,11 @@ describe("SailPoint Test 1 setup", () => {
     );
     assert.equal(created.trigger.attributes.id, "idn:caep-risk-level-change-events");
     assert.equal(created.trigger.attributes["filter.$"], undefined);
-    assert.match(
-      JSON.parse(createCall?.body ?? "{}").definition.steps["Send Email"].attributes.body,
-      /previous_level/,
-    );
+    const emailBody = created.definition.steps["Send Email"].attributes.body as string;
+    assert.match(emailBody, /previous_level/);
+    assert.match(emailBody, /current_level/);
+    assert.match(emailBody, /risk_reason/);
+    assert.doesNotMatch(emailBody, /correlatedID/);
     assert.equal(enableCall?.contentType, "application/json-patch+json");
     assert.equal(result.subscription?.id, "sub-1");
     assert.equal(

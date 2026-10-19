@@ -1,5 +1,5 @@
 import { safError, safJson, safPocResponse } from "@/lib/saf-poc/http";
-import { changeAgentRisk } from "@/lib/saf-poc/risk";
+import { AGENT_CONDITION_UNAVAILABLE, changeAgentRisk } from "@/lib/saf-poc/risk";
 import { resolveBaseUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
@@ -14,7 +14,17 @@ export async function POST(request: Request) {
       identityEmail?: string;
       transmit?: boolean;
       ingest?: boolean;
+      mode?: "test-event" | "agent-condition";
     };
+    if (body.mode === "agent-condition") {
+      await changeAgentRisk({
+        mode: "agent-condition",
+        agentId: body.agentId ?? "",
+        riskLevel: body.riskLevel ?? "",
+        publicUrl: resolveBaseUrl(request.headers),
+      });
+      return safJson({ error: AGENT_CONDITION_UNAVAILABLE }, 400);
+    }
     if (!body.agentId?.trim() || !body.riskLevel?.trim()) {
       return safJson({ error: "agentId and riskLevel are required." }, 400);
     }

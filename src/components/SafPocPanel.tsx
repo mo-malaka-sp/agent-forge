@@ -110,6 +110,7 @@ export function SafPocPanel({
   const [agentsError, setAgentsError] = useState(initialAgentsError);
   const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
   const [riskLevel, setRiskLevel] = useState(agents[0]?.riskLevel || "Low");
+  const [approach, setApproach] = useState<"test-event" | "agent-condition">("test-event");
   const [identityEmail, setIdentityEmail] = useState(
     usableEmail(agents[0]?.ownerEmail) || initialState?.notifyEmail || "",
   );
@@ -395,10 +396,10 @@ export function SafPocPanel({
                     ).setup;
                     setMessage(
                       setup?.created
-                        ? "Workflow created. Test email sent. It bypasses the event bus."
+                        ? "Workflow created with the current email text. Test email sent. It bypasses the event bus. Mail already received stays unchanged."
                         : setup?.repaired
-                          ? "Workflow updated. Test email sent. It bypasses the event bus."
-                          : "Workflow is already set up. Test email sent. It bypasses the event bus.",
+                          ? "Workflow email text was updated. Test email sent. It bypasses the event bus. Mail already received stays unchanged."
+                          : "Workflow email text is already current. Test email sent. It bypasses the event bus. Mail already received stays unchanged.",
                     );
                   })
                 }
@@ -440,9 +441,42 @@ export function SafPocPanel({
 
           <div className="space-y-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
             <h3 className="text-sm font-medium">Send CAEP event</h3>
-            <p className="text-xs text-zinc-500">
-              Does not change Agent Risk Severity. The Risk Engine sets that band from weighted signals.
-            </p>
+            <fieldset className="space-y-1 text-xs">
+              <legend className="font-medium text-zinc-700 dark:text-zinc-200">Approach</legend>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="caep-approach"
+                  checked={approach === "test-event"}
+                  onChange={() => setApproach("test-event")}
+                />
+                Test the event bus
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="caep-approach"
+                  checked={approach === "agent-condition"}
+                  onChange={() => {
+                    setApproach("agent-condition");
+                    setScoreView(null);
+                  }}
+                />
+                Change a real agent condition
+              </label>
+            </fieldset>
+            {approach === "agent-condition" ? (
+              <p className="text-xs text-zinc-500">
+                The Risk Engine recalculates only after a supported signal. AgentForge has no
+                producer for one yet, so this choice does not send a CAEP event and does not set
+                a severity.
+              </p>
+            ) : (
+              <p className="text-xs text-zinc-500">
+                Does not change Agent Risk Severity. The Risk Engine sets that band from weighted
+                signals.
+              </p>
+            )}
             <label className="block text-xs">
               Agent
               <select
@@ -476,6 +510,8 @@ export function SafPocPanel({
             {agentsError ? (
               <p className="text-xs text-red-700 dark:text-red-300">{agentsError}</p>
             ) : null}
+            {approach === "test-event" ? (
+              <>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-xs">
                 Risk level
@@ -506,6 +542,7 @@ export function SafPocPanel({
                 void run("risk", async () => {
                   const selected = agentOptions.find((agent) => agent.id === agentId);
                   const payload = await post("/api/saf-poc/risk", {
+                    mode: "test-event",
                     agentId,
                     agentName: selected?.name,
                     riskLevel,
@@ -565,6 +602,8 @@ export function SafPocPanel({
                 {scoreView.eventId ? <p>Event ID: {scoreView.eventId}</p> : null}
                 <p>Agent Risk Severity: {scoreView.calculatedSeverity}. This event does not change it.</p>
               </div>
+            ) : null}
+              </>
             ) : null}
           </div>
         </div>

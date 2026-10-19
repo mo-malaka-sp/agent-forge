@@ -12,6 +12,9 @@ import type { StoredEvent } from "@/lib/saf-poc/types";
 
 const LEVELS = new Set(["low", "medium", "high", "critical"]);
 
+export const AGENT_CONDITION_UNAVAILABLE =
+  "AgentForge cannot change this agent's Risk Engine signals yet. No event was sent.";
+
 export async function changeAgentRisk(input: {
   agentId: string;
   agentName?: string;
@@ -21,6 +24,7 @@ export async function changeAgentRisk(input: {
   publicUrl: string;
   transmit?: boolean;
   ingest?: boolean;
+  mode?: "test-event" | "agent-condition";
 }): Promise<{
   agentId: string;
   agentName: string;
@@ -35,6 +39,9 @@ export async function changeAgentRisk(input: {
   caep: { deliveries: DeliveryReport[] } | null;
   event: StoredEvent | null;
 }> {
+  if (input.mode === "agent-condition") {
+    throw new Error(AGENT_CONDITION_UNAVAILABLE);
+  }
   const agentId = input.agentId.trim();
   if (!agentId) {
     throw new Error("Select an agent from the tenant.");
