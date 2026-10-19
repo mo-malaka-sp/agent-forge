@@ -13,8 +13,9 @@ const RISK_EVENT =
 export const CAEP_EMAIL_SUBJECT =
   `{{$.trigger.identityAttributes.name}}: risk {{${RISK_EVENT}.previous_level}} to {{${RISK_EVENT}.current_level}}`;
 const RISK_EMAIL_BODY = [
-  "<p><strong>{{$.trigger.identityAttributes.name}}</strong> ({{$.trigger.correlatedID.value}}) had a CAEP risk-level change.</p>",
-  `<p>Previous level: {{${RISK_EVENT}.previous_level}}<br>`,
+  "<p><strong>{{$.trigger.identityAttributes.name}}</strong> had a CAEP risk-level change.</p>",
+  `<p>Email: {{${RISK_EVENT}.subject.email}}<br>`,
+  `Previous level: {{${RISK_EVENT}.previous_level}}<br>`,
   `Current level: {{${RISK_EVENT}.current_level}}<br>`,
   `Reason: {{${RISK_EVENT}.risk_reason}}</p>`,
   "<p>SailPoint correlated the event and started this workflow.</p>",
@@ -265,6 +266,7 @@ export function buildWorkflowTestInput(
       sub_id: { format: "complex", user: { format: "email", email }, email },
       events: {
         [RISK_LEVEL_CHANGE_EVENT]: {
+          subject: { format: "email", email },
           current_level: "HIGH",
           previous_level: "LOW",
           event_timestamp: 1615304991,
