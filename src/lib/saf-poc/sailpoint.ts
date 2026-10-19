@@ -9,7 +9,8 @@ export const TRIGGER_SUBSCRIPTIONS_PATH = "/trigger-subscriptions/v1";
 const RISK_LEVEL_CHANGE_TRIGGER_ID = "idn:caep-risk-level-change-events";
 const RISK_LEVEL_CHANGE_EVENT =
   "https://schemas.openid.net/secevent/caep/event-type/risk-level-change";
-const RISK_LEVEL_CHANGE_FILTER = `$.ssfEvent.events["${RISK_LEVEL_CHANGE_EVENT}"]`;
+const RISK_EMAIL_BODY =
+  "<p>SailPoint correlated a CAEP risk-level change for {{$.trigger.identityAttributes.name}} ({{$.trigger.correlatedID.value}}).</p><p>The event bus started this workflow.</p>";
 
 export class SailPointApiError extends Error {
   readonly status: number;
@@ -164,7 +165,7 @@ export function buildWorkflowBody(input: {
           attributes: {
             recipientEmailList: [input.email],
             subject: NOTIFICATION_SUBJECT,
-            body: "<p>The Agentic Fabric event bus fired the verification workflow.</p>",
+            body: RISK_EMAIL_BODY,
             context: {},
           },
           nextStep: "success",
@@ -177,10 +178,6 @@ export function buildWorkflowBody(input: {
       type: input.trigger.type,
       attributes: {
         id: input.trigger.id,
-        ...(input.trigger.id === RISK_LEVEL_CHANGE_TRIGGER_ID ||
-        input.trigger.name === "CAEP Risk Level Change Events"
-          ? { "filter.$": RISK_LEVEL_CHANGE_FILTER }
-          : {}),
       },
     },
   };

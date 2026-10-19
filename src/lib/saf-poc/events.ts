@@ -15,7 +15,7 @@ import {
 } from "@/lib/saf-poc/types";
 
 export const NOTIFICATION_SUBJECT =
-  "[POC-SUCCESS] SAF Agentic Event Bus Triggered";
+  "CAEP risk change for {{$.trigger.identityAttributes.name}}";
 export { DETECTION_QUERY, SIGNAL_TITLE };
 const EVENT_PREFIX = "EVENT#";
 

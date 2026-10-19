@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CodeBuild runner and state for AgentForge environment preparation
+
+Parameters:
+  TableName:
+    Type: String
+    Default: agentforge-environments
+  ProjectName:
+    Type: String
+    Default: agentforge-environment-runner
+  ArtifactBucketName:
+    Type: String
+    Default: ""
+  AmplifyComputeRoleName:
+    Type: String
+    Default: ""
+
+Conditions:
+  AttachComputePolicy: !Not [!Equals [!Ref AmplifyComputeRoleName, ""]]
+  CreateBucket: !Equals [!Ref ArtifactBucketName, ""]
+
+Resources:
+  EnvironmentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref TableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Condition: CreateBucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  RunnerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AgentForgeEnvironmentRunner
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                Resource: !GetAtt EnvironmentTable.Arn
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: arn:aws:iam::*:role/*
+                Condition:
+                  StringEquals:
+                    iam:ResourceTag/agentforge: environment
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    secretsmanager:ResourceTag/agentforge: environment
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource: !Sub
+                  - ${BucketArn}/agentforge/*
+                  - BucketArn: !If [CreateBucket, !GetAtt ArtifactBucket.Arn, !Sub "arn:aws:s3:::${ArtifactBucketName}"]
+
+  EnvironmentProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref ProjectName
+      Description: Prepare an AWS environment and configure its ISC AgentCore datasets
+      ServiceRole: !GetAtt RunnerRole.Arn
+      TimeoutInMinutes: 120
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:7.0
+      Source:
+        Type: S3
+        Location: !Sub
+          - ${Bucket}/agentforge/environment-runner.zip
+          - Bucket: !If [CreateBucket, !Ref ArtifactBucket, !Ref ArtifactBucketName]
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              commands:
+                - curl -LsSf https://astral.sh/uv/install.sh | sh
+                - export PATH="$HOME/.local/bin:$PATH"
+                - npm ci
+            build:
+              commands:
+                - export PATH="$HOME/.local/bin:$PATH"
+                - node --import ./test/register.mjs --experimental-strip-types scripts/run-environment-job.ts
+
+  AmplifyComputePolicy:
+    Type: AWS::IAM::Policy
+    Condition: AttachComputePolicy
+    Properties:
+      PolicyName: AgentForgeEnvironmentPreparation
+      Roles:
+        - !Ref AmplifyComputeRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:PutItem
+              - dynamodb:Query
+            Resource: !GetAtt EnvironmentTable.Arn
+          - Effect: Allow
+            Action:
+              - codebuild:StartBuild
+              - codebuild:BatchGetBuilds
+            Resource: !GetAtt EnvironmentProject.Arn
+
+Outputs:
+  TableName:
+    Value: !Ref EnvironmentTable
+  ProjectName:
+    Value: !Ref EnvironmentProject
+  ProjectArn:
+    Value: !GetAtt EnvironmentProject.Arn

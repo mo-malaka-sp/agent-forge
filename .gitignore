@@ -20,6 +20,11 @@
 # production
 /build
 
+# python
+__pycache__/
+*.py[cod]
+.venv/
+
 # misc
 .DS_Store
 *.pem
@@ -39,6 +44,7 @@ yarn-error.log*
 
 # database
 /data/
+.environment-runner/
 
 # ISC raw sp-config exports (may contain tenant secrets)
 /config/isc/exports/*.json

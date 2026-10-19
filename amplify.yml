@@ -11,6 +11,7 @@ frontend:
         # https://docs.aws.amazon.com/amplify/latest/userguide/ssr-environment-variables.html
         - env | grep -e '^ISC_' >> .env.production || true
         - env | grep -e '^AGENTFORGE_' >> .env.production || true
+        - env | grep -e '^ENVIRONMENT_' >> .env.production || true
         - env | grep -e '^SAF_' >> .env.production || true
         - env | grep -e '^SSF_' >> .env.production || true
         - env | grep -e '^DD_' >> .env.production || true

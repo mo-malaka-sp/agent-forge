@@ -5,13 +5,13 @@ import { getIscPublicStatus } from "@/lib/isc/config";
 
 const PATHS = [
   {
-    href: "/agents",
+    href: "/environments",
     step: "01",
     eyebrow: "Discover",
-    title: "Build Demo Agents",
+    title: "Connect Agent Environments",
     description:
-      "Create, bulk seed, and inspect synthetic agents with realistic inbound and outbound access.",
-    cta: "Manage agents",
+      "Connect an existing AWS account or create the FinBot demo, then discover the agents in ISC.",
+    cta: "Connect an environment",
     icon: "build",
     accent: "aqua",
   },

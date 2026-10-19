@@ -348,7 +348,7 @@ export function SafPocPanel({
             }
             passed={Boolean(scoreView?.accepted)}
           >
-            Send the event, then check Test1POC and your inbox.
+            The receiver correlates it, the workflow runs, and the email arrives.
           </StoryStep>
         </div>
 
@@ -389,13 +389,15 @@ export function SafPocPanel({
                 disabled={busy !== null}
                 onClick={() =>
                   void run("setup", async () => {
-                    await post("/api/saf-poc/setup-test1", { sendTest: true });
-                    setMessage("Workflow saved. Test email sent (bypasses the event bus).");
+                    await post("/api/saf-poc/setup-test1", { sendTest: false });
+                    setMessage(
+                      "Workflow saved with an empty trigger filter. Send a CAEP event to receive the email.",
+                    );
                   })
                 }
                 className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
               >
-                {busy === "setup" ? "Preparing…" : "Set up workflow + test email"}
+                {busy === "setup" ? "Saving…" : "Repair workflow"}
               </button>
             </div>
             {token ? (
@@ -420,8 +422,10 @@ export function SafPocPanel({
                     ? `${state.workflow.subscription.enabled ? "enabled" : "disabled"} · ${state.workflow.subscription.id}`
                     : "not returned yet"}
                 </p>
-                {state.workflow.testExecutionId ? (
-                  <p>Test run: {state.workflow.testExecutionId}</p>
+                {state.workflow.subscription?.filter ? (
+                  <p className="text-amber-700 dark:text-amber-300">
+                    The trigger filter is set. Repair the workflow so live events can start it.
+                  </p>
                 ) : null}
               </div>
             ) : null}
@@ -530,9 +534,11 @@ export function SafPocPanel({
                     deliveryStatus: delivery?.status ?? null,
                   });
                   setMessage(
-                    delivery
-                      ? `${delivery.detail}${delivery.jti ? ` Event ID ${delivery.jti}.` : ""}`
-                      : result?.riskUpdate || "CAEP signal sent.",
+                    delivery?.accepted
+                      ? `Receiver accepted event ${delivery.jti || ""}. Test1POC should show Correlated, then the workflow emails ${identityEmail}.`
+                      : delivery
+                        ? delivery.detail
+                        : result?.riskUpdate || "CAEP signal sent.",
                   );
                 })
               }
@@ -554,14 +560,13 @@ export function SafPocPanel({
           </div>
         </div>
 
-        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
-          <p className="font-medium">Passes when</p>
+        <div className="rounded-md border border-zinc-200 p-3 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
+          <p className="font-medium text-zinc-900 dark:text-zinc-100">After you send</p>
           <ol className="mt-1 list-decimal space-y-1 pl-4">
-            <li>The receiver accepts the event.</li>
-            <li>Test1POC shows it as Correlated.</li>
-            <li>The workflow email arrives.</li>
+            <li>Test1POC shows the new row as Correlated for the subject email.</li>
+            <li>The workflow execution marks Trigger, Send Email, and success.</li>
+            <li>The inbox receives “CAEP risk change for” that identity.</li>
           </ol>
-          <p className="mt-2">Open issue: step 3 has not fired yet.</p>
         </div>
       </section>
       ) : (

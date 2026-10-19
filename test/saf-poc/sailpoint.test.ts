@@ -97,9 +97,10 @@ describe("SailPoint Test 1 setup", () => {
       NOTIFICATION_SUBJECT,
     );
     assert.equal(created.trigger.attributes.id, "idn:caep-risk-level-change-events");
-    assert.equal(
-      created.trigger.attributes["filter.$"],
-      '$.ssfEvent.events["https://schemas.openid.net/secevent/caep/event-type/risk-level-change"]',
+    assert.equal(created.trigger.attributes["filter.$"], undefined);
+    assert.match(
+      JSON.parse(createCall?.body ?? "{}").definition.steps["Send Email"].attributes.body,
+      /identityAttributes\.name/,
     );
     assert.equal(enableCall?.contentType, "application/json-patch+json");
     assert.equal(result.subscription?.id, "sub-1");
