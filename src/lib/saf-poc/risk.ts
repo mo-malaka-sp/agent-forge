@@ -68,6 +68,7 @@ export async function changeAgentRisk(input: {
       : await publishRiskLevelChange({
           publicUrl: input.publicUrl,
           email: identityEmail,
+          agentName,
           previousLevel: previousLevel.toUpperCase(),
           currentLevel: currentLevel.toUpperCase(),
         });

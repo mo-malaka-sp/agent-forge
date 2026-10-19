@@ -123,6 +123,7 @@ describe("CAEP transmitter", () => {
     const emitted = await publishRiskLevelChange({
       publicUrl: issuer,
       email: "mo.malaka@sailpoint.com",
+      agentName: "POLICY_CONCIERGE",
       previousLevel: "LOW",
       currentLevel: "HIGH",
       fetchImpl,
@@ -134,6 +135,10 @@ describe("CAEP transmitter", () => {
     const payload = await verifySet(pushed[0]?.body ?? "");
     assert.equal((payload.sub_id as { email: string }).email, "mo.malaka@sailpoint.com");
     assert.equal(typeof payload.txn, "string");
+    const riskEvent = (
+      payload.events as Record<string, { principal?: string }>
+    )["https://schemas.openid.net/secevent/caep/event-type/risk-level-change"];
+    assert.equal(riskEvent?.principal, "POLICY_CONCIERGE");
   });
 
   it("sends the tenant access token when SailPoint receives the event", async () => {

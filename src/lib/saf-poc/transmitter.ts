@@ -41,6 +41,7 @@ type PendingEvent = {
   jti: string;
   streamId: string;
   email: string;
+  agentName: string;
   previousLevel: string;
   currentLevel: string;
   kind: "risk" | "verification";
@@ -149,6 +150,7 @@ export async function readTransmitterSummary(publicUrl: string) {
 export async function publishRiskLevelChange(input: {
   publicUrl: string;
   email: string;
+  agentName?: string;
   previousLevel: string;
   currentLevel: string;
   fetchImpl?: typeof fetch;
@@ -174,7 +176,7 @@ export async function publishRiskLevelChange(input: {
     const delivery = await deliverEvent(
       runtime,
       transmitterIssuer(input.publicUrl),
-      pendingRisk(email, previousLevel, currentLevel),
+      pendingRisk(email, previousLevel, currentLevel, input.agentName),
       input.fetchImpl,
     );
     return {
@@ -396,7 +398,7 @@ async function dispatchUnlocked(input: {
       const delivery = await deliverEvent(
         runtime,
         issuer,
-        pendingRisk(email, previousLevel, currentLevel),
+        pendingRisk(email, previousLevel, currentLevel, textField(body.agentName)),
         input.fetchImpl,
       );
       return {
@@ -683,7 +685,7 @@ function riskPayload(
         current_level: event.currentLevel,
         previous_level: event.previousLevel,
         event_timestamp: now,
-        principal: "USER",
+        principal: event.agentName || "USER",
         risk_reason: "PASSWORD_FOUND_IN_DATA_BREACH",
       },
     },
@@ -704,11 +706,17 @@ function verificationPayload(
   return { iss: issuer, jti, iat: now, aud, events: { [VERIFICATION_EVENT]: event } };
 }
 
-function pendingRisk(email: string, previousLevel: string, currentLevel: string): PendingEvent {
+function pendingRisk(
+  email: string,
+  previousLevel: string,
+  currentLevel: string,
+  agentName = "",
+): PendingEvent {
   return {
     jti: randomUUID(),
     streamId: "",
     email,
+    agentName: agentLabel(agentName),
     previousLevel,
     currentLevel,
     kind: "risk",
@@ -721,11 +729,20 @@ function pendingVerification(state: string): PendingEvent {
     jti: randomUUID(),
     streamId: "",
     email: "",
+    agentName: "",
     previousLevel: "",
     currentLevel: "",
     kind: "verification",
     state,
   };
+}
+
+function agentLabel(value: string): string {
+  return value.replaceAll("{{", "").replaceAll("}}", "").trim().slice(0, 120);
+}
+
+function textField(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 function report(

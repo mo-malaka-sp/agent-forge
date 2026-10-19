@@ -101,6 +101,7 @@ describe("SailPoint Test 1 setup", () => {
     assert.equal(created.trigger.attributes.id, "idn:caep-risk-level-change-events");
     assert.equal(created.trigger.attributes["filter.$"], undefined);
     const emailBody = created.definition.steps["Send Email"].attributes.body as string;
+    assert.match(emailBody, /principal/);
     assert.match(emailBody, /previous_level/);
     assert.match(emailBody, /current_level/);
     assert.match(emailBody, /risk_reason/);
