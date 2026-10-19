@@ -88,6 +88,33 @@ describe("tenant agents", () => {
     assert.equal(listCall?.url.includes("/machine-identities/v1?limit=250&offset=0"), true);
   });
 
+  it("fills the owner email from the identity when the agent record only has a name", async () => {
+    const fetchImpl: typeof fetch = async (url) => {
+      const target = String(url);
+      if (target.endsWith("/oauth/token")) {
+        return Response.json({ access_token: "token" });
+      }
+      if (target.includes("/machine-identities/v1?")) {
+        return Response.json([
+          {
+            id: "mi-1",
+            displayName: "POLICY_CONCIERGE",
+            subtype: "AI Agent",
+            owners: { primaryIdentity: { id: "owner-1", name: "mo.malaka" } },
+          },
+        ]);
+      }
+      if (target.endsWith("/identities/v1/owner-1")) {
+        return Response.json({ id: "owner-1", name: "mo.malaka", emailAddress: "mo.malaka@sailpoint.com" });
+      }
+      return new Response("missing", { status: 404 });
+    };
+
+    const agents = await listTenantAgents(config(), fetchImpl);
+    assert.equal(agents[0]?.ownerName, "mo.malaka");
+    assert.equal(agents[0]?.ownerEmail, "mo.malaka@sailpoint.com");
+  });
+
   it("does not call the deprecated yearly machine identity API", async () => {
     const calls: string[] = [];
     const fetchImpl: typeof fetch = async (url) => {

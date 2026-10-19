@@ -43,7 +43,7 @@ export async function listTenantAgents(
   for (const requestPath of MACHINE_IDENTITY_PATHS) {
     try {
       const records = await client.listRecords(requestPath, EXPERIMENTAL_HEADER);
-      return selectTenantAgents(parseTenantAgents(records));
+      return hydrateOwnerEmails(selectTenantAgents(parseTenantAgents(records)), config, fetchImpl);
     } catch (error) {
       lastError = error;
       if (!(error instanceof SailPointApiError) || error.status !== 404) {
@@ -182,6 +182,22 @@ export async function resolveAgentOwnerEmail(
       indices: ["identities"],
       query: { query: `alias:${ownerName} OR name:"${ownerName}"` },
       sort: ["name"],
+    }),
+  );
+}
+
+async function hydrateOwnerEmails(
+  agents: TenantAgent[],
+  config: SailPointSetupConfig,
+  fetchImpl?: FetchLike,
+): Promise<TenantAgent[]> {
+  return Promise.all(
+    agents.map(async (agent) => {
+      if (emailAddress(agent.ownerEmail) || (!agent.ownerId && !agent.ownerName)) {
+        return agent;
+      }
+      const ownerEmail = await resolveAgentOwnerEmail(agent, config, fetchImpl);
+      return ownerEmail ? { ...agent, ownerEmail } : agent;
     }),
   );
 }
@@ -416,10 +432,13 @@ function emailFromIdentity(value: unknown): string {
   const items = record.items;
   return (
     emailAddress(text(record.email)) ||
+    emailAddress(text(record.emailAddress)) ||
     emailAddress(text(record.alias)) ||
     emailAddress(text(attributes?.email)) ||
+    emailAddress(text(attributes?.emailAddress)) ||
     emailAddress(text(attributes?.workEmail)) ||
     emailAddress(text(attributes?.mail)) ||
+    emailFromIdentity(record.emails) ||
     (Array.isArray(items) ? emailFromIdentity(items) : "")
   );
 }
