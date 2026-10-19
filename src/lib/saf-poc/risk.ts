@@ -82,7 +82,7 @@ export async function changeAgentRisk(input: {
         });
 
   const snapshot = await readAgentRiskSnapshot(agentId, config);
-  const riskUpdate = `CAEP sent ${currentLevel}. SailPoint's separate calculated Risk Severity is ${snapshot.calculatedSeverity}.`;
+  const riskUpdate = `CAEP sent ${currentLevel}. Agent Risk Severity is still ${snapshot.calculatedSeverity}.`;
 
   return {
     agentId,

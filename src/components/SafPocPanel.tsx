@@ -440,7 +440,9 @@ export function SafPocPanel({
 
           <div className="space-y-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
             <h3 className="text-sm font-medium">Send CAEP event</h3>
-            <p className="text-xs text-zinc-500">Does not change the SAF risk score.</p>
+            <p className="text-xs text-zinc-500">
+              Does not change Agent Risk Severity. The Risk Engine sets that band from weighted signals.
+            </p>
             <label className="block text-xs">
               Agent
               <select
@@ -561,7 +563,7 @@ export function SafPocPanel({
                   {scoreView.deliveryStatus ? ` (HTTP ${scoreView.deliveryStatus})` : ""}
                 </p>
                 {scoreView.eventId ? <p>Event ID: {scoreView.eventId}</p> : null}
-                <p>SAF risk score: {scoreView.calculatedSeverity} (unchanged)</p>
+                <p>Agent Risk Severity: {scoreView.calculatedSeverity}. This event does not change it.</p>
               </div>
             ) : null}
           </div>

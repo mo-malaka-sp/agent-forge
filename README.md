@@ -189,7 +189,7 @@ Two event paths stay separate:
 - **Test 1** is a SailPoint Workflow on **CAEP Risk Level Change Events**. AgentForge signs a real Security Event Token and pushes it to the receiver SailPoint registered against `/.well-known/ssf-configuration`. The workflow email names the correlated identity and the previous and current risk levels. Leave the trigger filter empty.
 - **Test 2** is the Agentic Fabric fire-and-forget webhook. Point it at `/webhooks/saf`. When `DD_API_KEY` is set, the same JSON is posted to Datadog with the `DD-API-KEY` header. When `DD_APP_KEY` is also set, AgentForge creates a Cloud SIEM detection rule so high and critical events open a Security Inbox signal. Without the API key the run stays in dry-run and the evidence stays in DynamoDB (or `data/saf-poc-state.json` locally).
 
-The CAEP level sent from `/saf-poc` is test data for the event bus. It does not write Agentic Fabric Risk Severity. The page reads the calculated severity only to show that these are separate values.
+The CAEP level sent from `/saf-poc` is test data for the event bus. It does not write Agent Risk Severity. The Risk Engine sets that band from a weighted sum of signals, and the tenant shows the band rather than the 0–100 score. The page reads the band only to show that the two values stay separate.
 
 Test 1 has three independent proofs:
 
