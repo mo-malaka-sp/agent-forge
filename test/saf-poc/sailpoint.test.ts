@@ -150,6 +150,7 @@ describe("SailPoint Test 1 setup", () => {
       },
     });
     const calls: string[] = [];
+    let workflowEnabled = true;
     const fetchImpl: typeof fetch = async (url, init) => {
       const method = init?.method ?? "GET";
       calls.push(`${method} ${url}`);
@@ -171,7 +172,18 @@ describe("SailPoint Test 1 setup", () => {
       if (String(url).endsWith("/workflows/v1/wf-1") && method === "GET") {
         return Response.json({ ...readyBody, id: "wf-1", enabled: true });
       }
+      if (String(url).endsWith("/workflows/v1/wf-1") && method === "PATCH") {
+        const [patch] = JSON.parse(String(init?.body)) as Array<{ value: boolean }>;
+        workflowEnabled = patch.value;
+        return Response.json({ id: "wf-1", enabled: workflowEnabled });
+      }
       if (String(url).endsWith("/workflows/v1/wf-1/test")) {
+        if (workflowEnabled) {
+          return Response.json(
+            { messages: [{ text: "workflow is enabled but executed as a test workflow" }] },
+            { status: 400 },
+          );
+        }
         return Response.json({ workflowExecutionId: "exec-ready" });
       }
       if (String(url).includes("/trigger-subscriptions/v1")) {
@@ -192,6 +204,7 @@ describe("SailPoint Test 1 setup", () => {
     assert.equal(ready.created, false);
     assert.equal(ready.repaired, false);
     assert.equal(ready.testExecutionId, "exec-ready");
+    assert.equal(workflowEnabled, true);
     assert.equal(calls.some((call) => call.startsWith("PUT ")), false);
 
     const repairFetch: typeof fetch = async (url, init) => {

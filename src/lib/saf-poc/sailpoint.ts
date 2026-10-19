@@ -502,23 +502,32 @@ export async function setupTest1(
     throw new Error("SailPoint did not return a workflow id.");
   }
 
-  if (status !== "ready") {
-    await client.request(
+  const setEnabled = (value: boolean) =>
+    client.request(
       "PATCH",
       `${WORKFLOWS_PATH}/${workflowId}`,
-      [{ op: "replace", path: "/enabled", value: true }],
+      [{ op: "replace", path: "/enabled", value }],
       "application/json-patch+json",
     );
-  }
 
   let testExecutionId: string | null = null;
   if (options.sendTest) {
-    const execution = (await client.request(
-      "POST",
-      `${WORKFLOWS_PATH}/${workflowId}/test`,
-      { input: buildWorkflowTestInput(trigger, config.notifyEmail) },
-    )) as { workflowExecutionId?: string } | null;
-    testExecutionId = execution?.workflowExecutionId ?? null;
+    // SailPoint rejects test runs on an enabled workflow.
+    if (status === "ready") {
+      await setEnabled(false);
+    }
+    try {
+      const execution = (await client.request(
+        "POST",
+        `${WORKFLOWS_PATH}/${workflowId}/test`,
+        { input: buildWorkflowTestInput(trigger, config.notifyEmail) },
+      )) as { workflowExecutionId?: string } | null;
+      testExecutionId = execution?.workflowExecutionId ?? null;
+    } finally {
+      await setEnabled(true);
+    }
+  } else if (status !== "ready") {
+    await setEnabled(true);
   }
   const subscriptionRecord = await client.findWorkflowSubscription(workflowId);
 
