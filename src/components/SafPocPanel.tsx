@@ -389,15 +389,22 @@ export function SafPocPanel({
                 disabled={busy !== null}
                 onClick={() =>
                   void run("setup", async () => {
-                    await post("/api/saf-poc/setup-test1", { sendTest: false });
+                    const payload = await post("/api/saf-poc/setup-test1", { sendTest: true });
+                    const setup = (
+                      payload as { setup?: { created?: boolean; repaired?: boolean } }
+                    ).setup;
                     setMessage(
-                      "Workflow saved with an empty trigger filter. Send a CAEP event to receive the email.",
+                      setup?.created
+                        ? "Workflow created. Test email sent. It bypasses the event bus."
+                        : setup?.repaired
+                          ? "Workflow updated. Test email sent. It bypasses the event bus."
+                          : "Workflow is already set up. Test email sent. It bypasses the event bus.",
                     );
                   })
                 }
                 className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
               >
-                {busy === "setup" ? "Saving…" : "Repair workflow"}
+                {busy === "setup" ? "Preparing…" : "Set up workflow + test email"}
               </button>
             </div>
             {token ? (
@@ -424,7 +431,7 @@ export function SafPocPanel({
                 </p>
                 {state.workflow.subscription?.filter ? (
                   <p className="text-amber-700 dark:text-amber-300">
-                    The trigger filter is set. Repair the workflow so live events can start it.
+                    The trigger filter is set. Set up the workflow again so live events can start it.
                   </p>
                 ) : null}
               </div>

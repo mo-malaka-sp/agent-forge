@@ -57,6 +57,7 @@ export type WorkflowSetup = {
   enabled: boolean;
   email: string;
   created: boolean;
+  repaired: boolean;
   testExecutionId: string | null;
   subscription: {
     id: string;
@@ -78,6 +79,20 @@ type WorkflowRecord = {
   id?: string;
   name?: string;
   enabled?: boolean;
+  definition?: {
+    steps?: {
+      "Send Email"?: {
+        attributes?: {
+          subject?: string;
+          body?: string;
+          recipientEmailList?: string[];
+        };
+      };
+    };
+  };
+  trigger?: {
+    attributes?: { id?: string; "filter.$"?: string };
+  };
 };
 
 type TriggerSubscriptionRecord = {
@@ -146,6 +161,30 @@ function matchesTrigger(trigger: WorkflowTrigger, expected: string): boolean {
   return (
     trigger.name.toLowerCase() === needle || trigger.id.toLowerCase() === needle
   );
+}
+
+export function workflowSettingsStatus(input: {
+  workflow: WorkflowRecord | null;
+  subscription: { enabled?: boolean; filter?: string } | null;
+  notifyEmail: string;
+  triggerId: string;
+}): "missing" | "repair" | "ready" {
+  if (!input.workflow?.id) {
+    return "missing";
+  }
+  const email = input.workflow.definition?.steps?.["Send Email"]?.attributes;
+  const triggerFilter = input.workflow.trigger?.attributes?.["filter.$"]?.trim() ?? "";
+  const subscriptionFilter = input.subscription?.filter?.trim() ?? "";
+  const ready =
+    input.workflow.enabled === true &&
+    input.workflow.trigger?.attributes?.id === input.triggerId &&
+    triggerFilter.length === 0 &&
+    email?.subject === CAEP_EMAIL_SUBJECT &&
+    email?.body === RISK_EMAIL_BODY &&
+    (email.recipientEmailList ?? []).includes(input.notifyEmail) &&
+    input.subscription?.enabled === true &&
+    subscriptionFilter.length === 0;
+  return ready ? "ready" : "repair";
 }
 
 export function buildWorkflowBody(input: {
@@ -351,6 +390,9 @@ export function createSailPointClient(
       const workflows = await listAll<WorkflowRecord>(WORKFLOWS_PATH);
       return workflows.find((workflow) => workflow.name === name) ?? null;
     },
+    async getWorkflow(id: string): Promise<WorkflowRecord | null> {
+      return (await request("GET", `${WORKFLOWS_PATH}/${id}`)) as WorkflowRecord | null;
+    },
     async findWorkflowSubscription(
       workflowId: string,
     ): Promise<TriggerSubscriptionRecord | null> {
@@ -424,11 +466,20 @@ export async function setupTest1(
     email: config.notifyEmail,
     trigger,
   });
-  const existing = await client.findWorkflow();
+  const listed = await client.findWorkflow();
+  const existing = listed?.id ? await client.getWorkflow(listed.id) : null;
+  const existingSubscription = existing?.id
+    ? await client.findWorkflowSubscription(existing.id)
+    : null;
+  const status = workflowSettingsStatus({
+    workflow: existing,
+    subscription: existingSubscription,
+    notifyEmail: config.notifyEmail,
+    triggerId: trigger.id,
+  });
   let workflowId = existing?.id ?? "";
-  const created = !workflowId;
 
-  if (existing?.id && existing.enabled) {
+  if (status === "repair" && existing?.enabled) {
     await client.request(
       "PATCH",
       `${WORKFLOWS_PATH}/${existing.id}`,
@@ -436,9 +487,9 @@ export async function setupTest1(
       "application/json-patch+json",
     );
   }
-  if (workflowId) {
+  if (status === "repair" && workflowId) {
     await client.request("PUT", `${WORKFLOWS_PATH}/${workflowId}`, body);
-  } else {
+  } else if (status === "missing") {
     const createdWorkflow = (await client.request(
       "POST",
       WORKFLOWS_PATH,
@@ -460,12 +511,14 @@ export async function setupTest1(
     testExecutionId = execution?.workflowExecutionId ?? null;
   }
 
-  await client.request(
-    "PATCH",
-    `${WORKFLOWS_PATH}/${workflowId}`,
-    [{ op: "replace", path: "/enabled", value: true }],
-    "application/json-patch+json",
-  );
+  if (status !== "ready") {
+    await client.request(
+      "PATCH",
+      `${WORKFLOWS_PATH}/${workflowId}`,
+      [{ op: "replace", path: "/enabled", value: true }],
+      "application/json-patch+json",
+    );
+  }
   const subscriptionRecord = await client.findWorkflowSubscription(workflowId);
 
   return {
@@ -476,7 +529,8 @@ export async function setupTest1(
     workflowName: POC_WORKFLOW_NAME,
     enabled: true,
     email: config.notifyEmail,
-    created,
+    created: status === "missing",
+    repaired: status === "repair",
     testExecutionId,
     subscription: subscriptionRecord?.id
       ? {

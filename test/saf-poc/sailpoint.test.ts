@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { describe, it } from "node:test";
 
-import { CAEP_EMAIL_SUBJECT } from "@/lib/saf-poc/sailpoint";
 import {
+  buildWorkflowBody,
+  CAEP_EMAIL_SUBJECT,
   POC_DATADOG_WORKFLOW_NAME,
   POC_WORKFLOW_NAME,
   setupTest1,
@@ -121,6 +122,118 @@ describe("SailPoint Test 1 setup", () => {
       return Response.json([]);
     };
     await assert.rejects(() => setupTest1(config(), { fetchImpl }), /Other Trigger/);
+  });
+
+  it("leaves a matching workflow in place and updates one that still has a filter", async () => {
+    const readyBody = buildWorkflowBody({
+      ownerId: "idn-admin",
+      ownerName: "Admin User",
+      email: "admin@example.com",
+      trigger: {
+        id: "idn:caep-risk-level-change-events",
+        name: "CAEP Risk Level Change Events",
+        type: "EVENT",
+      },
+    });
+    const calls: string[] = [];
+    const fetchImpl: typeof fetch = async (url, init) => {
+      const method = init?.method ?? "GET";
+      calls.push(`${method} ${url}`);
+      if (String(url).endsWith("/oauth/token")) {
+        return Response.json({ access_token: accessToken() });
+      }
+      if (String(url).includes("/workflow-library/v1/triggers")) {
+        return Response.json([
+          {
+            id: "idn:caep-risk-level-change-events",
+            name: "CAEP Risk Level Change Events",
+            type: "EVENT",
+          },
+        ]);
+      }
+      if (String(url).includes("/workflows/v1?") && method === "GET") {
+        return Response.json([{ id: "wf-1", name: POC_WORKFLOW_NAME, enabled: true }]);
+      }
+      if (String(url).endsWith("/workflows/v1/wf-1") && method === "GET") {
+        return Response.json({ ...readyBody, id: "wf-1", enabled: true });
+      }
+      if (String(url).endsWith("/workflows/v1/wf-1/test")) {
+        return Response.json({ workflowExecutionId: "exec-ready" });
+      }
+      if (String(url).includes("/trigger-subscriptions/v1")) {
+        return Response.json([
+          {
+            id: "sub-1",
+            enabled: true,
+            triggerId: "idn:caep-risk-level-change-events",
+            filter: "",
+            workflowConfig: { workflowId: "wf-1" },
+          },
+        ]);
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+
+    const ready = await setupTest1(config(), { fetchImpl, sendTest: true });
+    assert.equal(ready.created, false);
+    assert.equal(ready.repaired, false);
+    assert.equal(ready.testExecutionId, "exec-ready");
+    assert.equal(calls.some((call) => call.startsWith("PUT ")), false);
+
+    const repairFetch: typeof fetch = async (url, init) => {
+      const method = init?.method ?? "GET";
+      calls.push(`${method} ${url}`);
+      if (String(url).endsWith("/oauth/token")) {
+        return Response.json({ access_token: accessToken() });
+      }
+      if (String(url).includes("/triggers")) {
+        return Response.json([
+          {
+            id: "idn:caep-risk-level-change-events",
+            name: "CAEP Risk Level Change Events",
+            type: "EVENT",
+          },
+        ]);
+      }
+      if (String(url).includes("/workflows/v1?") && method === "GET") {
+        return Response.json([{ id: "wf-1", name: POC_WORKFLOW_NAME, enabled: true }]);
+      }
+      if (String(url).endsWith("/workflows/v1/wf-1") && method === "GET") {
+        return Response.json({
+          ...readyBody,
+          id: "wf-1",
+          enabled: true,
+          trigger: {
+            type: "EVENT",
+            attributes: {
+              id: "idn:caep-risk-level-change-events",
+              "filter.$": "$.ssfEvent",
+            },
+          },
+        });
+      }
+      if (String(url).endsWith("/workflows/v1/wf-1") && method === "PUT") {
+        return Response.json({ id: "wf-1" });
+      }
+      if (String(url).endsWith("/workflows/v1/wf-1") && method === "PATCH") {
+        return Response.json({ id: "wf-1", enabled: true });
+      }
+      if (String(url).includes("/trigger-subscriptions/v1")) {
+        return Response.json([
+          {
+            id: "sub-1",
+            enabled: true,
+            filter: "$.ssfEvent",
+            workflowConfig: { workflowId: "wf-1" },
+          },
+        ]);
+      }
+      return new Response("unexpected", { status: 500 });
+    };
+    calls.length = 0;
+    const repaired = await setupTest1(config(), { fetchImpl: repairFetch });
+    assert.equal(repaired.repaired, true);
+    assert.equal(calls.some((call) => call.startsWith("PUT ")), true);
   });
 });
 
