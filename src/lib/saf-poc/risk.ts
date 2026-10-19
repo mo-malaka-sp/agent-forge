@@ -25,6 +25,7 @@ export async function changeAgentRisk(input: {
   transmit?: boolean;
   ingest?: boolean;
   mode?: "test-event" | "agent-condition";
+  fetchImpl?: typeof fetch;
 }): Promise<{
   agentId: string;
   agentName: string;
@@ -50,17 +51,15 @@ export async function changeAgentRisk(input: {
   const currentLevel = normalizeLevel(input.riskLevel);
   const previousLevel = normalizeLevel(input.previousLevel || "low");
   const config = loadSafPocConfig();
-  const agents = await listTenantAgents(config);
+  const agents = await listTenantAgents(config, input.fetchImpl);
   const agent = agents.find((candidate) => candidate.id === agentId);
   const agentName = agent?.name || input.agentName?.trim() || agentId;
-  const ownerEmail = agent ? await resolveAgentOwnerEmail(agent, config) : "";
-  const identityEmail =
-    emailAddress(input.identityEmail ?? "") ||
-    emailAddress(ownerEmail) ||
-    emailAddress(config.notifyEmail);
+  const ownerEmail = agent ? await resolveAgentOwnerEmail(agent, config, input.fetchImpl) : "";
+  const identityEmail = emailAddress(ownerEmail);
   if (!identityEmail) {
-    const owner = agent?.ownerName ? `Owner ${agent.ownerName}` : "The agent owner";
-    throw new Error(`${owner} has no email address SailPoint can correlate.`);
+    throw new Error(
+      "This agent has no owner email, so SailPoint cannot correlate the event.",
+    );
   }
   const caep =
     input.transmit === false
@@ -89,7 +88,7 @@ export async function changeAgentRisk(input: {
           }),
         });
 
-  const snapshot = await readAgentRiskSnapshot(agentId, config);
+  const snapshot = await readAgentRiskSnapshot(agentId, config, input.fetchImpl);
   const riskUpdate = `CAEP sent ${currentLevel}. Agent Risk Severity is still ${snapshot.calculatedSeverity}.`;
 
   return {

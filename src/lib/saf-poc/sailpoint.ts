@@ -10,6 +10,7 @@ const RISK_LEVEL_CHANGE_EVENT =
   "https://schemas.openid.net/secevent/caep/event-type/risk-level-change";
 const RISK_EVENT =
   `$.trigger.ssfEvent.events['${RISK_LEVEL_CHANGE_EVENT}']`;
+export const CAEP_EMAIL_RECIPIENT = "{{$.trigger.ssfEvent.sub_id.email}}";
 export const CAEP_EMAIL_SUBJECT =
   `{{${RISK_EVENT}.principal}}: risk {{${RISK_EVENT}.previous_level}} to {{${RISK_EVENT}.current_level}}`;
 const RISK_EMAIL_BODY = [
@@ -183,7 +184,7 @@ export function workflowSettingsStatus(input: {
     triggerFilter.length === 0 &&
     email?.subject === CAEP_EMAIL_SUBJECT &&
     email?.body === RISK_EMAIL_BODY &&
-    (email.recipientEmailList ?? []).includes(input.notifyEmail) &&
+    (email.recipientEmailList ?? []).includes(CAEP_EMAIL_RECIPIENT) &&
     input.subscription?.enabled === true &&
     subscriptionFilter.length === 0;
   return ready ? "ready" : "repair";
@@ -212,7 +213,7 @@ export function buildWorkflowBody(input: {
           actionId: "sp:send-email",
           versionNumber: 2,
           attributes: {
-            recipientEmailList: [input.email],
+            recipientEmailList: [CAEP_EMAIL_RECIPIENT],
             subject: CAEP_EMAIL_SUBJECT,
             body: RISK_EMAIL_BODY,
             context: {},

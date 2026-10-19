@@ -111,9 +111,6 @@ export function SafPocPanel({
   const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
   const [riskLevel, setRiskLevel] = useState(agents[0]?.riskLevel || "Low");
   const [approach, setApproach] = useState<"test-event" | "agent-condition">("test-event");
-  const [identityEmail, setIdentityEmail] = useState(
-    usableEmail(agents[0]?.ownerEmail) || initialState?.notifyEmail || "",
-  );
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -125,6 +122,8 @@ export function SafPocPanel({
   const demoRunning = useRef(false);
   const demoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const demoSent = useRef(0);
+  const selectedAgent = agentOptions.find((agent) => agent.id === agentId);
+  const ownerEmail = usableEmail(selectedAgent?.ownerEmail);
 
   const load = useCallback(async () => {
     const response = await fetch("/api/saf-poc/state", { cache: "no-store" });
@@ -133,7 +132,6 @@ export function SafPocPanel({
       throw new Error(body.error ?? "Could not load SAF POC state.");
     }
     setState(body);
-    setIdentityEmail((current) => current || body.notifyEmail || "");
   }, []);
 
   const loadAgents = useCallback(async () => {
@@ -418,8 +416,8 @@ export function SafPocPanel({
               <div className="space-y-1 text-xs text-zinc-600 dark:text-zinc-300">
                 <p>
                   Workflow: <strong>{state.workflow.workflowName}</strong> ·{" "}
-                  {state.workflow.enabled ? "enabled" : "disabled"} · email{" "}
-                  {state.workflow.email}
+                  {state.workflow.enabled ? "enabled" : "disabled"} · live events email the
+                  correlated owner
                 </p>
                 <p>
                   Trigger: {state.workflow.trigger.name} ({state.workflow.trigger.id})
@@ -486,15 +484,8 @@ export function SafPocPanel({
               <select
                 value={agentId}
                 onChange={(event) => {
-                  const nextId = event.target.value;
-                  setAgentId(nextId);
+                  setAgentId(event.target.value);
                   setScoreView(null);
-                  const ownerEmail = usableEmail(
-                    agentOptions.find((agent) => agent.id === nextId)?.ownerEmail,
-                  );
-                  if (ownerEmail) {
-                    setIdentityEmail(ownerEmail);
-                  }
                 }}
                 className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
               >
@@ -530,29 +521,31 @@ export function SafPocPanel({
                   ))}
                 </select>
               </label>
-              <label className="block text-xs">
-                Subject email
-                <input
-                  value={identityEmail}
-                  onChange={(event) => setIdentityEmail(event.target.value)}
-                  placeholder="admin@example.com"
-                  className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-                />
-              </label>
+              <div className="text-xs">
+                <p className="font-medium text-zinc-700 dark:text-zinc-200">Owner</p>
+                {ownerEmail ? (
+                  <p className="mt-1 text-zinc-600 dark:text-zinc-300">
+                    {selectedAgent?.ownerName ? `${selectedAgent.ownerName} · ` : ""}
+                    {ownerEmail}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-amber-700 dark:text-amber-300">
+                    This agent has no owner email, so SailPoint cannot correlate the event.
+                  </p>
+                )}
+              </div>
             </div>
             <button
               type="button"
-              disabled={busy !== null || !agentId || !usableEmail(identityEmail)}
+              disabled={busy !== null || !agentId || !ownerEmail}
               onClick={() =>
                 void run("risk", async () => {
-                  const selected = agentOptions.find((agent) => agent.id === agentId);
                   const payload = await post("/api/saf-poc/risk", {
                     mode: "test-event",
                     agentId,
-                    agentName: selected?.name,
+                    agentName: selectedAgent?.name,
                     riskLevel,
-                    previousLevel: selected?.riskLevel || "Low",
-                    identityEmail,
+                    previousLevel: selectedAgent?.riskLevel || "Low",
                     ingest: false,
                   });
                   const result = (
@@ -586,7 +579,7 @@ export function SafPocPanel({
                   });
                   setMessage(
                     delivery?.accepted
-                      ? `Receiver accepted event ${delivery.jti || ""}. Test1POC should show Correlated, then the workflow emails ${identityEmail}.`
+                      ? `Receiver accepted event ${delivery.jti || ""}. Test1POC should show Correlated, then the workflow emails ${ownerEmail}.`
                       : delivery
                         ? delivery.detail
                         : result?.riskUpdate || "CAEP signal sent.",
@@ -616,7 +609,7 @@ export function SafPocPanel({
         <div className="rounded-md border border-zinc-200 p-3 text-xs text-zinc-600 dark:border-zinc-800 dark:text-zinc-300">
           <p className="font-medium text-zinc-900 dark:text-zinc-100">After you send</p>
           <ol className="mt-1 list-decimal space-y-1 pl-4">
-            <li>Test1POC shows the new row as Correlated for the subject email.</li>
+            <li>Test1POC shows the new row as Correlated for the agent owner.</li>
             <li>The workflow execution marks Trigger, Send Email, and success.</li>
             <li>The email names the agent, the identity, the previous and current risk levels, and the reason.</li>
           </ol>

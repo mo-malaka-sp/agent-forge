@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import {
   buildWorkflowBody,
   buildWorkflowTestInput,
+  CAEP_EMAIL_RECIPIENT,
   CAEP_EMAIL_SUBJECT,
   POC_DATADOG_WORKFLOW_NAME,
   POC_WORKFLOW_NAME,
@@ -100,6 +101,11 @@ describe("SailPoint Test 1 setup", () => {
     );
     assert.equal(created.trigger.attributes.id, "idn:caep-risk-level-change-events");
     assert.equal(created.trigger.attributes["filter.$"], undefined);
+    assert.deepEqual(
+      JSON.parse(createCall?.body ?? "{}").definition.steps["Send Email"].attributes
+        .recipientEmailList,
+      [CAEP_EMAIL_RECIPIENT],
+    );
     const emailBody = created.definition.steps["Send Email"].attributes.body as string;
     assert.match(emailBody, /principal/);
     assert.match(emailBody, /previous_level/);
