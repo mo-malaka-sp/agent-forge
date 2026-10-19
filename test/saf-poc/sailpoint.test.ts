@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { describe, it } from "node:test";
 
-import { NOTIFICATION_SUBJECT } from "@/lib/saf-poc/events";
+import { CAEP_EMAIL_SUBJECT } from "@/lib/saf-poc/sailpoint";
 import {
   POC_DATADOG_WORKFLOW_NAME,
   POC_WORKFLOW_NAME,
@@ -94,13 +94,13 @@ describe("SailPoint Test 1 setup", () => {
     assert.equal(created.name, POC_WORKFLOW_NAME);
     assert.equal(
       created.definition.steps["Send Email"].attributes.subject,
-      NOTIFICATION_SUBJECT,
+      CAEP_EMAIL_SUBJECT,
     );
     assert.equal(created.trigger.attributes.id, "idn:caep-risk-level-change-events");
     assert.equal(created.trigger.attributes["filter.$"], undefined);
     assert.match(
       JSON.parse(createCall?.body ?? "{}").definition.steps["Send Email"].attributes.body,
-      /identityAttributes\.name/,
+      /previous_level/,
     );
     assert.equal(enableCall?.contentType, "application/json-patch+json");
     assert.equal(result.subscription?.id, "sub-1");

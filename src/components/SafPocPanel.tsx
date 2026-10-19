@@ -565,7 +565,7 @@ export function SafPocPanel({
           <ol className="mt-1 list-decimal space-y-1 pl-4">
             <li>Test1POC shows the new row as Correlated for the subject email.</li>
             <li>The workflow execution marks Trigger, Send Email, and success.</li>
-            <li>The inbox receives “CAEP risk change for” that identity.</li>
+            <li>The email names the identity, the previous and current risk levels, and the reason.</li>
           </ol>
         </div>
       </section>

@@ -14,8 +14,7 @@ import {
   type StoredEvent,
 } from "@/lib/saf-poc/types";
 
-export const NOTIFICATION_SUBJECT =
-  "CAEP risk change for {{$.trigger.identityAttributes.name}}";
+export const NOTIFICATION_SUBJECT = "CAEP risk change correlated";
 export { DETECTION_QUERY, SIGNAL_TITLE };
 const EVENT_PREFIX = "EVENT#";
 

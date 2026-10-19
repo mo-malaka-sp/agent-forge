@@ -1,5 +1,4 @@
 import type { SafPocConfig } from "@/lib/saf-poc/config";
-import { NOTIFICATION_SUBJECT } from "@/lib/saf-poc/events";
 
 export const POC_WORKFLOW_NAME = "POC SAF Event Bus Email";
 export const POC_DATADOG_WORKFLOW_NAME = "POC SAF Datadog Intake";
@@ -9,8 +8,17 @@ export const TRIGGER_SUBSCRIPTIONS_PATH = "/trigger-subscriptions/v1";
 const RISK_LEVEL_CHANGE_TRIGGER_ID = "idn:caep-risk-level-change-events";
 const RISK_LEVEL_CHANGE_EVENT =
   "https://schemas.openid.net/secevent/caep/event-type/risk-level-change";
-const RISK_EMAIL_BODY =
-  "<p>SailPoint correlated a CAEP risk-level change for {{$.trigger.identityAttributes.name}} ({{$.trigger.correlatedID.value}}).</p><p>The event bus started this workflow.</p>";
+const RISK_EVENT =
+  `$.trigger.ssfEvent.events['${RISK_LEVEL_CHANGE_EVENT}']`;
+export const CAEP_EMAIL_SUBJECT =
+  `{{$.trigger.identityAttributes.name}}: risk {{${RISK_EVENT}.previous_level}} to {{${RISK_EVENT}.current_level}}`;
+const RISK_EMAIL_BODY = [
+  "<p><strong>{{$.trigger.identityAttributes.name}}</strong> ({{$.trigger.correlatedID.value}}) had a CAEP risk-level change.</p>",
+  `<p>Previous level: {{${RISK_EVENT}.previous_level}}<br>`,
+  `Current level: {{${RISK_EVENT}.current_level}}<br>`,
+  `Reason: {{${RISK_EVENT}.risk_reason}}</p>`,
+  "<p>SailPoint correlated the event and started this workflow.</p>",
+].join("");
 
 export class SailPointApiError extends Error {
   readonly status: number;
@@ -164,7 +172,7 @@ export function buildWorkflowBody(input: {
           versionNumber: 2,
           attributes: {
             recipientEmailList: [input.email],
-            subject: NOTIFICATION_SUBJECT,
+            subject: CAEP_EMAIL_SUBJECT,
             body: RISK_EMAIL_BODY,
             context: {},
           },
