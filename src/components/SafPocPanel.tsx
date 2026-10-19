@@ -36,7 +36,7 @@ type SafState = {
   workflow: {
     workflowName: string;
     workflowId: string;
-    trigger: { name: string; id: string };
+    trigger: { name: string; id: string; supportedLevels?: string[] };
     email: string;
     enabled: boolean;
     testExecutionId: string | null;
@@ -65,6 +65,15 @@ type SafState = {
 };
 
 type AgentFinding = { title: string; detectedAt: string };
+type AgentConditionRun = {
+  id: string;
+  status: string;
+  baselineSeverity: string;
+  observedSeverity: string;
+  detail: string;
+  ownerRestored: boolean;
+  caepEventId: string;
+};
 
 type ScoreView = {
   sentLevel: string;
@@ -115,6 +124,8 @@ export function SafPocPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [scoreView, setScoreView] = useState<ScoreView | null>(null);
+  const [conditionRun, setConditionRun] = useState<AgentConditionRun | null>(null);
+  const [conditionConfirmed, setConditionConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
   const [demo, setDemo] = useState<{ until: number; sent: number } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -124,6 +135,9 @@ export function SafPocPanel({
   const demoSent = useRef(0);
   const selectedAgent = agentOptions.find((agent) => agent.id === agentId);
   const ownerEmail = usableEmail(selectedAgent?.ownerEmail);
+  const supportedLevels = state?.workflow?.trigger.supportedLevels ?? [];
+  const criticalUnsupported =
+    supportedLevels.length > 0 && !supportedLevels.includes("CRITICAL");
 
   const load = useCallback(async () => {
     const response = await fetch("/api/saf-poc/state", { cache: "no-store" });
@@ -147,6 +161,31 @@ export function SafPocPanel({
       nextAgents.some((agent) => agent.id === current) ? current : (nextAgents[0]?.id ?? ""),
     );
   }, []);
+
+  useEffect(() => {
+    if (!conditionRun || !["waiting", "restoring", "restore_failed"].includes(conditionRun.status)) {
+      return;
+    }
+    const timer = setInterval(() => {
+      void fetch(`/api/saf-poc/agent-condition/status?id=${encodeURIComponent(conditionRun.id)}`, {
+        cache: "no-store",
+      })
+        .then((response) => response.json())
+        .then((body: { run?: AgentConditionRun }) => {
+          if (body.run) setConditionRun(body.run);
+        });
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [conditionRun]);
+
+  useEffect(() => {
+    if (approach !== "agent-condition" || conditionRun) return;
+    void fetch("/api/saf-poc/agent-condition/status", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body: { run?: AgentConditionRun }) => {
+        if (body.run) setConditionRun(body.run);
+      });
+  }, [approach, conditionRun]);
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label);
@@ -465,11 +504,10 @@ export function SafPocPanel({
             </fieldset>
             {approach === "agent-condition" ? (
               <div className="space-y-1 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                <p className="font-medium">Nothing to run here yet.</p>
+                <p className="font-medium">Temporary owner-removal test</p>
                 <p>
-                  Agent Risk Severity changes only when the Risk Engine receives a supported
-                  signal. AgentForge cannot send one yet, so this choice sends no event and sets
-                  no severity. To send the email now, choose Test the event bus.
+                  AgentForge removes the owner, waits up to five minutes for the Risk Engine,
+                  sends CAEP only for an observed band change, and restores the owner.
                 </p>
               </div>
             ) : (
@@ -478,7 +516,6 @@ export function SafPocPanel({
                 signals.
               </p>
             )}
-            {approach === "test-event" ? (
             <label className="block text-xs">
               Agent
               <select
@@ -502,7 +539,6 @@ export function SafPocPanel({
                 )}
               </select>
             </label>
-            ) : null}
             {agentsError ? (
               <p className="text-xs text-red-700 dark:text-red-300">{agentsError}</p>
             ) : null}
@@ -517,10 +553,17 @@ export function SafPocPanel({
                   className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
                 >
                   {RISK_LEVELS.map((level) => (
-                    <option key={level}>{level}</option>
+                    <option key={level} disabled={level === "Critical" && criticalUnsupported}>
+                      {level}
+                    </option>
                   ))}
                 </select>
               </label>
+              {criticalUnsupported ? (
+                <p className="self-end text-xs text-amber-700 dark:text-amber-300">
+                  This tenant workflow trigger does not accept Critical.
+                </p>
+              ) : null}
               <div className="text-xs">
                 <p className="font-medium text-zinc-700 dark:text-zinc-200">Owner</p>
                 {ownerEmail ? (
@@ -602,7 +645,79 @@ export function SafPocPanel({
               </div>
             ) : null}
               </>
-            ) : null}
+            ) : (
+              <div className="space-y-3 text-xs">
+                <p>
+                  Baseline: <strong>{selectedAgent?.riskLevel || "Unavailable"}</strong> · owner{" "}
+                  <strong>{selectedAgent?.ownerName || "none"}</strong>
+                </p>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    checked={conditionConfirmed}
+                    onChange={(event) => setConditionConfirmed(event.target.checked)}
+                  />
+                  I confirm this is a dedicated test agent and authorize a temporary owner change.
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={
+                      busy !== null ||
+                      !agentId ||
+                      !ownerEmail ||
+                      !conditionConfirmed ||
+                      Boolean(
+                        conditionRun &&
+                          ["waiting", "restoring", "restore_failed"].includes(conditionRun.status),
+                      )
+                    }
+                    onClick={() =>
+                      void run("agent-condition", async () => {
+                        const payload = (await post(
+                          "/api/saf-poc/agent-condition/start",
+                          { agentId, confirmed: true },
+                        )) as { run?: AgentConditionRun };
+                        if (payload.run) setConditionRun(payload.run);
+                      })
+                    }
+                    className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
+                  >
+                    {busy === "agent-condition" ? "Starting…" : "Start real condition"}
+                  </button>
+                  {conditionRun &&
+                  ["waiting", "restoring", "restore_failed"].includes(conditionRun.status) ? (
+                    <button
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={() =>
+                        void run("restore-condition", async () => {
+                          const payload = (await post(
+                            "/api/saf-poc/agent-condition/restore",
+                            { id: conditionRun.id },
+                          )) as { run?: AgentConditionRun };
+                          if (payload.run) setConditionRun(payload.run);
+                        })
+                      }
+                      className="rounded-md border border-zinc-300 px-3 py-1.5 font-medium dark:border-zinc-700"
+                    >
+                      Restore owner now
+                    </button>
+                  ) : null}
+                </div>
+                {conditionRun ? (
+                  <div className="rounded-md bg-zinc-50 p-2 dark:bg-zinc-900">
+                    <p>Status: {conditionRun.status.replaceAll("_", " ")}</p>
+                    <p>
+                      Risk: {conditionRun.baselineSeverity} → {conditionRun.observedSeverity}
+                    </p>
+                    <p>{conditionRun.detail}</p>
+                    <p>Owner restored: {conditionRun.ownerRestored ? "yes" : "not yet"}</p>
+                    {conditionRun.caepEventId ? <p>CAEP event: {conditionRun.caepEventId}</p> : null}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
 

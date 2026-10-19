@@ -3,7 +3,14 @@ import type { NextRequest } from "next/server";
 
 import { readSession, SESSION_COOKIE } from "@/lib/auth/session";
 
-const PUBLIC_PATHS = new Set(["/login", "/api/auth/login", "/api/health", "/webhooks/saf", "/jwks"]);
+const PUBLIC_PATHS = new Set([
+  "/login",
+  "/api/auth/login",
+  "/api/health",
+  "/api/saf-poc/agent-condition/tick",
+  "/webhooks/saf",
+  "/jwks",
+]);
 
 function isPublic(pathname: string): boolean {
   return (

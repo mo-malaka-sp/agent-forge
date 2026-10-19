@@ -37,6 +37,7 @@ export type WorkflowTrigger = {
   id: string;
   name: string;
   type: "EVENT" | "SCHEDULED" | "EXTERNAL";
+  supportedLevels?: string[];
 };
 
 export type DatadogWorkflowSetup = {
@@ -76,6 +77,7 @@ type LibraryTrigger = {
   displayName?: string;
   type?: string;
   attributes?: { id?: string; name?: string };
+  inputSchema?: unknown;
 };
 
 type WorkflowRecord = {
@@ -156,7 +158,30 @@ function triggerFromLibrary(trigger: LibraryTrigger): WorkflowTrigger | null {
   if (!id || !name) {
     return null;
   }
-  return { id, name, type };
+  return { id, name, type, supportedLevels: riskLevelsFromSchema(trigger) };
+}
+
+export function riskLevelsFromSchema(schema: unknown): string[] {
+  const levels = new Set<string>();
+  const visit = (value: unknown, path = ""): void => {
+    if (Array.isArray(value)) {
+      if (/current.?level|previous.?level/i.test(path)) {
+        for (const item of value) {
+          if (typeof item === "string" && /^(LOW|MEDIUM|HIGH|CRITICAL)$/i.test(item)) {
+            levels.add(item.toUpperCase());
+          }
+        }
+      }
+      value.forEach((item) => visit(item, path));
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const [childKey, child] of Object.entries(value as Record<string, unknown>)) {
+      visit(child, path ? `${path}.${childKey}` : childKey);
+    }
+  };
+  visit(schema);
+  return [...levels];
 }
 
 function matchesTrigger(trigger: WorkflowTrigger, expected: string): boolean {

@@ -18,6 +18,7 @@ export interface SafPocConfig {
   datadogIntakeUrl: string;
   webhookToken: string;
   ssfApiToken: string;
+  workerToken: string;
   tableName: string;
   localStatePath: string;
 }
@@ -76,6 +77,7 @@ export function loadSafPocConfig(): SafPocConfig {
       "https://http-intake.logs.datadoghq.com/api/v2/logs",
     webhookToken: process.env.WEBHOOK_TOKEN?.trim() || "",
     ssfApiToken: process.env.SSF_API_TOKEN?.trim() || "",
+    workerToken: process.env.SAF_POC_WORKER_TOKEN?.trim() || "",
     tableName: process.env.SAF_POC_TABLE_NAME?.trim() || "",
     localStatePath: path.join(resolveAgentForgeDataDir(), "saf-poc-state.json"),
   };

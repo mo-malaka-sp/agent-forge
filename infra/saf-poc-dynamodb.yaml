@@ -9,9 +9,21 @@ Parameters:
     Type: String
     Default: ""
     Description: Optional IAM role used by Amplify SSR compute
+  WorkerCallbackUrl:
+    Type: String
+    Default: ""
+    Description: Hosted AgentForge origin used for durable condition-run ticks
+  WorkerToken:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: Shared token for the condition-run worker callback
 
 Conditions:
   AttachComputePolicy: !Not [!Equals [!Ref AmplifyComputeRoleName, ""]]
+  ConfigureWorker: !And
+    - !Not [!Equals [!Ref WorkerCallbackUrl, ""]]
+    - !Not [!Equals [!Ref WorkerToken, ""]]
 
 Resources:
   SafPocTable:
@@ -49,6 +61,57 @@ Resources:
               - dynamodb:PutItem
               - dynamodb:Query
             Resource: !GetAtt SafPocTable.Arn
+
+  WorkerConnection:
+    Type: AWS::Events::Connection
+    Condition: ConfigureWorker
+    Properties:
+      AuthorizationType: API_KEY
+      AuthParameters:
+        ApiKeyAuthParameters:
+          ApiKeyName: X-AgentForge-Worker
+          ApiKeyValue: !Ref WorkerToken
+
+  WorkerDestination:
+    Type: AWS::Events::ApiDestination
+    Condition: ConfigureWorker
+    Properties:
+      ConnectionArn: !GetAtt WorkerConnection.Arn
+      HttpMethod: POST
+      InvocationEndpoint: !Sub "${WorkerCallbackUrl}/api/saf-poc/agent-condition/tick"
+      InvocationRateLimitPerSecond: 1
+
+  WorkerInvokeRole:
+    Type: AWS::IAM::Role
+    Condition: ConfigureWorker
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeAgentForgeConditionWorker
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: events:InvokeApiDestination
+                Resource: !GetAtt WorkerDestination.Arn
+
+  WorkerSchedule:
+    Type: AWS::Events::Rule
+    Condition: ConfigureWorker
+    Properties:
+      ScheduleExpression: rate(1 minute)
+      State: ENABLED
+      Targets:
+        - Id: AgentForgeConditionWorker
+          Arn: !GetAtt WorkerDestination.Arn
+          RoleArn: !GetAtt WorkerInvokeRole.Arn
+          Input: "{}"
 
 Outputs:
   TableName:
