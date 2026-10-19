@@ -261,7 +261,7 @@ export function buildWorkflowTestInput(
       jti: "poc-risk-level-change",
       iat: 1748625243,
       aud: ["https://sp.example.com/caep"],
-      txn: 8675309,
+      txn: "poc-risk-level-change",
       sub_id: { format: "complex", user: { format: "email", email }, email },
       events: {
         [RISK_LEVEL_CHANGE_EVENT]: {
@@ -502,6 +502,15 @@ export async function setupTest1(
     throw new Error("SailPoint did not return a workflow id.");
   }
 
+  if (status !== "ready") {
+    await client.request(
+      "PATCH",
+      `${WORKFLOWS_PATH}/${workflowId}`,
+      [{ op: "replace", path: "/enabled", value: true }],
+      "application/json-patch+json",
+    );
+  }
+
   let testExecutionId: string | null = null;
   if (options.sendTest) {
     const execution = (await client.request(
@@ -510,15 +519,6 @@ export async function setupTest1(
       { input: buildWorkflowTestInput(trigger, config.notifyEmail) },
     )) as { workflowExecutionId?: string } | null;
     testExecutionId = execution?.workflowExecutionId ?? null;
-  }
-
-  if (status !== "ready") {
-    await client.request(
-      "PATCH",
-      `${WORKFLOWS_PATH}/${workflowId}`,
-      [{ op: "replace", path: "/enabled", value: true }],
-      "application/json-patch+json",
-    );
   }
   const subscriptionRecord = await client.findWorkflowSubscription(workflowId);
 

@@ -466,17 +466,21 @@ export function SafPocPanel({
               </label>
             </fieldset>
             {approach === "agent-condition" ? (
-              <p className="text-xs text-zinc-500">
-                The Risk Engine recalculates only after a supported signal. AgentForge has no
-                producer for one yet, so this choice does not send a CAEP event and does not set
-                a severity.
-              </p>
+              <div className="space-y-1 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                <p className="font-medium">Nothing to run here yet.</p>
+                <p>
+                  Agent Risk Severity changes only when the Risk Engine receives a supported
+                  signal. AgentForge cannot send one yet, so this choice sends no event and sets
+                  no severity. To send the email now, choose Test the event bus.
+                </p>
+              </div>
             ) : (
               <p className="text-xs text-zinc-500">
                 Does not change Agent Risk Severity. The Risk Engine sets that band from weighted
                 signals.
               </p>
             )}
+            {approach === "test-event" ? (
             <label className="block text-xs">
               Agent
               <select
@@ -507,6 +511,7 @@ export function SafPocPanel({
                 )}
               </select>
             </label>
+            ) : null}
             {agentsError ? (
               <p className="text-xs text-red-700 dark:text-red-300">{agentsError}</p>
             ) : null}

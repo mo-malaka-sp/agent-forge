@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 
 import {
   buildWorkflowBody,
+  buildWorkflowTestInput,
   CAEP_EMAIL_SUBJECT,
   POC_DATADOG_WORKFLOW_NAME,
   POC_WORKFLOW_NAME,
@@ -110,6 +111,18 @@ describe("SailPoint Test 1 setup", () => {
       calls.some((call) => call.url.includes("/trigger-subscriptions/v1")),
       true,
     );
+  });
+
+  it("sends the test event txn as a string", () => {
+    const input = buildWorkflowTestInput(
+      {
+        id: "idn:caep-risk-level-change-events",
+        name: "CAEP Risk Level Change Events",
+        type: "EVENT",
+      },
+      "admin@example.com",
+    ) as { ssfEvent: { txn: unknown } };
+    assert.equal(typeof input.ssfEvent.txn, "string");
   });
 
   it("names the triggers on the tenant when the requested trigger is absent", async () => {
