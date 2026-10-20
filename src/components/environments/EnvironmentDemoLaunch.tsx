@@ -3,6 +3,7 @@ import Link from "next/link";
 const DEMOS = [
   { href: "/demo?phase=run", label: "Run governance demo" },
   { href: "/saf-poc?section=caep", label: "Send CAEP event" },
+  { href: "/saf-poc?section=endpoint", label: "Open endpoint risk" },
   { href: "/saf-poc?section=datadog", label: "Generate Datadog signals" },
 ];
 

@@ -743,6 +743,11 @@ select {
   --card-tint: var(--brand-neon-green-tint);
 }
 
+.home-feature-card--blue {
+  --card-accent: var(--brand-blue);
+  --card-tint: rgba(0, 113, 205, 0.1);
+}
+
 .home-feature-card__top {
   position: relative;
   display: flex;

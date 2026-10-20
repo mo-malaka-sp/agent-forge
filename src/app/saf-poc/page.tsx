@@ -9,7 +9,8 @@ export default async function SafPocPage({
   searchParams: Promise<{ section?: string }>;
 }) {
   const { section: requested } = await searchParams;
-  const section = requested === "datadog" ? "datadog" : "caep";
+  const section =
+    requested === "datadog" ? "datadog" : requested === "endpoint" ? "endpoint" : "caep";
   const baseUrl = await getRequestBaseUrl();
   let initialState = null;
   let initialError: string | null = null;
@@ -30,12 +31,18 @@ export default async function SafPocPage({
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-8">
       <section className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-          {section === "caep" ? "CAEP Event Bus" : "Datadog Security Signals"}
+          {section === "caep"
+            ? "CAEP Event Bus"
+            : section === "endpoint"
+              ? "Endpoint Agent Risk"
+              : "Datadog Security Signals"}
         </h1>
         <p className="max-w-3xl text-sm text-zinc-600 dark:text-zinc-400">
           {section === "caep"
             ? "Send a signed CAEP risk event into SailPoint and confirm the workflow email."
-            : "Stream agent risk into Datadog and open the signals that link back to SailPoint."}
+            : section === "endpoint"
+              ? "Sentinel endpoint agents only. Plaintext credentials move the risk band."
+              : "Stream agent risk into Datadog and open the signals that link back to SailPoint."}
         </p>
       </section>
       <SafPocPanel

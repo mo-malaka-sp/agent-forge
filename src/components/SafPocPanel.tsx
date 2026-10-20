@@ -65,15 +65,6 @@ type SafState = {
 };
 
 type AgentFinding = { title: string; detectedAt: string };
-type AgentConditionRun = {
-  id: string;
-  status: string;
-  baselineSeverity: string;
-  observedSeverity: string;
-  detail: string;
-  ownerRestored: boolean;
-  caepEventId: string;
-};
 
 type ScoreView = {
   sentLevel: string;
@@ -93,10 +84,11 @@ type AgentOption = {
   ownerName?: string;
   ownerEmail?: string;
   source?: string;
+  subtype?: string;
 };
 
 type SafPocPanelProps = {
-  section: "caep" | "datadog";
+  section: "caep" | "datadog" | "endpoint";
   initialState: SafState | null;
   initialError: string | null;
   agents: AgentOption[];
@@ -117,15 +109,14 @@ export function SafPocPanel({
   const [state, setState] = useState<SafState | null>(initialState);
   const [agentOptions, setAgentOptions] = useState(agents);
   const [agentsError, setAgentsError] = useState(initialAgentsError);
-  const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
+  const [agentId, setAgentId] = useState(
+    (section === "endpoint" ? agents.find(isEndpointAgent)?.id : agents[0]?.id) ?? "",
+  );
   const [riskLevel, setRiskLevel] = useState(agents[0]?.riskLevel || "Low");
-  const [approach, setApproach] = useState<"test-event" | "agent-condition">("test-event");
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [scoreView, setScoreView] = useState<ScoreView | null>(null);
-  const [conditionRun, setConditionRun] = useState<AgentConditionRun | null>(null);
-  const [conditionConfirmed, setConditionConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
   const [demo, setDemo] = useState<{ until: number; sent: number } | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -134,6 +125,7 @@ export function SafPocPanel({
   const demoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const demoSent = useRef(0);
   const selectedAgent = agentOptions.find((agent) => agent.id === agentId);
+  const endpointAgents = agentOptions.filter(isEndpointAgent);
   const ownerEmail = usableEmail(selectedAgent?.ownerEmail);
   const supportedLevels = state?.workflow?.trigger.supportedLevels ?? [];
   const criticalUnsupported =
@@ -157,35 +149,11 @@ export function SafPocPanel({
     const nextAgents = body.agents ?? [];
     setAgentOptions(nextAgents);
     setAgentsError(nextAgents.length === 0 ? "This tenant returned no agents." : null);
-    setAgentId((current) =>
-      nextAgents.some((agent) => agent.id === current) ? current : (nextAgents[0]?.id ?? ""),
-    );
-  }, []);
-
-  useEffect(() => {
-    if (!conditionRun || !["waiting", "restoring", "restore_failed"].includes(conditionRun.status)) {
-      return;
-    }
-    const timer = setInterval(() => {
-      void fetch(`/api/saf-poc/agent-condition/status?id=${encodeURIComponent(conditionRun.id)}`, {
-        cache: "no-store",
-      })
-        .then((response) => response.json())
-        .then((body: { run?: AgentConditionRun }) => {
-          if (body.run) setConditionRun(body.run);
-        });
-    }, 10_000);
-    return () => clearInterval(timer);
-  }, [conditionRun]);
-
-  useEffect(() => {
-    if (approach !== "agent-condition" || conditionRun) return;
-    void fetch("/api/saf-poc/agent-condition/status", { cache: "no-store" })
-      .then((response) => response.json())
-      .then((body: { run?: AgentConditionRun }) => {
-        if (body.run) setConditionRun(body.run);
-      });
-  }, [approach, conditionRun]);
+    setAgentId((current) => {
+      const pool = section === "endpoint" ? nextAgents.filter(isEndpointAgent) : nextAgents;
+      return pool.some((agent) => agent.id === current) ? current : (pool[0]?.id ?? "");
+    });
+  }, [section]);
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label);
@@ -310,7 +278,9 @@ export function SafPocPanel({
                       ? state.transmitter.streamStatus
                       : "not registered"
                   }`
-                : `Datadog mode: ${state?.mode ?? "…"}`}
+                : section === "endpoint"
+                  ? "Sentinel endpoint agents. Cloud agents are not part of this use case."
+                  : `Datadog mode: ${state?.mode ?? "…"}`}
             </p>
           </div>
           <button
@@ -478,44 +448,9 @@ export function SafPocPanel({
 
           <div className="space-y-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
             <h3 className="text-sm font-medium">Send CAEP event</h3>
-            <fieldset className="space-y-1 text-xs">
-              <legend className="font-medium text-zinc-700 dark:text-zinc-200">Approach</legend>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="caep-approach"
-                  checked={approach === "test-event"}
-                  onChange={() => setApproach("test-event")}
-                />
-                Test the event bus
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="caep-approach"
-                  checked={approach === "agent-condition"}
-                  onChange={() => {
-                    setApproach("agent-condition");
-                    setScoreView(null);
-                  }}
-                />
-                Change a real agent condition
-              </label>
-            </fieldset>
-            {approach === "agent-condition" ? (
-              <div className="space-y-1 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                <p className="font-medium">Temporary owner-removal test</p>
-                <p>
-                  AgentForge removes the owner, waits up to five minutes for the Risk Engine,
-                  sends CAEP only for an observed band change, and restores the owner.
-                </p>
-              </div>
-            ) : (
-              <p className="text-xs text-zinc-500">
-                Does not change Agent Risk Severity. The Risk Engine sets that band from weighted
-                signals.
-              </p>
-            )}
+            <p className="text-xs text-zinc-500">
+              Tests the event bus only. This does not change Agent Risk Severity.
+            </p>
             <label className="block text-xs">
               Agent
               <select
@@ -542,8 +477,6 @@ export function SafPocPanel({
             {agentsError ? (
               <p className="text-xs text-red-700 dark:text-red-300">{agentsError}</p>
             ) : null}
-            {approach === "test-event" ? (
-              <>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-xs">
                 Risk level
@@ -644,80 +577,6 @@ export function SafPocPanel({
                 <p>Agent Risk Severity: {scoreView.calculatedSeverity}. This event does not change it.</p>
               </div>
             ) : null}
-              </>
-            ) : (
-              <div className="space-y-3 text-xs">
-                <p>
-                  Baseline: <strong>{selectedAgent?.riskLevel || "Unavailable"}</strong> · owner{" "}
-                  <strong>{selectedAgent?.ownerName || "none"}</strong>
-                </p>
-                <label className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    checked={conditionConfirmed}
-                    onChange={(event) => setConditionConfirmed(event.target.checked)}
-                  />
-                  I confirm this is a dedicated test agent and authorize a temporary owner change.
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={
-                      busy !== null ||
-                      !agentId ||
-                      !ownerEmail ||
-                      !conditionConfirmed ||
-                      Boolean(
-                        conditionRun &&
-                          ["waiting", "restoring", "restore_failed"].includes(conditionRun.status),
-                      )
-                    }
-                    onClick={() =>
-                      void run("agent-condition", async () => {
-                        const payload = (await post(
-                          "/api/saf-poc/agent-condition/start",
-                          { agentId, confirmed: true },
-                        )) as { run?: AgentConditionRun };
-                        if (payload.run) setConditionRun(payload.run);
-                      })
-                    }
-                    className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-white dark:bg-zinc-100 dark:text-zinc-900"
-                  >
-                    {busy === "agent-condition" ? "Starting…" : "Start real condition"}
-                  </button>
-                  {conditionRun &&
-                  ["waiting", "restoring", "restore_failed"].includes(conditionRun.status) ? (
-                    <button
-                      type="button"
-                      disabled={busy !== null}
-                      onClick={() =>
-                        void run("restore-condition", async () => {
-                          const payload = (await post(
-                            "/api/saf-poc/agent-condition/restore",
-                            { id: conditionRun.id },
-                          )) as { run?: AgentConditionRun };
-                          if (payload.run) setConditionRun(payload.run);
-                        })
-                      }
-                      className="rounded-md border border-zinc-300 px-3 py-1.5 font-medium dark:border-zinc-700"
-                    >
-                      Restore owner now
-                    </button>
-                  ) : null}
-                </div>
-                {conditionRun ? (
-                  <div className="rounded-md bg-zinc-50 p-2 dark:bg-zinc-900">
-                    <p>Status: {conditionRun.status.replaceAll("_", " ")}</p>
-                    <p>
-                      Risk: {conditionRun.baselineSeverity} → {conditionRun.observedSeverity}
-                    </p>
-                    <p>{conditionRun.detail}</p>
-                    <p>Owner restored: {conditionRun.ownerRestored ? "yes" : "not yet"}</p>
-                    {conditionRun.caepEventId ? <p>CAEP event: {conditionRun.caepEventId}</p> : null}
-                  </div>
-                ) : null}
-              </div>
-            )}
           </div>
         </div>
 
@@ -730,7 +589,76 @@ export function SafPocPanel({
           </ol>
         </div>
       </section>
-      ) : (
+      ) : null}
+
+      {section === "endpoint" ? (
+      <section
+        id="endpoint-risk"
+        className="space-y-4 scroll-mt-28 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950"
+      >
+        <div>
+          <h2 className="text-base font-semibold">Endpoint agent risk</h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Sentinel endpoint agents only. Plaintext credential exposure moves the risk band.
+            Snowflake, Databricks, and AWS agents do not carry this signal.
+          </p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <StoryStep number="1" title="Use an endpoint agent" status={endpointAgents.length > 0 ? "Ready" : "None found"} passed={endpointAgents.length > 0}>
+            Choose an agent Sentinel already discovered. A new cloud agent does not qualify.
+          </StoryStep>
+          <StoryStep number="2" title="Read the Risk tab" status="In SailPoint" passed={false}>
+            Look for the Plaintext Credential Exposure card. That signal is severity 90.
+          </StoryStep>
+          <StoryStep number="3" title="Band follows the signal" status="Risk Engine" passed={false}>
+            Severity 90 lands in Critical. The email proof stays in CAEP Event Bus.
+          </StoryStep>
+        </div>
+        <div className="space-y-3 rounded-md border border-zinc-200 p-3 text-xs dark:border-zinc-800">
+          <label className="block">
+            Endpoint agent
+            <select
+              value={endpointAgents.some((agent) => agent.id === agentId) ? agentId : ""}
+              onChange={(event) => setAgentId(event.target.value)}
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+            >
+              {endpointAgents.length === 0 ? (
+                <option value="">No endpoint agents</option>
+              ) : (
+                endpointAgents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                    {agent.source ? ` · ${agent.source}` : ""}
+                    {agent.riskLevel ? ` · ${agent.riskLevel}` : ""}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+          {agentsError ? (
+            <p className="text-red-700 dark:text-red-300">{agentsError}</p>
+          ) : null}
+          {endpointAgents.length === 0 ? (
+            <p className="text-amber-700 dark:text-amber-300">
+              This list has no endpoint or Sentinel agent. Cloud agents stay in CAEP Event Bus.
+            </p>
+          ) : selectedAgent && isEndpointAgent(selectedAgent) ? (
+            <div className="space-y-1 text-zinc-600 dark:text-zinc-300">
+              <p>
+                Risk band: <strong>{selectedAgent.riskLevel || "Unavailable"}</strong>
+              </p>
+              <p>Source: {selectedAgent.source || "not returned"}</p>
+              <p>
+                AgentForge does not create this signal. Sentinel reports plaintext credentials,
+                and the Risk Engine sets the band.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </section>
+      ) : null}
+
+      {section === "datadog" ? (
       <section
         id="security-signals"
         className="scroll-mt-28 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950"
@@ -833,7 +761,7 @@ export function SafPocPanel({
           <Checks title={state?.evidence.testCase2.title} checks={state?.evidence.testCase2.checks} />
         </div>
       </section>
-      )}
+      ) : null}
 
       {section === "datadog" ? (
       <section className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
@@ -868,6 +796,10 @@ function DatadogMark() {
       <path d="M19.57 17.04l-1.997-1.316-1.665 2.782-1.937-.567-1.706 2.604.087.82 9.274-1.71-.538-5.794zm-8.649-2.498l1.488-.204c.241.108.409.15.697.223.45.117.97.23 1.741-.16.18-.088.553-.43.704-.625l6.096-1.106.622 7.527-10.444 1.882zm11.325-2.712l-.602.115L20.488 0 .789 2.285l2.427 19.693 2.306-.334c-.184-.263-.471-.581-.96-.989-.68-.564-.44-1.522-.039-2.127.53-1.022 3.26-2.322 3.106-3.956-.056-.594-.15-1.368-.702-1.898-.02.22.017.432.017.432s-.227-.289-.34-.683c-.112-.15-.2-.199-.319-.4-.085.233-.073.503-.073.503s-.186-.437-.216-.807c-.11.166-.137.48-.137.48s-.241-.69-.186-1.062c-.11-.323-.436-.965-.343-2.424.6.421 1.924.321 2.44-.439.171-.251.288-.939-.086-2.293-.24-.868-.835-2.16-1.066-2.651l-.028.02c.122.395.374 1.223.47 1.625.293 1.218.372 1.642.234 2.204-.116.488-.397.808-1.107 1.165-.71.358-1.653-.514-1.713-.562-.69-.55-1.224-1.447-1.284-1.883-.062-.477.275-.763.445-1.153-.243.07-.514.192-.514.192s.323-.334.722-.624c.165-.109.262-.178.436-.323a9.762 9.762 0 0 0-.456.003s.42-.227.855-.392c-.318-.014-.623-.003-.623-.003s.937-.419 1.678-.727c.509-.208 1.006-.147 1.286.257.367.53.752.817 1.569.996.501-.223.653-.337 1.284-.509.554-.61.99-.688.99-.688s-.216.198-.274.51c.314-.249.66-.455.66-.455s-.134.164-.259.426l.03.043c.366-.22.797-.394.797-.394s-.123.156-.268.358c.277-.002.838.012 1.056.037 1.285.028 1.552-1.374 2.045-1.55.618-.22.894-.353 1.947.68.903.888 1.609 2.477 1.259 2.833-.294.295-.874-.115-1.516-.916a3.466 3.466 0 0 1-.716-1.562 1.533 1.533 0 0 0-.497-.85s.23.51.23.96c0 .246.03 1.165.424 1.68-.039.076-.057.374-.1.43-.458-.554-1.443-.95-1.604-1.067.544.445 1.793 1.468 2.273 2.449.453.927.186 1.777.416 1.997.065.063.976 1.197 1.15 1.767.306.994.019 2.038-.381 2.685l-1.117.174c-.163-.045-.273-.068-.42-.153.08-.143.241-.5.243-.572l-.063-.111c-.348.492-.93.97-1.414 1.245-.633.359-1.363.304-1.838.156-1.348-.415-2.623-1.327-2.93-1.566 0 0-.01.191.048.234.34.383 1.119 1.077 1.872 1.56l-1.605.177.759 5.908c-.337.048-.39.071-.757.124-.325-1.147-.946-1.895-1.624-2.332-.599-.384-1.424-.47-2.214-.314l-.05.059a2.851 2.851 0 0 1 1.863.444c.654.413 1.181 1.481 1.375 2.124.248.822.42 1.7-.248 2.632-.476.662-1.864 1.028-2.986.237.3.481.705.876 1.25.95.809.11 1.577-.03 2.106-.574.452-.464.69-1.434.628-2.456l.714-.104.258 1.834 11.827-1.424zM15.05 6.848c-.034.075-.085.125-.007.37l.004.014.013.032.032.073c.14.287.295.558.552.696.067-.011.136-.019.207-.023.242-.01.395.028.492.08.009-.048.01-.119.005-.222-.018-.364.072-.982-.626-1.308-.264-.122-.634-.084-.757.068a.302.302 0 0 1 .058.013c.186.066.06.13.027.207m1.958 3.392c-.092-.05-.52-.03-.821.005-.574.068-1.193.267-1.328.372-.247.191-.135.523.047.66.511.382.96.638 1.432.575.29-.038.546-.497.728-.914.124-.288.124-.598-.058-.698m-5.077-2.942c.162-.154-.805-.355-1.556.156-.554.378-.571 1.187-.041 1.646.053.046.096.078.137.104a4.77 4.77 0 0 1 1.396-.412c.113-.125.243-.345.21-.745-.044-.542-.455-.456-.146-.749" />
     </svg>
   );
+}
+
+function isEndpointAgent(agent: { name: string; source?: string; subtype?: string }): boolean {
+  return /endpoint|sentinel/i.test(`${agent.name} ${agent.source ?? ""} ${agent.subtype ?? ""}`);
 }
 
 function formatRemaining(ms: number): string {

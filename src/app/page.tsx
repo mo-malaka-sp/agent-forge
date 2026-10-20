@@ -48,6 +48,17 @@ const PATHS = [
     icon: "detect",
     accent: "green",
   },
+  {
+    href: "/saf-poc?section=endpoint",
+    step: "05",
+    eyebrow: "Protect",
+    title: "Endpoint Agent Risk",
+    description:
+      "Use a Sentinel endpoint agent. Plaintext credentials move the risk band. Cloud agents do not.",
+    cta: "Open endpoint risk",
+    icon: "endpoint",
+    accent: "blue",
+  },
 ] as const;
 
 export default function HomePage() {
@@ -172,6 +183,14 @@ function FeatureIcon({ name }: { name: (typeof PATHS)[number]["icon"] }) {
       <svg viewBox="0 0 24 24" fill="none">
         <path d="M12 3 19 6v5c0 4.6-2.8 8.3-7 10-4.2-1.7-7-5.4-7-10V6l7-3Z" />
         <path d="M9 12h6M13 9l3 3-3 3" />
+      </svg>
+    );
+  }
+  if (name === "endpoint") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M4 5h16v10H4V5Z" />
+        <path d="M8 19h8M12 15v4" />
       </svg>
     );
   }
