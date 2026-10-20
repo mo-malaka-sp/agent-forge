@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { isEndpointAgent } from "@/lib/saf-poc/endpoint-agent";
 import type { SailPointSetupConfig } from "@/lib/saf-poc/sailpoint";
 import {
   listTenantAgents,
@@ -25,6 +26,28 @@ function config(): SailPointSetupConfig {
 }
 
 describe("tenant agents", () => {
+  it("treats Sentinel agents as endpoint agents and keeps cloud agents out", () => {
+    assert.equal(
+      isEndpointAgent({
+        agentType: "Endpoint",
+        source: "Sentinel",
+        businessApplication: "claude_desktop",
+      }),
+      true,
+    );
+    assert.equal(
+      isEndpointAgent({
+        source: "Databricks",
+        businessApplication: "ka-9ba32b9f-endpoint",
+      }),
+      false,
+    );
+    assert.equal(
+      isEndpointAgent({ source: "Snowflake SaaS", subtype: "AI Agent" }),
+      false,
+    );
+  });
+
   it("keeps AI agents when the tenant also returns other machine identities", () => {
     const agents = parseTenantAgents([
       {

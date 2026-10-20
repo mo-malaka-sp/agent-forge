@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { SAILPOINT_DEMO_DURATION_MS, sailPointDemoDelayMs } from "@/lib/saf-poc/demo-stream";
+import { isEndpointAgent } from "@/lib/saf-poc/endpoint-agent";
 
 type Check = { label: string; passed: boolean };
 
@@ -85,6 +86,8 @@ type AgentOption = {
   ownerEmail?: string;
   source?: string;
   subtype?: string;
+  agentType?: string;
+  businessApplication?: string;
 };
 
 type SafPocPanelProps = {
@@ -95,7 +98,7 @@ type SafPocPanelProps = {
   agentsError?: string | null;
 };
 
-const RISK_LEVELS = ["Low", "Medium", "High", "Critical"];
+const RISK_LEVELS = ["Low", "Medium", "High"];
 const DATADOG_SIGNALS_URL =
   "https://app.datadoghq.com/security/siem/signals?saved-view-id=4703495";
 
@@ -112,7 +115,7 @@ export function SafPocPanel({
   const [agentId, setAgentId] = useState(
     (section === "endpoint" ? agents.find(isEndpointAgent)?.id : agents[0]?.id) ?? "",
   );
-  const [riskLevel, setRiskLevel] = useState(agents[0]?.riskLevel || "Low");
+  const [riskLevel, setRiskLevel] = useState(selectableRiskLevel(agents[0]?.riskLevel));
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -127,9 +130,6 @@ export function SafPocPanel({
   const selectedAgent = agentOptions.find((agent) => agent.id === agentId);
   const endpointAgents = agentOptions.filter(isEndpointAgent);
   const ownerEmail = usableEmail(selectedAgent?.ownerEmail);
-  const supportedLevels = state?.workflow?.trigger.supportedLevels ?? [];
-  const criticalUnsupported =
-    supportedLevels.length > 0 && !supportedLevels.includes("CRITICAL");
 
   const load = useCallback(async () => {
     const response = await fetch("/api/saf-poc/state", { cache: "no-store" });
@@ -486,17 +486,10 @@ export function SafPocPanel({
                   className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
                 >
                   {RISK_LEVELS.map((level) => (
-                    <option key={level} disabled={level === "Critical" && criticalUnsupported}>
-                      {level}
-                    </option>
+                    <option key={level}>{level}</option>
                   ))}
                 </select>
               </label>
-              {criticalUnsupported ? (
-                <p className="self-end text-xs text-amber-700 dark:text-amber-300">
-                  This tenant workflow trigger does not accept Critical.
-                </p>
-              ) : null}
               <div className="text-xs">
                 <p className="font-medium text-zinc-700 dark:text-zinc-200">Owner</p>
                 {ownerEmail ? (
@@ -640,7 +633,7 @@ export function SafPocPanel({
           ) : null}
           {endpointAgents.length === 0 ? (
             <p className="text-amber-700 dark:text-amber-300">
-              This list has no endpoint or Sentinel agent. Cloud agents stay in CAEP Event Bus.
+              No Sentinel endpoint agent is in this list. Databricks, Snowflake, and AWS agents stay in CAEP Event Bus.
             </p>
           ) : selectedAgent && isEndpointAgent(selectedAgent) ? (
             <div className="space-y-1 text-zinc-600 dark:text-zinc-300">
@@ -798,8 +791,11 @@ function DatadogMark() {
   );
 }
 
-function isEndpointAgent(agent: { name: string; source?: string; subtype?: string }): boolean {
-  return /endpoint|sentinel/i.test(`${agent.name} ${agent.source ?? ""} ${agent.subtype ?? ""}`);
+function selectableRiskLevel(level: string | undefined): string {
+  const normalized = level?.trim().toLowerCase();
+  if (normalized === "medium") return "Medium";
+  if (normalized === "high") return "High";
+  return "Low";
 }
 
 function formatRemaining(ms: number): string {

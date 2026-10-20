@@ -15,6 +15,8 @@ export type TenantAgent = {
   ownerEmail: string;
   source: string;
   subtype: string;
+  agentType: string;
+  businessApplication: string;
 };
 
 const MACHINE_IDENTITY_PATHS = ["/machine-identities/v1"] as const;
@@ -383,6 +385,14 @@ function parseTenantAgent(value: unknown): TenantAgent | null {
       text(attributes.subtype) ||
       text(attributes.subType) ||
       text(attributes.type),
+    agentType:
+      text(record.agentType) ||
+      text(record.agent_type) ||
+      text(attributes.agentType) ||
+      text(attributes.agent_type),
+    businessApplication:
+      text(record.businessApplication) ||
+      text(attributes.businessApplication),
   };
 }
 

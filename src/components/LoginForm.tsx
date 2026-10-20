@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 export function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,14 +24,13 @@ export function LoginForm() {
       });
       if (!response.ok) {
         setError("Username or password is incorrect.");
+        setBusy(false);
         return;
       }
       const next = searchParams.get("next") || "/";
-      router.push(next.startsWith("/") && !next.startsWith("//") ? next : "/");
-      router.refresh();
+      window.location.assign(next.startsWith("/") && !next.startsWith("//") ? next : "/");
     } catch {
       setError("Sign-in failed. Try again.");
-    } finally {
       setBusy(false);
     }
   }
