@@ -80,8 +80,26 @@ export type ActivationResult = {
   roleAssigned: boolean;
 };
 
+const EXPERIMENTAL_HEADER = { "X-SailPoint-Experimental": "true" };
+
 export function readonlyAccountClient(config: SailPointSetupConfig = loadSafPocConfig()) {
-  return createSailPointClient(config);
+  const client = createSailPointClient(config);
+  return {
+    ...client,
+    listRecords: (path: string, extraHeaders?: Record<string, string>) =>
+      client.listRecords(path, { ...EXPERIMENTAL_HEADER, ...extraHeaders }),
+    request: (
+      method: string,
+      path: string,
+      body?: unknown,
+      contentType?: string,
+      extraHeaders?: Record<string, string>,
+    ) =>
+      client.request(method, path, body, contentType, {
+        ...EXPERIMENTAL_HEADER,
+        ...extraHeaders,
+      }),
+  };
 }
 
 function record(value: unknown): JsonRecord {
