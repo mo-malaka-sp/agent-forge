@@ -73,8 +73,9 @@ export type ActivationInput = TenantRefs & {
 export type ActivationResult = {
   done: boolean;
   phase: "account-pending" | "identity-pending" | "activating" | "complete";
-  detail: string;
-  identityId: string | null;
+    detail: string;
+    identityId: string | null;
+    alias: string | null;
   processed: boolean;
   lifecycleState: string | null;
   accountEnabled: boolean | null;
@@ -510,6 +511,7 @@ export async function activateTestAccount(
     phase,
     detail,
     identityId: null,
+    alias: null,
     processed,
     lifecycleState: null,
     accountEnabled: null,
@@ -557,13 +559,7 @@ export async function activateTestAccount(
   const identity = record(
     await client.request("GET", `/identities/v1/${encodeURIComponent(identityId)}`),
   );
-  const alias = text(identity.alias);
-  if (alias && alias !== input.userId) {
-    return pending(
-      "account-pending",
-      `Found a different identity (${alias}) instead of ${input.userId}.`,
-    );
-  }
+  const alias = text(identity.alias) || text(identity.name) || null;
   let lifecycleState = text(record(identity.lifecycleState).stateName) || null;
   if (lifecycleState !== ACTIVE_STATE) {
     await client.request(
@@ -610,11 +606,12 @@ export async function activateTestAccount(
     done,
     phase: done ? "complete" : "activating",
     detail: done
-      ? "The identity is active and has the role."
+      ? `The identity is active and has the role. Sign in as ${alias ?? input.userId}.`
       : roleAssigned
         ? "Role assigned. Waiting for the IdentityNow account."
         : `Waiting for the ${ROLE_NAME} role to assign.`,
     identityId,
+    alias,
     processed,
     lifecycleState,
     accountEnabled,

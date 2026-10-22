@@ -147,7 +147,7 @@ export function ReadonlyAccountPanel() {
           {created ? (
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
               <dt className="text-zinc-500">Sign-in id</dt>
-              <dd className="font-mono">{created.user.id}</dd>
+              <dd className="font-mono">{activation?.alias ?? created.user.id}</dd>
               <dt className="text-zinc-500">Name</dt>
               <dd>{created.user.name}</dd>
               <dt className="text-zinc-500">Email</dt>
