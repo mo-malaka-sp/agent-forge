@@ -481,7 +481,7 @@ export async function pickUniqueUser(
   random: () => number = Math.random,
 ): Promise<{ user: TestUser; attempts: number }> {
   let attempts = 0;
-  for (const digits of [2, 3]) {
+  for (const digits of [0, 2, 3]) {
     for (let index = 0; index < ATTEMPTS_PER_LENGTH; index += 1) {
       attempts += 1;
       const user = generateTestUser(digits, random);
@@ -549,7 +549,7 @@ export async function createTestAccount(
       attributes: {
         sourceId: refs.sourceId,
         id: user.id,
-        name: user.name,
+        name: user.id,
         givenName: user.givenName,
         familyName: user.familyName,
         "e-mail": user.email,
@@ -714,7 +714,7 @@ export async function activateTestAccount(
     (!redirectEmail || inviteSent || Boolean(inviteError));
   const detail = done
     ? inviteSent
-      ? `Invitation sent to ${redirectEmail}. Use the registration link in that inbox. It expires in 7 days.`
+      ? `Invitation sent to ${redirectEmail}. The username is ${input.userId}. The link expires in 7 days.`
       : inviteError
         ? `The identity is active and has the role. ${inviteError}`
         : passwordError

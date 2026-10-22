@@ -68,6 +68,8 @@ const BASE_ROUTES: Record<string, Route> = {
 describe("read-only test account generation", () => {
   it("uses short names, unambiguous digits, and the test mail domain", () => {
     const user = generateTestUser(2);
+    const plain = generateTestUser(0, () => 0);
+    assert.equal(plain.id, "maya.chen");
     assert.match(user.id, /^[a-z]+\.[a-z]+[2-9]{2}$/);
     assert.equal(user.email, `${user.id}@testmail.identitysoon.com`);
     assert.match(user.password, /^TestDrive[2-9]{2}!$/);
@@ -106,7 +108,7 @@ describe("read-only test account generation", () => {
       "GET /accounts/v1": () => [],
       "GET /identities/v1": () => [{ id: "someone" }],
     });
-    await assert.rejects(() => pickUniqueUser(client, "src-admins"), /after 20 attempts/);
+    await assert.rejects(() => pickUniqueUser(client, "src-admins"), /after 30 attempts/);
   });
 });
 
@@ -194,6 +196,11 @@ describe("read-only account creation", () => {
       "POST /accounts/v1": () => ({ id: "task-create" }),
     });
     const result = await createTestAccount(client, () => 0);
+    const created = calls.find((call) => call.method === "POST" && call.path === "/accounts/v1");
+    const attributes = (created?.body as { attributes?: { id?: string; name?: string } }).attributes;
+    assert.equal(attributes?.id, "maya.chen");
+    assert.equal(attributes?.name, "maya.chen");
+    assert.equal(result.user.name, "Maya Chen");
     assert.equal(result.refs.identityNowSourceId, "src-idn");
     assert.equal(result.emailRedirect, null);
     assert.equal(
