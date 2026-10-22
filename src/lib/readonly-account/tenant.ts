@@ -71,6 +71,7 @@ export type ActivationInput = TenantRefs & {
   taskId?: string | null;
   password?: string;
   passwordSet?: boolean;
+  passwordError?: string | null;
   attempt: number;
   processed: boolean;
 };
@@ -86,6 +87,7 @@ export type ActivationResult = {
   accountEnabled: boolean | null;
   roleAssigned: boolean;
   passwordSet: boolean;
+  passwordError: string | null;
 };
 
 const EXPERIMENTAL_HEADER = { "X-SailPoint-Experimental": "true" };
@@ -555,6 +557,7 @@ export async function activateTestAccount(
     accountEnabled: null,
     roleAssigned: false,
     passwordSet: input.passwordSet === true,
+    passwordError: input.passwordError ?? null,
   });
 
   const accounts = await list(
@@ -600,9 +603,18 @@ export async function activateTestAccount(
   );
   const alias = text(identity.alias) || text(identity.name) || null;
   let passwordSet = input.passwordSet === true;
-  if (input.password && alias && !passwordSet) {
-    await setIdentityPassword(client, alias, input.password);
-    passwordSet = true;
+  let passwordError = input.passwordError ?? null;
+  if (input.password && alias && !passwordSet && !passwordError) {
+    try {
+      await setIdentityPassword(client, alias, input.password);
+      passwordSet = true;
+    } catch (error) {
+      if (!(error instanceof SailPointApiError) || error.status !== 403) {
+        throw error;
+      }
+      passwordError =
+        "SailPoint refused to set the password with the admin credential. Use Actions, Reset Password on the identity and send it to an inbox you can open.";
+    }
   }
   let lifecycleState = text(record(identity.lifecycleState).stateName) || null;
   if (lifecycleState !== ACTIVE_STATE) {
@@ -649,12 +661,14 @@ export async function activateTestAccount(
     roleAssigned &&
     accountEnabled === true &&
     lifecycleState === ACTIVE_STATE &&
-    (!input.password || passwordSet);
+    (!input.password || passwordSet || Boolean(passwordError));
   return {
     done,
     phase: done ? "complete" : "activating",
     detail: done
-      ? `The identity is active and has the role. Sign in as ${alias ?? input.userId}.`
+      ? passwordError
+        ? `The identity is active and has the role. ${passwordError}`
+        : `The identity is active and has the role. Sign in as ${alias ?? input.userId}.`
       : roleAssigned
         ? "Role assigned. Waiting for the IdentityNow account."
         : `Waiting for the ${ROLE_NAME} role to assign.`,
@@ -665,5 +679,6 @@ export async function activateTestAccount(
     accountEnabled,
     roleAssigned,
     passwordSet,
+    passwordError,
   };
 }

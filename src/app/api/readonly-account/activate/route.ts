@@ -14,6 +14,7 @@ const activationSchema = z.object({
   taskId: z.string().min(1).nullable().optional(),
   password: z.string().min(8).max(64).optional(),
   passwordSet: z.boolean().optional(),
+  passwordError: z.string().nullable().optional(),
   attempt: z.number().int().min(0).max(100),
   processed: z.boolean(),
 });

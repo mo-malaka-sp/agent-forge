@@ -69,6 +69,7 @@ export function ReadonlyAccountPanel() {
       setCreated(result);
       let processed = false;
       let passwordSet = false;
+      let passwordError: string | null = null;
       for (let attempt = 0; attempt < MAX_POLLS; attempt += 1) {
         await wait(POLL_INTERVAL_MS);
         const next: ActivationResult = await post<ActivationResult>("/api/readonly-account/activate", {
@@ -77,11 +78,13 @@ export function ReadonlyAccountPanel() {
           taskId: result.taskId,
           password: result.user.password,
           passwordSet,
+          passwordError,
           attempt,
           processed,
         });
         processed = next.processed;
         passwordSet = next.passwordSet;
+        passwordError = next.passwordError;
         setActivation(next);
         if (next.done) {
           return;
@@ -157,7 +160,9 @@ export function ReadonlyAccountPanel() {
               <dt className="text-zinc-500">Email</dt>
               <dd className="break-all font-mono">{created.user.email}</dd>
               <dt className="text-zinc-500">Password</dt>
-              <dd className="font-mono">{created.user.password}</dd>
+              <dd className="font-mono">
+                {activation?.passwordError ? "not set" : created.user.password}
+              </dd>
               <dt className="text-zinc-500">Account task</dt>
               <dd className="break-all font-mono">{created.taskId ?? "not returned"}</dd>
               <dt className="text-zinc-500">Lifecycle</dt>
@@ -186,7 +191,7 @@ export function ReadonlyAccountPanel() {
               Still not complete after two minutes. Check the identity in the tenant.
             </p>
           ) : null}
-          {activation?.done ? (
+          {activation?.done && !activation.passwordError ? (
             <p className="text-xs text-zinc-600 dark:text-zinc-400">
               Sign in with the username and password shown above.
             </p>
