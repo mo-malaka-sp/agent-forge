@@ -295,5 +295,35 @@ describe("read-only account activation", () => {
     assert.deepEqual(process?.body, { identityIds: ["ident-1"] });
     const lifecycle = calls.find((call) => call.path.endsWith("/set-lifecycle-state"));
     assert.deepEqual(lifecycle?.body, { lifecycleStateId: "state-active" });
+    assert.equal(calls.some((call) => call.path === "/beta/identities/invite"), false);
+  });
+
+  it("invites the identity when tenant email is redirected", async () => {
+    const { client, calls } = fakeTenant({
+      'GET /accounts/v1?filters=sourceId eq "src-admins" and nativeIdentity eq "maya.chen42"':
+        () => [{ id: "acct-1", nativeIdentity: "maya.chen42", identityId: "ident-1" }],
+      'GET /accounts/v1?filters=identityId eq "ident-1" and sourceId eq "src-idn"': () => [
+        { id: "idn-1", disabled: false },
+      ],
+      "POST /identities/v1/process": () => ({ id: "task-1" }),
+      "GET /identities/v1/ident-1": () => ({
+        id: "ident-1",
+        alias: "Maya Chen",
+        lifecycleState: { stateName: "active" },
+      }),
+      "GET /identities/v1/ident-1/role-assignments": () => [
+        { id: "assign-1", role: { name: "ReadOnly-Admins" } },
+      ],
+      "POST /beta/identities/invite": () => ({ id: "invite-task" }),
+    });
+    const result = await activateTestAccount(client, {
+      ...input,
+      redirectEmail: "se@example.com",
+    });
+    assert.equal(result.done, true);
+    assert.equal(result.inviteSent, true);
+    const invite = calls.find((call) => call.path === "/beta/identities/invite");
+    assert.deepEqual(invite?.body, { ids: ["ident-1"], uninvited: false });
+    assert.match(result.detail, /se@example.com/);
   });
 });

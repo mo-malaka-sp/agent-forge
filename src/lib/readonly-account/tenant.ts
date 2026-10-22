@@ -73,6 +73,9 @@ export type ActivationInput = TenantRefs & {
   password?: string;
   passwordSet?: boolean;
   passwordError?: string | null;
+  redirectEmail?: string;
+  inviteSent?: boolean;
+  inviteError?: string | null;
   attempt: number;
   processed: boolean;
 };
@@ -89,6 +92,8 @@ export type ActivationResult = {
   roleAssigned: boolean;
   passwordSet: boolean;
   passwordError: string | null;
+  inviteSent: boolean;
+  inviteError: string | null;
 };
 
 const EXPERIMENTAL_HEADER = { "X-SailPoint-Experimental": "true" };
@@ -582,6 +587,8 @@ export async function activateTestAccount(
     roleAssigned: false,
     passwordSet: input.passwordSet === true,
     passwordError: input.passwordError ?? null,
+    inviteSent: input.inviteSent === true,
+    inviteError: input.inviteError ?? null,
   });
 
   const accounts = await list(
@@ -681,21 +688,45 @@ export async function activateTestAccount(
     (assignment) => text(record(record(assignment).role).name) === ROLE_NAME,
   );
 
+  const ready =
+    roleAssigned && accountEnabled === true && lifecycleState === ACTIVE_STATE;
+  let inviteSent = input.inviteSent === true;
+  let inviteError = input.inviteError ?? null;
+  const redirectEmail = input.redirectEmail?.trim() ?? "";
+  if (ready && redirectEmail && !inviteSent && !inviteError) {
+    try {
+      await client.request("POST", "/beta/identities/invite", {
+        ids: [identityId],
+        uninvited: false,
+      });
+      inviteSent = true;
+    } catch (error) {
+      if (!(error instanceof SailPointApiError)) {
+        throw error;
+      }
+      inviteError = `SailPoint did not send the invitation (${error.status}).`;
+    }
+  }
+
   const done =
-    roleAssigned &&
-    accountEnabled === true &&
-    lifecycleState === ACTIVE_STATE &&
-    (!input.password || passwordSet || Boolean(passwordError));
+    ready &&
+    (!input.password || passwordSet || Boolean(passwordError)) &&
+    (!redirectEmail || inviteSent || Boolean(inviteError));
+  const detail = done
+    ? inviteSent
+      ? `Invitation sent to ${redirectEmail}. Use the registration link in that inbox. It expires in 7 days.`
+      : inviteError
+        ? `The identity is active and has the role. ${inviteError}`
+        : passwordError
+          ? `The identity is active and has the role. ${passwordError}`
+          : `The identity is active and has the role. Sign in as ${alias ?? input.userId}.`
+    : roleAssigned
+      ? "Role assigned. Waiting for the IdentityNow account."
+      : `Waiting for the ${ROLE_NAME} role to assign.`;
   return {
     done,
     phase: done ? "complete" : "activating",
-    detail: done
-      ? passwordError
-        ? `The identity is active and has the role. ${passwordError}`
-        : `The identity is active and has the role. Sign in as ${alias ?? input.userId}.`
-      : roleAssigned
-        ? "Role assigned. Waiting for the IdentityNow account."
-        : `Waiting for the ${ROLE_NAME} role to assign.`,
+    detail,
     identityId,
     alias,
     processed,
@@ -704,5 +735,7 @@ export async function activateTestAccount(
     roleAssigned,
     passwordSet,
     passwordError,
+    inviteSent,
+    inviteError,
   };
 }

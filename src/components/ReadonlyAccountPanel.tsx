@@ -73,6 +73,8 @@ export function ReadonlyAccountPanel() {
       let processed = false;
       let passwordSet = false;
       let passwordError: string | null = null;
+      let inviteSent = false;
+      let inviteError: string | null = null;
       for (let attempt = 0; attempt < MAX_POLLS; attempt += 1) {
         await wait(POLL_INTERVAL_MS);
         const next: ActivationResult = await post<ActivationResult>("/api/readonly-account/activate", {
@@ -82,12 +84,17 @@ export function ReadonlyAccountPanel() {
           password: result.user.password,
           passwordSet,
           passwordError,
+          redirectEmail: result.emailRedirect ?? "",
+          inviteSent,
+          inviteError,
           attempt,
           processed,
         });
         processed = next.processed;
         passwordSet = next.passwordSet;
         passwordError = next.passwordError;
+        inviteSent = next.inviteSent;
+        inviteError = next.inviteError;
         setActivation(next);
         if (next.done) {
           return;

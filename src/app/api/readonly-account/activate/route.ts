@@ -15,6 +15,9 @@ const activationSchema = z.object({
   password: z.string().min(8).max(64).optional(),
   passwordSet: z.boolean().optional(),
   passwordError: z.string().nullable().optional(),
+  redirectEmail: z.string().trim().max(254).optional(),
+  inviteSent: z.boolean().optional(),
+  inviteError: z.string().nullable().optional(),
   attempt: z.number().int().min(0).max(100),
   processed: z.boolean(),
 });
