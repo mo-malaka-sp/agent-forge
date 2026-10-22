@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync, privateDecrypt, constants } from "node:crypto";
 import { describe, it } from "node:test";
 
 import {
   activateTestAccount,
   createTestAccount,
+  encryptPassword,
   generateTestUser,
   NAME_LISTS,
   pickUniqueUser,
@@ -68,11 +70,22 @@ describe("read-only test account generation", () => {
     const user = generateTestUser(2);
     assert.match(user.id, /^[a-z]+\.[a-z]+[2-9]{2}$/);
     assert.equal(user.email, `${user.id}@testmail.identitysoon.com`);
+    assert.match(user.password, /^TestDrive[2-9]{2}!$/);
     assert.equal(user.name, `${user.givenName} ${user.familyName}`);
     for (const name of [...NAME_LISTS.first, ...NAME_LISTS.last]) {
       assert.doesNotMatch(name, /(.)\1/, name);
     }
     assert.doesNotMatch(NAME_LISTS.digits, /[01]/);
+  });
+
+  it("encrypts a password with the SailPoint RSA padding", () => {
+    const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const encrypted = encryptPassword(publicKey.export({ type: "spki", format: "pem" }).toString(), "TestDrive25!");
+    const decrypted = privateDecrypt(
+      { key: privateKey, padding: constants.RSA_PKCS1_PADDING },
+      Buffer.from(encrypted, "base64"),
+    );
+    assert.equal(decrypted.toString(), "TestDrive25!");
   });
 
   it("regenerates when the id or email is already used", async () => {

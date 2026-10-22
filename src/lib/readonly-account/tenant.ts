@@ -1,3 +1,5 @@
+import { constants, publicEncrypt } from "node:crypto";
+
 import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import {
   createSailPointClient,
@@ -47,6 +49,7 @@ export type TestUser = {
   givenName: string;
   familyName: string;
   email: string;
+  password: string;
 };
 
 export type TenantRefs = {
@@ -66,6 +69,8 @@ export type CreateResult = {
 export type ActivationInput = TenantRefs & {
   userId: string;
   taskId?: string | null;
+  password?: string;
+  passwordSet?: boolean;
   attempt: number;
   processed: boolean;
 };
@@ -80,6 +85,7 @@ export type ActivationResult = {
   lifecycleState: string | null;
   accountEnabled: boolean | null;
   roleAssigned: boolean;
+  passwordSet: boolean;
 };
 
 const EXPERIMENTAL_HEADER = { "X-SailPoint-Experimental": "true" };
@@ -403,7 +409,39 @@ export function generateTestUser(digits: number, random: () => number = Math.ran
     givenName: capitalize(first),
     familyName: capitalize(last),
     email: `${id}@${TEST_EMAIL_DOMAIN}`,
+    password: `TestDrive${suffix}!`,
   };
+}
+
+export function encryptPassword(publicKey: string, password: string): string {
+  const key = publicKey.includes("BEGIN PUBLIC KEY")
+    ? publicKey
+    : `-----BEGIN PUBLIC KEY-----\n${publicKey}\n-----END PUBLIC KEY-----`;
+  return publicEncrypt(
+    { key, padding: constants.RSA_PKCS1_PADDING },
+    Buffer.from(password, "utf8"),
+  ).toString("base64");
+}
+
+async function setIdentityPassword(client: Client, userName: string, password: string) {
+  const info = record(
+    await client.request("POST", "/query-password-info/v1", {
+      userName,
+      sourceName: IDENTITYNOW_SOURCE_NAME,
+    }),
+  );
+  const publicKey = text(info.publicKey);
+  const publicKeyId = text(info.publicKeyId);
+  const identityId = text(info.identityId);
+  if (!publicKey || !publicKeyId || !identityId) {
+    throw new Error("SailPoint did not return the password encryption key.");
+  }
+  await client.request("POST", "/set-password/v1", {
+    identityId,
+    publicKeyId,
+    sourceId: text(info.sourceId) || undefined,
+    encryptedPassword: encryptPassword(publicKey, password),
+  });
 }
 
 export const NAME_LISTS = { first: FIRST_NAMES, last: LAST_NAMES, digits: DIGITS };
@@ -516,6 +554,7 @@ export async function activateTestAccount(
     lifecycleState: null,
     accountEnabled: null,
     roleAssigned: false,
+    passwordSet: input.passwordSet === true,
   });
 
   const accounts = await list(
@@ -560,6 +599,11 @@ export async function activateTestAccount(
     await client.request("GET", `/identities/v1/${encodeURIComponent(identityId)}`),
   );
   const alias = text(identity.alias) || text(identity.name) || null;
+  let passwordSet = input.passwordSet === true;
+  if (input.password && alias && !passwordSet) {
+    await setIdentityPassword(client, alias, input.password);
+    passwordSet = true;
+  }
   let lifecycleState = text(record(identity.lifecycleState).stateName) || null;
   if (lifecycleState !== ACTIVE_STATE) {
     await client.request(
@@ -601,7 +645,11 @@ export async function activateTestAccount(
     (assignment) => text(record(record(assignment).role).name) === ROLE_NAME,
   );
 
-  const done = roleAssigned && accountEnabled === true && lifecycleState === ACTIVE_STATE;
+  const done =
+    roleAssigned &&
+    accountEnabled === true &&
+    lifecycleState === ACTIVE_STATE &&
+    (!input.password || passwordSet);
   return {
     done,
     phase: done ? "complete" : "activating",
@@ -616,5 +664,6 @@ export async function activateTestAccount(
     lifecycleState,
     accountEnabled,
     roleAssigned,
+    passwordSet,
   };
 }

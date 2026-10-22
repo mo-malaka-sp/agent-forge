@@ -68,16 +68,20 @@ export function ReadonlyAccountPanel() {
       const result = await post<CreateResult>("/api/readonly-account/create");
       setCreated(result);
       let processed = false;
+      let passwordSet = false;
       for (let attempt = 0; attempt < MAX_POLLS; attempt += 1) {
         await wait(POLL_INTERVAL_MS);
         const next: ActivationResult = await post<ActivationResult>("/api/readonly-account/activate", {
           ...result.refs,
           userId: result.user.id,
           taskId: result.taskId,
+          password: result.user.password,
+          passwordSet,
           attempt,
           processed,
         });
         processed = next.processed;
+        passwordSet = next.passwordSet;
         setActivation(next);
         if (next.done) {
           return;
@@ -152,6 +156,8 @@ export function ReadonlyAccountPanel() {
               <dd>{created.user.name}</dd>
               <dt className="text-zinc-500">Email</dt>
               <dd className="break-all font-mono">{created.user.email}</dd>
+              <dt className="text-zinc-500">Password</dt>
+              <dd className="font-mono">{created.user.password}</dd>
               <dt className="text-zinc-500">Account task</dt>
               <dd className="break-all font-mono">{created.taskId ?? "not returned"}</dd>
               <dt className="text-zinc-500">Lifecycle</dt>
@@ -182,7 +188,7 @@ export function ReadonlyAccountPanel() {
           ) : null}
           {activation?.done ? (
             <p className="text-xs text-zinc-600 dark:text-zinc-400">
-              A password is still required before this user can sign in.
+              Sign in with the username and password shown above.
             </p>
           ) : null}
         </section>

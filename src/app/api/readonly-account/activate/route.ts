@@ -12,6 +12,8 @@ const activationSchema = z.object({
   activeStateId: z.string().min(1),
   identityNowSourceId: z.string().min(1),
   taskId: z.string().min(1).nullable().optional(),
+  password: z.string().min(8).max(64).optional(),
+  passwordSet: z.boolean().optional(),
   attempt: z.number().int().min(0).max(100),
   processed: z.boolean(),
 });
