@@ -157,6 +157,13 @@ export default function HomePage() {
         </div>
       </section>
 
+      <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">
+        Test tool:{" "}
+        <Link href="/readonly-account" className="font-medium underline underline-offset-2">
+          Create read-only test accounts
+        </Link>{" "}
+        for the SAF Test Drive.
+      </p>
     </main>
   );
 }
