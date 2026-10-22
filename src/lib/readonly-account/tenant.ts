@@ -163,6 +163,27 @@ async function findSafAdminEntitlement(client: Client): Promise<JsonRecord> {
   return entitlement;
 }
 
+async function identityNowSourceId(client: Client): Promise<string> {
+  const entitlement = await findSafAdminEntitlement(client);
+  const fromList = text(record(entitlement.source).id);
+  if (fromList) {
+    return fromList;
+  }
+  const full = record(
+    await client.request(
+      "GET",
+      `/entitlements/v1/${encodeURIComponent(text(entitlement.id))}`,
+    ),
+  );
+  const fromDetail = text(record(full.source).id);
+  if (fromDetail) {
+    return fromDetail;
+  }
+  throw new Error(
+    `The ${SAF_ADMIN_ENTITLEMENT} entitlement did not include its ${IDENTITYNOW_SOURCE_NAME} source id.`,
+  );
+}
+
 export function roleMembership(sourceId: string) {
   return {
     type: "STANDARD",
@@ -393,12 +414,11 @@ async function resolveRefs(client: Client): Promise<TenantRefs> {
   if (!roles.some((role) => text(role.name) === ROLE_NAME && role.enabled === true)) {
     throw new Error(`The ${ROLE_NAME} role is not ready. Run Set up tenant first.`);
   }
-  const identityNow = await findSource(client, IDENTITYNOW_SOURCE_NAME);
   return {
     sourceId,
     profileId,
     activeStateId: text(active.id),
-    identityNowSourceId: text(identityNow.id),
+    identityNowSourceId: await identityNowSourceId(client),
   };
 }
 

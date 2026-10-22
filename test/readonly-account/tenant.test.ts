@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   activateTestAccount,
+  createTestAccount,
   generateTestUser,
   NAME_LISTS,
   pickUniqueUser,
@@ -58,7 +59,7 @@ const BASE_ROUTES: Record<string, Route> = {
   ],
   'GET /entitlements/v1?filters=name eq "SAF Admin"': () => [
     { id: "ent-other", name: "SAF Admin", source: { name: "Other" } },
-    { id: "ent-saf", name: "SAF Admin", source: { name: "IdentityNow" } },
+    { id: "ent-saf", name: "SAF Admin", source: { id: "src-idn", name: "IdentityNow" } },
   ],
 };
 
@@ -160,6 +161,31 @@ describe("read-only tenant setup", () => {
     const result = await setupTenant(client);
     assert.equal(result.ok, false);
     assert.match(result.error ?? "", /ISC Admins/);
+  });
+});
+
+describe("read-only account creation", () => {
+  it("uses the SAF Admin entitlement source instead of listing IdentityNow", async () => {
+    const routes = { ...BASE_ROUTES };
+    delete routes['GET /sources/v1?filters=name eq "IdentityNow"'];
+    const { client, calls } = fakeTenant({
+      ...routes,
+      "GET /identity-profiles/v1/profile-1/lifecycle-states": () => [
+        { id: "state-active", technicalName: "active", enabled: true },
+      ],
+      'GET /roles/v1?filters=name eq "ReadOnly-Admins"': () => [
+        { id: "role-1", name: "ReadOnly-Admins", enabled: true },
+      ],
+      "GET /accounts/v1": () => [],
+      "GET /identities/v1": () => [],
+      "POST /accounts/v1": () => ({ id: "task-create" }),
+    });
+    const result = await createTestAccount(client, () => 0);
+    assert.equal(result.refs.identityNowSourceId, "src-idn");
+    assert.equal(
+      calls.some((call) => call.path.includes("IdentityNow")),
+      false,
+    );
   });
 });
 
