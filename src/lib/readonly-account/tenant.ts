@@ -65,6 +65,7 @@ export type CreateResult = {
 
 export type ActivationInput = TenantRefs & {
   userId: string;
+  taskId?: string | null;
   attempt: number;
   processed: boolean;
 };
@@ -122,6 +123,33 @@ function filtered(path: string, filter: string): string {
 
 async function list(client: Client, path: string): Promise<JsonRecord[]> {
   return (await client.listRecords(path)).map(record);
+}
+
+function accountIsUser(account: JsonRecord, userId: string): boolean {
+  return (
+    text(account.nativeIdentity) === userId || text(record(account.attributes).id) === userId
+  );
+}
+
+async function assertCreateTask(client: Client, taskId: string | null | undefined) {
+  if (!taskId || !SAFE_ID.test(taskId)) {
+    return;
+  }
+  const status = record(
+    await client.request("GET", `/task-status/v1/${encodeURIComponent(taskId)}`).catch(() => null),
+  );
+  const completion = text(status.completionStatus).toUpperCase();
+  if (["ERROR", "FAILED", "FAILURE", "TERMINATED"].includes(completion)) {
+    throw new Error(`The ISC Admins account task failed (${completion}). ${inputTaskDetail(status)}`);
+  }
+}
+
+function inputTaskDetail(status: JsonRecord): string {
+  const messages = Array.isArray(status.messages) ? status.messages : [];
+  const textValue = messages
+    .map((entry) => text(record(record(entry).localizedText).text) || text(record(entry).key))
+    .find(Boolean);
+  return textValue ?? "Check Task Manager for that task id.";
 }
 
 function requireSafeId(label: string, value: string): string {
@@ -456,7 +484,7 @@ export async function createTestAccount(
         familyName: user.familyName,
         "e-mail": user.email,
         location: CAMPAIGN_LOCATION,
-        groups: [GROUP_VALUE],
+        groups: GROUP_VALUE,
       },
     }),
   );
@@ -495,9 +523,10 @@ export async function activateTestAccount(
       `sourceId eq ${quoted(sourceId)} and nativeIdentity eq ${quoted(input.userId)}`,
     ),
   );
-  const account = accounts[0];
+  const account = accounts.find((candidate) => accountIsUser(candidate, input.userId));
   if (!account) {
-    return pending("account-pending", `Waiting for ${ADMINS_SOURCE_NAME} to show the account.`);
+    await assertCreateTask(client, input.taskId);
+    return pending("account-pending", `Waiting for ${ADMINS_SOURCE_NAME} to show ${input.userId}.`);
   }
 
   const identityId = text(account.identityId);
@@ -528,6 +557,13 @@ export async function activateTestAccount(
   const identity = record(
     await client.request("GET", `/identities/v1/${encodeURIComponent(identityId)}`),
   );
+  const alias = text(identity.alias);
+  if (alias && alias !== input.userId) {
+    return pending(
+      "account-pending",
+      `Found a different identity (${alias}) instead of ${input.userId}.`,
+    );
+  }
   let lifecycleState = text(record(identity.lifecycleState).stateName) || null;
   if (lifecycleState !== ACTIVE_STATE) {
     await client.request(

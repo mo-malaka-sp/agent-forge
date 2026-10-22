@@ -73,6 +73,7 @@ export function ReadonlyAccountPanel() {
         const next: ActivationResult = await post<ActivationResult>("/api/readonly-account/activate", {
           ...result.refs,
           userId: result.user.id,
+          taskId: result.taskId,
           attempt,
           processed,
         });

@@ -200,9 +200,21 @@ describe("read-only account activation", () => {
     processed: false,
   };
 
+  it("does not treat an existing ISC Admins account as the new user", async () => {
+    const { client, calls } = fakeTenant({
+      "GET /accounts/v1": () => [
+        { id: "acct-existing", nativeIdentity: "mo.malaka", identityId: "ident-existing" },
+      ],
+    });
+    const result = await activateTestAccount(client, input);
+    assert.equal(result.done, false);
+    assert.equal(result.phase, "account-pending");
+    assert.equal(calls.some((call) => call.path.includes("ident-existing")), false);
+  });
+
   it("waits while the account has no identity yet", async () => {
     const { client } = fakeTenant({
-      "GET /accounts/v1": () => [{ id: "acct-1", identityId: null }],
+      "GET /accounts/v1": () => [{ id: "acct-1", nativeIdentity: "maya.chen42", identityId: null }],
     });
     const result = await activateTestAccount(client, input);
     assert.equal(result.phase, "identity-pending");
@@ -212,12 +224,16 @@ describe("read-only account activation", () => {
   it("processes, activates, and enables the identity until the role is assigned", async () => {
     const { client, calls } = fakeTenant({
       'GET /accounts/v1?filters=sourceId eq "src-admins" and nativeIdentity eq "maya.chen42"':
-        () => [{ id: "acct-1", identityId: "ident-1" }],
+        () => [{ id: "acct-1", nativeIdentity: "maya.chen42", identityId: "ident-1" }],
       'GET /accounts/v1?filters=identityId eq "ident-1" and sourceId eq "src-idn"': () => [
         { id: "idn-1", disabled: true },
       ],
       "POST /identities/v1/process": () => ({ id: "task-1" }),
-      "GET /identities/v1/ident-1": () => ({ id: "ident-1", lifecycleState: { stateName: "inactive" } }),
+      "GET /identities/v1/ident-1": () => ({
+        id: "ident-1",
+        alias: "maya.chen42",
+        lifecycleState: { stateName: "inactive" },
+      }),
       "POST /identities/v1/ident-1/set-lifecycle-state": () => ({}),
       "POST /identities-accounts/v1/ident-1/enable": () => ({ id: "task-2" }),
       "GET /identities/v1/ident-1/role-assignments": () => [
