@@ -45,6 +45,7 @@ export function ReadonlyAccountPanel() {
   const [created, setCreated] = useState<CreateResult | null>(null);
   const [activation, setActivation] = useState<ActivationResult | null>(null);
   const [timedOut, setTimedOut] = useState(false);
+  const [redirectEmail, setRedirectEmail] = useState("");
 
   async function runSetup() {
     setBusy("setup");
@@ -65,7 +66,9 @@ export function ReadonlyAccountPanel() {
     setActivation(null);
     setTimedOut(false);
     try {
-      const result = await post<CreateResult>("/api/readonly-account/create");
+      const result = await post<CreateResult>("/api/readonly-account/create", {
+        email: redirectEmail.trim(),
+      });
       setCreated(result);
       let processed = false;
       let passwordSet = false;
@@ -143,6 +146,24 @@ export function ReadonlyAccountPanel() {
               Adds one unique user, then waits until the identity is active and has the role.
             </p>
           </div>
+          <label className="block text-xs">
+            <span className="font-medium text-zinc-800 dark:text-zinc-200">
+              Send tenant emails to
+            </span>
+            <input
+              type="email"
+              value={redirectEmail}
+              onChange={(event) => setRedirectEmail(event.target.value)}
+              placeholder="you@example.com"
+              autoComplete="email"
+              disabled={busy !== null}
+              className="mt-1 w-full rounded-md border border-zinc-300 bg-white px-3 py-2 font-mono text-xs disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900"
+            />
+            <span className="mt-1 block text-zinc-500">
+              Saves this as the Email Templates test address. Every email from the tenant goes
+              there until you switch Email Templates back to Intended Recipients.
+            </span>
+          </label>
           <button
             type="button"
             disabled={busy !== null}
@@ -159,6 +180,8 @@ export function ReadonlyAccountPanel() {
               <dd>{created.user.name}</dd>
               <dt className="text-zinc-500">Email</dt>
               <dd className="break-all font-mono">{created.user.email}</dd>
+              <dt className="text-zinc-500">Tenant emails</dt>
+              <dd className="break-all font-mono">{created.emailRedirect ?? "unchanged"}</dd>
               <dt className="text-zinc-500">Password</dt>
               <dd className="font-mono">
                 {activation?.passwordError ? "not set" : created.user.password}

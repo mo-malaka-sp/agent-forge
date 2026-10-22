@@ -64,6 +64,7 @@ export type CreateResult = {
   attempts: number;
   taskId: string | null;
   refs: TenantRefs;
+  emailRedirect: string | null;
 };
 
 export type ActivationInput = TenantRefs & {
@@ -509,10 +510,33 @@ async function resolveRefs(client: Client): Promise<TenantRefs> {
   };
 }
 
+const EMAIL_TEST_MODE_PATH = "/beta/notification-preferences/email-test-mode";
+
+export function normalizeRedirectEmail(value: string): string {
+  const email = value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    throw new Error("Enter a valid email address for tenant email redirection.");
+  }
+  return email;
+}
+
+export async function setTenantEmailRedirect(client: Client, email: string): Promise<string> {
+  const address = normalizeRedirectEmail(email);
+  await client.request("PUT", EMAIL_TEST_MODE_PATH, {
+    emailTestMode: true,
+    emailTestAddress: address,
+  });
+  return address;
+}
+
 export async function createTestAccount(
   client: Client,
   random: () => number = Math.random,
+  redirectEmail = "",
 ): Promise<CreateResult> {
+  const emailRedirect = redirectEmail.trim()
+    ? await setTenantEmailRedirect(client, redirectEmail)
+    : null;
   const refs = await resolveRefs(client);
   const { user, attempts } = await pickUniqueUser(client, refs.sourceId, random);
   const response = record(
@@ -529,7 +553,7 @@ export async function createTestAccount(
       },
     }),
   );
-  return { user, attempts, taskId: text(response.id) || null, refs };
+  return { user, attempts, taskId: text(response.id) || null, refs, emailRedirect };
 }
 
 const PROFILE_PROCESS_ATTEMPT = 5;

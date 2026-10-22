@@ -195,10 +195,44 @@ describe("read-only account creation", () => {
     });
     const result = await createTestAccount(client, () => 0);
     assert.equal(result.refs.identityNowSourceId, "src-idn");
+    assert.equal(result.emailRedirect, null);
     assert.equal(
       calls.some((call) => call.path.includes("IdentityNow")),
       false,
     );
+    assert.equal(
+      calls.some((call) => call.path.includes("email-test-mode")),
+      false,
+    );
+  });
+
+  it("redirects tenant emails before creating the account", async () => {
+    const { client, calls } = fakeTenant({
+      ...BASE_ROUTES,
+      "GET /identity-profiles/v1/profile-1/lifecycle-states": () => [
+        { id: "state-active", technicalName: "active", enabled: true },
+      ],
+      'GET /roles/v1?filters=name eq "ReadOnly-Admins"': () => [
+        { id: "role-1", name: "ReadOnly-Admins", enabled: true },
+      ],
+      "PUT /beta/notification-preferences/email-test-mode": () => ({
+        emailTestMode: true,
+        emailTestAddress: "se@example.com",
+      }),
+      "GET /accounts/v1": () => [],
+      "GET /identities/v1": () => [],
+      "POST /accounts/v1": () => ({ id: "task-create" }),
+    });
+    const result = await createTestAccount(client, () => 0, "  se@example.com  ");
+    assert.equal(result.emailRedirect, "se@example.com");
+    const redirect = calls.find((call) => call.path.includes("email-test-mode"));
+    const create = calls.find((call) => call.method === "POST" && call.path === "/accounts/v1");
+    assert.deepEqual(redirect?.body, {
+      emailTestMode: true,
+      emailTestAddress: "se@example.com",
+    });
+    assert.ok(redirect && create);
+    assert.ok(calls.indexOf(redirect) < calls.indexOf(create));
   });
 });
 
