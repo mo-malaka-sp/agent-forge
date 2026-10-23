@@ -39,13 +39,33 @@ function wait(ms: number) {
 }
 
 export function ReadonlyAccountPanel() {
-  const [busy, setBusy] = useState<"setup" | "create" | null>(null);
+  const [busy, setBusy] = useState<"setup" | "create" | "asana" | null>(null);
+  const [asanaConnection, setAsanaConnection] = useState<{
+    projectName: string;
+    sectionName: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [setup, setSetup] = useState<SetupResult | null>(null);
   const [created, setCreated] = useState<CreateResult | null>(null);
   const [activation, setActivation] = useState<ActivationResult | null>(null);
   const [timedOut, setTimedOut] = useState(false);
   const [redirectEmail, setRedirectEmail] = useState("");
+
+  async function runAsanaConnect() {
+    setBusy("asana");
+    setError(null);
+    try {
+      setAsanaConnection(
+        await post<{ projectName: string; sectionName: string }>(
+          "/api/readonly-account/asana/webhook/register",
+        ),
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Asana connection failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function runSetup() {
     setBusy("setup");
@@ -228,6 +248,30 @@ export function ReadonlyAccountPanel() {
           ) : null}
         </section>
       </div>
+
+      <section className="space-y-3 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="space-y-1">
+          <h2 className="text-sm font-medium">3. Connect Asana</h2>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400">
+            Watches POC Gateway - Request Management. When a task moves into Ready for TES,
+            AgentForge creates the account and comments the username on the task.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => void runAsanaConnect()}
+          className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium disabled:opacity-50 dark:border-zinc-700"
+        >
+          {busy === "asana" ? "Connecting…" : "Connect Asana"}
+        </button>
+        {asanaConnection ? (
+          <p className="text-xs text-emerald-700 dark:text-emerald-300">
+            Watching {asanaConnection.sectionName} in {asanaConnection.projectName}. Move a task
+            into that section.
+          </p>
+        ) : null}
+      </section>
     </div>
   );
 }

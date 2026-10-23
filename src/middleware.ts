@@ -10,6 +10,7 @@ const PUBLIC_PATHS = new Set([
   "/api/saf-poc/agent-condition/tick",
   "/api/readonly-account/asana",
   "/api/readonly-account/asana/tick",
+  "/api/readonly-account/asana/webhook",
   "/webhooks/saf",
   "/jwks",
 ]);

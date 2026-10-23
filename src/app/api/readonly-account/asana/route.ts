@@ -10,11 +10,9 @@ const requestSchema = z.object({
   taskGid: z.string().trim().min(1),
 });
 
-// Asana Run script:
-// POST /api/readonly-account/asana
+// Machine caller for one Asana task. The project webhook is the normal trigger.
 // Header x-agentforge-worker: <SAF_POC_WORKER_TOKEN>
 // Body { "taskGid": "<asana task gid>" }
-// The script does not receive the ISC token. A scheduled run of
 // POST /api/readonly-account/asana/tick finishes invitations Amplify could not hold open.
 export async function POST(request: Request) {
   if (!workerAuthorized(request.headers.get("x-agentforge-worker"))) {
