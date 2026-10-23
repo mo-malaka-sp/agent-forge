@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { acceptAsanaTask } from "@/lib/readonly-account/asana";
+import { acceptAsanaTask, commentAsanaOnce } from "@/lib/readonly-account/asana";
 import {
   defaultWebhookStore,
   readStashSecret,
   receiveAsanaWebhook,
+  taskIsInSection,
   writeStashSecret,
 } from "@/lib/readonly-account/asana-webhook";
 
@@ -24,6 +25,8 @@ export async function POST(request: Request) {
     {
       store: defaultWebhookStore(),
       accept: acceptAsanaTask,
+      confirmSection: (taskGid, sectionGid) => taskIsInSection(token, taskGid, sectionGid),
+      reportFailure: (taskGid, message) => commentAsanaOnce(taskGid, `SAF Test Drive\n${message}`, token),
       readSecret: (stashGid) => readStashSecret(token, stashGid),
       writeSecret: (stashGid, secret) => writeStashSecret(token, stashGid, secret),
     },

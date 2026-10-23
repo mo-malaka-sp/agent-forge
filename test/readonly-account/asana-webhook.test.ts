@@ -122,6 +122,68 @@ describe("Asana ready-section webhook", () => {
     assert.deepEqual(accepted, [TASK]);
   });
 
+  it("checks the task section when the move is not an added event", async () => {
+    const store = memoryWebhookStore({
+      secret: "handshake-secret",
+      sectionGid: SECTION,
+      projectGid: "1200000000000001",
+      webhookGid: "1200000000000099",
+    });
+    const body = JSON.stringify({
+      events: [
+        {
+          action: "changed",
+          resource: { gid: TASK, resource_type: "task" },
+        },
+      ],
+    });
+    const accepted: string[] = [];
+    const result = await receiveAsanaWebhook(
+      { hookSecret: null, signature: sign(body, "handshake-secret"), body, sectionGid: SECTION },
+      {
+        store,
+        accept: async (taskGid) => accepted.push(taskGid),
+        confirmSection: async () => true,
+      },
+    );
+    assert.equal(result.status, 200);
+    assert.deepEqual(accepted, [TASK]);
+  });
+
+  it("writes the failure on the task when the email already belongs to an identity", async () => {
+    const store = memoryWebhookStore({
+      secret: "handshake-secret",
+      sectionGid: SECTION,
+      projectGid: "1200000000000001",
+      webhookGid: "1200000000000099",
+    });
+    const body = JSON.stringify({
+      events: [
+        {
+          action: "added",
+          resource: { gid: TASK, resource_type: "task" },
+          parent: { gid: SECTION, resource_type: "section" },
+        },
+      ],
+    });
+    const failures: string[] = [];
+    const result = await receiveAsanaWebhook(
+      { hookSecret: null, signature: sign(body, "handshake-secret"), body, sectionGid: SECTION },
+      {
+        store,
+        accept: async () => {
+          throw new Error("This email already has an identity.");
+        },
+        reportFailure: async (_taskGid, message) => {
+          failures.push(message);
+        },
+      },
+    );
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body?.accepted, []);
+    assert.deepEqual(failures, ["This email already has an identity."]);
+  });
+
   it("rejects a bad signature before creating an account", async () => {
     const store = memoryWebhookStore({
       secret: "handshake-secret",

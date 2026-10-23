@@ -41,6 +41,7 @@ type AsanaRecord = {
   target?: string;
   resource?: { gid?: string };
   workspace?: { gid?: string };
+  memberships?: Array<{ section?: { gid?: string } }>;
 };
 
 type AsanaBody = {
@@ -95,6 +96,24 @@ export function defaultWebhookStore(): WebhookStore {
   };
 }
 
+export function taskGidsFromEvents(events: unknown): string[] {
+  if (!Array.isArray(events)) {
+    return [];
+  }
+  const gids = new Set<string>();
+  for (const event of events) {
+    if (!event || typeof event !== "object") {
+      continue;
+    }
+    const record = event as AsanaEvent;
+    const gid = record.resource?.gid ?? "";
+    if (record.resource?.resource_type === "task" && TASK_GID.test(gid)) {
+      gids.add(gid);
+    }
+  }
+  return [...gids];
+}
+
 export function taskGidsMovedToSection(events: unknown, sectionGid: string): string[] {
   if (!Array.isArray(events) || !sectionGid) {
     return [];
@@ -139,6 +158,8 @@ export async function receiveAsanaWebhook(
   options: {
     store: WebhookStore;
     accept?: (taskGid: string) => Promise<unknown>;
+    confirmSection?: (taskGid: string, sectionGid: string) => Promise<boolean>;
+    reportFailure?: (taskGid: string, message: string) => Promise<void>;
     readSecret?: (stashGid: string) => Promise<string>;
     writeSecret?: (stashGid: string, secret: string) => Promise<void>;
   },
@@ -188,9 +209,22 @@ export async function receiveAsanaWebhook(
     return { status: 500, headers: {}, body: { error: "The Ready for TES webhook is not registered." } };
   }
 
-  const accepted = taskGidsMovedToSection(events, readySection);
-  for (const taskGid of accepted) {
-    await options.accept?.(taskGid);
+  const direct = new Set(taskGidsMovedToSection(events, readySection));
+  const accepted: string[] = [];
+  for (const taskGid of taskGidsFromEvents(events)) {
+    const inSection =
+      direct.has(taskGid) ||
+      (options.confirmSection ? await options.confirmSection(taskGid, readySection) : false);
+    if (!inSection) {
+      continue;
+    }
+    try {
+      await options.accept?.(taskGid);
+      accepted.push(taskGid);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Account creation failed.";
+      await options.reportFailure?.(taskGid, message);
+    }
   }
   return { status: 200, headers: {}, body: { ok: true, accepted } };
 }
@@ -246,7 +280,6 @@ export async function registerReadySectionWebhook(options: {
         data: {
           resource: projectGid,
           target: targetUrl,
-          filters: [{ resource_type: "task", action: "added" }],
         },
       }),
     }),
@@ -349,6 +382,21 @@ async function createStashTask(token: string, workspaceGid: string, fetchImpl: t
     throw new Error("Asana did not store the webhook handshake.");
   }
   return created.gid;
+}
+
+export async function taskIsInSection(
+  token: string,
+  taskGid: string,
+  sectionGid: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  if (!token || !sectionGid) {
+    return false;
+  }
+  const task = oneRecord(
+    await asana(token, `/tasks/${taskGid}?opt_fields=memberships.section.gid`, fetchImpl),
+  );
+  return (task.memberships ?? []).some((membership) => membership.section?.gid === sectionGid);
 }
 
 export async function readStashSecret(

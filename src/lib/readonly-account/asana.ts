@@ -253,6 +253,39 @@ async function fetchAsanaTask(
   return body.data ?? {};
 }
 
+export async function commentAsanaOnce(
+  taskGid: string,
+  text: string,
+  token = process.env.ASANA_ACCESS_TOKEN?.trim() ?? "",
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  if (!token) {
+    throw new Error("Set ASANA_ACCESS_TOKEN to the Asana personal access token.");
+  }
+  const listed = await fetchImpl(
+    `${ASANA_API}/tasks/${taskGid}/stories?opt_fields=text&limit=20`,
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+  );
+  if (listed.ok) {
+    const body = (await listed.json()) as { data?: Array<{ text?: string }> };
+    if ((body.data ?? []).some((story) => story.text === text)) {
+      return;
+    }
+  }
+  const response = await fetchImpl(`${ASANA_API}/tasks/${taskGid}/stories`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ data: { text } }),
+  });
+  if (!response.ok) {
+    throw new Error(`Asana did not save the account comment (${response.status}).`);
+  }
+}
+
 async function commentOnAsanaTask(
   job: AsanaAccountJob,
   token = process.env.ASANA_ACCESS_TOKEN?.trim() ?? "",
@@ -267,18 +300,7 @@ async function commentOnAsanaTask(
     `Email: ${job.user.email}`,
     job.detail,
   ].join("\n");
-  const response = await fetchImpl(`${ASANA_API}/tasks/${job.asanaTaskGid}/stories`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ data: { text } }),
-  });
-  if (!response.ok) {
-    throw new Error(`Asana did not save the account comment (${response.status}).`);
-  }
+  await commentAsanaOnce(job.asanaTaskGid, text, token, fetchImpl);
 }
 
 function emailFromTask(task: AsanaTask): string {

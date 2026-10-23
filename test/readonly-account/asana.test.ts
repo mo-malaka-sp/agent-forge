@@ -64,6 +64,9 @@ function asanaFetch(stories: unknown[]) {
     const target = String(url);
     const method = init?.method ?? "GET";
     if (target.includes("/stories")) {
+      if (method === "GET") {
+        return Response.json({ data: [] });
+      }
       stories.push(JSON.parse(String(init?.body)));
       return Response.json({ data: { gid: "story-1" } });
     }
