@@ -45,12 +45,19 @@ describe("Asana ready-section webhook", () => {
 
   it("stores the handshake secret and echoes it", async () => {
     const store = memoryWebhookStore();
+    let stashed = "";
     const result = await receiveAsanaWebhook(
-      { hookSecret: "handshake-secret", signature: null, body: "" },
-      { store },
+      { hookSecret: "handshake-secret", signature: null, body: "", stashGid: "stash-1", sectionGid: SECTION },
+      {
+        store,
+        writeSecret: async (_stashGid, secret) => {
+          stashed = secret;
+        },
+      },
     );
     assert.equal(result.status, 200);
     assert.equal(result.headers["X-Hook-Secret"], "handshake-secret");
+    assert.equal(stashed, "handshake-secret");
     assert.equal((await store.load())?.secret, "handshake-secret");
   });
 
@@ -80,6 +87,41 @@ describe("Asana ready-section webhook", () => {
     assert.equal(asanaSignatureMatches(body, "handshake-secret", "nope"), false);
   });
 
+  it("reads the handshake secret from Asana when this server does not have it", async () => {
+    const store = memoryWebhookStore({
+      secret: "",
+      sectionGid: "",
+      projectGid: "",
+      webhookGid: "",
+    });
+    const body = JSON.stringify({
+      events: [
+        {
+          action: "added",
+          resource: { gid: TASK, resource_type: "task" },
+          parent: { gid: SECTION, resource_type: "section" },
+        },
+      ],
+    });
+    const accepted: string[] = [];
+    const result = await receiveAsanaWebhook(
+      {
+        hookSecret: null,
+        signature: sign(body, "handshake-secret"),
+        body,
+        sectionGid: SECTION,
+        stashGid: "stash-1",
+      },
+      {
+        store,
+        accept: async (taskGid) => accepted.push(taskGid),
+        readSecret: async () => "handshake-secret",
+      },
+    );
+    assert.equal(result.status, 200);
+    assert.deepEqual(accepted, [TASK]);
+  });
+
   it("rejects a bad signature before creating an account", async () => {
     const store = memoryWebhookStore({
       secret: "handshake-secret",
@@ -99,12 +141,23 @@ describe("Asana ready-section webhook", () => {
   it("registers a webhook on Ready for TES and keeps the handshake secret", async () => {
     const store = memoryWebhookStore();
     const calls: string[] = [];
+    let notes = "pending";
     const fetchImpl: typeof fetch = async (url, init) => {
       const target = String(url);
       const method = init?.method ?? "GET";
       calls.push(`${method} ${new URL(target).pathname}`);
+      if (method === "POST" && new URL(target).pathname.endsWith("/tasks")) {
+        return Response.json({ data: { gid: "stash-1" } });
+      }
+      if (target.includes("/tasks/stash-1")) {
+        if (method === "PUT") {
+          notes = JSON.parse(String(init?.body)).data.notes;
+          return Response.json({ data: { gid: "stash-1", notes } });
+        }
+        return Response.json({ data: { gid: "stash-1", notes } });
+      }
       if (method === "POST" && target.endsWith("/webhooks")) {
-        await store.update({ secret: "handshake-secret" });
+        notes = "handshake-secret";
         return Response.json({ data: { gid: "1200000000000099" } });
       }
       if (method === "DELETE") {
@@ -141,6 +194,7 @@ describe("Asana ready-section webhook", () => {
 
     assert.equal(result.sectionGid, SECTION);
     assert.equal(result.webhookGid, "1200000000000099");
+    assert.equal(new URL(result.targetUrl).searchParams.get("stash"), "stash-1");
     assert.equal((await store.load())?.secret, "handshake-secret");
     assert.ok(calls.includes("DELETE /api/1.0/webhooks/old-hook"));
     const create = calls.filter((call) => call === "POST /api/1.0/webhooks");
