@@ -626,6 +626,35 @@ export async function createRequestedAccount(
   return { user, attempts: 1, taskId: text(response.id) || null, refs, emailRedirect: null };
 }
 
+export async function findAsanaDriveAccounts(client: Client): Promise<
+  Array<{ taskGid: string; user: TestUser; refs: TenantRefs }>
+> {
+  const refs = await resolveRefs(client);
+  const accounts = await list(client, filtered("/accounts/v1", `sourceId eq ${quoted(refs.sourceId)}`));
+  const found: Array<{ taskGid: string; user: TestUser; refs: TenantRefs }> = [];
+  for (const account of accounts) {
+    const attributes = record(account.attributes);
+    const taskGid = text(attributes.location).match(/asana:(\d{5,20})$/)?.[1] ?? "";
+    const id = text(account.nativeIdentity) || text(attributes.id);
+    if (!taskGid || !id) {
+      continue;
+    }
+    found.push({
+      taskGid,
+      refs,
+      user: {
+        id,
+        name: `${text(attributes.givenName)} ${text(attributes.familyName)}`.trim() || id,
+        givenName: text(attributes.givenName),
+        familyName: text(attributes.familyName),
+        email: text(attributes["e-mail"]),
+        password: "",
+      },
+    });
+  }
+  return found;
+}
+
 export async function findAccountByLocation(
   client: Client,
   sourceId: string,

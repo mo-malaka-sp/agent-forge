@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { acceptAsanaTask, commentAsanaOnce } from "@/lib/readonly-account/asana";
 import {
+  appendWebhookLog,
   defaultWebhookStore,
   readStashSecret,
   receiveAsanaWebhook,
@@ -14,6 +15,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const url = new URL(request.url);
   const token = process.env.ASANA_ACCESS_TOKEN?.trim() ?? "";
+  const store = defaultWebhookStore();
   const result = await receiveAsanaWebhook(
     {
       hookSecret: request.headers.get("x-hook-secret"),
@@ -23,8 +25,9 @@ export async function POST(request: Request) {
       stashGid: url.searchParams.get("stash") ?? "",
     },
     {
-      store: defaultWebhookStore(),
+      store,
       accept: acceptAsanaTask,
+      record: (message) => appendWebhookLog(store, message).then(() => undefined),
       confirmSection: (taskGid, sectionGid) => taskIsInSection(token, taskGid, sectionGid),
       reportFailure: (taskGid, message) => commentAsanaOnce(taskGid, `SAF Test Drive\n${message}`, token),
       readSecret: (stashGid) => readStashSecret(token, stashGid),

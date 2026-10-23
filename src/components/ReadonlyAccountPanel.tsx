@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type {
   ActivationResult,
@@ -10,6 +10,8 @@ import type {
 } from "@/lib/readonly-account/tenant";
 
 const POLL_INTERVAL_MS = 4000;
+
+type WebhookLogEntry = { at: string; message: string };
 const MAX_POLLS = 30;
 
 const STATUS_STYLES: Record<StepStatus, string> = {
@@ -50,6 +52,42 @@ export function ReadonlyAccountPanel() {
   const [activation, setActivation] = useState<ActivationResult | null>(null);
   const [timedOut, setTimedOut] = useState(false);
   const [redirectEmail, setRedirectEmail] = useState("");
+  const [webhookLog, setWebhookLog] = useState<WebhookLogEntry[]>([]);
+  const [asanaJobs, setAsanaJobs] = useState<
+    Array<{ userId: string; detail: string; done: boolean }>
+  >([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshAsana() {
+      try {
+        const logResponse = await fetch("/api/readonly-account/asana/webhook/log");
+        if (logResponse.ok && !cancelled) {
+          const body = (await logResponse.json()) as { entries?: WebhookLogEntry[] };
+          setWebhookLog(body.entries ?? []);
+        }
+      } catch {
+        // The log is optional while a delivery is still in flight.
+      }
+      try {
+        const finishResponse = await fetch("/api/readonly-account/asana/finish", { method: "POST" });
+        if (finishResponse.ok && !cancelled) {
+          const body = (await finishResponse.json()) as {
+            jobs?: Array<{ userId: string; detail: string; done: boolean }>;
+          };
+          setAsanaJobs(body.jobs ?? []);
+        }
+      } catch {
+        // SailPoint may still be creating the identity.
+      }
+    }
+    void refreshAsana();
+    const timer = setInterval(() => void refreshAsana(), POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   async function runAsanaConnect() {
     setBusy("asana");
@@ -271,6 +309,34 @@ export function ReadonlyAccountPanel() {
             into that section.
           </p>
         ) : null}
+        <div className="space-y-1">
+          <h3 className="text-xs font-medium">Webhook log</h3>
+          {webhookLog.length === 0 ? (
+            <p className="text-xs text-zinc-500">
+              No webhook deliveries yet. This list updates when a task moves into Ready for TES.
+            </p>
+          ) : (
+            <ul className="max-h-48 space-y-1 overflow-auto text-xs">
+              {[...webhookLog].reverse().map((entry) => (
+                <li key={`${entry.at}-${entry.message}`} className="flex gap-2">
+                  <span className="shrink-0 font-mono text-zinc-500">
+                    {new Date(entry.at).toLocaleTimeString()}
+                  </span>
+                  <span>{entry.message}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {asanaJobs.length > 0 ? (
+            <ul className="space-y-1 text-xs">
+              {asanaJobs.map((job) => (
+                <li key={job.userId}>
+                  <span className="font-mono">{job.userId}</span> {job.detail}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       </section>
     </div>
   );

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   acceptAsanaTask,
+  finishPendingAsanaAccounts,
   personFromAsanaTask,
   tickAsanaAccounts,
   type AsanaAccountJob,
@@ -238,5 +239,57 @@ describe("Asana test-drive requests", () => {
       if (previous === undefined) delete process.env.SAF_POC_WORKER_TOKEN;
       else process.env.SAF_POC_WORKER_TOKEN = previous;
     }
+  });
+
+  it("finishes an Asana account that already exists and sends the invitation", async () => {
+    const stories: unknown[] = [];
+    const { client, calls } = fakeTenant({
+      ...READY_ROUTES,
+      'GET /accounts/v1?filters=sourceId eq "src-admins"': () => [
+        {
+          id: "acct-rosa",
+          nativeIdentity: "rosa.stone",
+          identityId: "ident-rosa",
+          attributes: {
+            id: "rosa.stone",
+            givenName: "Rosa",
+            familyName: "Stone",
+            "e-mail": "mo.malaka+rosa@sailpoint.com",
+            location: `SAF Test Drive asana:${TASK_GID}`,
+          },
+        },
+      ],
+      'GET /accounts/v1?filters=sourceId eq "src-admins" and nativeIdentity eq "rosa.stone"': () => [
+        {
+          id: "acct-rosa",
+          nativeIdentity: "rosa.stone",
+          identityId: "ident-rosa",
+          attributes: { id: "rosa.stone" },
+        },
+      ],
+      "GET /identities/v1/ident-rosa": () => ({
+        id: "ident-rosa",
+        alias: "rosa.stone",
+        lifecycleState: null,
+      }),
+      "POST /identities/v1/ident-rosa/set-lifecycle-state": () => ({}),
+      'GET /accounts/v1?filters=identityId eq "ident-rosa" and sourceId eq "src-idn"': () => [
+        { id: "idn-rosa", disabled: false },
+      ],
+      "GET /identities/v1/ident-rosa/role-assignments": () => [
+        { id: "assign-rosa", role: { name: "ReadOnly-Admins" } },
+      ],
+    });
+    const statuses = await finishPendingAsanaAccounts({
+      token: "asana-token",
+      client,
+      store: memoryStore(),
+      fetchImpl: asanaFetch(stories) as typeof fetch,
+    });
+    assert.equal(statuses[0]?.done, true);
+    assert.equal(statuses[0]?.userId, "rosa.stone");
+    assert.match(statuses[0]?.detail ?? "", /Invitation sent to mo.malaka\+rosa@sailpoint.com/);
+    assert.ok(calls.some((call) => call.method === "POST" && call.path.includes("set-lifecycle-state")));
+    assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
   });
 });

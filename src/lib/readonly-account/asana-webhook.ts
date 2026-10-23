@@ -12,11 +12,17 @@ const WEBHOOK_KEY = "READONLY_ACCOUNT#asana-webhook";
 export const DEFAULT_ASANA_PROJECT_NAME = "POC Gateway - Request Management";
 export const DEFAULT_ASANA_SECTION_NAME = "Ready for TES";
 
+export type WebhookLogEntry = {
+  at: string;
+  message: string;
+};
+
 export type AsanaWebhookState = {
   secret: string;
   sectionGid: string;
   projectGid: string;
   webhookGid: string;
+  log?: WebhookLogEntry[];
 };
 
 export type WebhookStore = {
@@ -61,7 +67,14 @@ const EMPTY_STATE: AsanaWebhookState = {
   sectionGid: "",
   projectGid: "",
   webhookGid: "",
+  log: [],
 };
+
+export async function appendWebhookLog(store: WebhookStore, message: string): Promise<WebhookLogEntry[]> {
+  const current = await store.load();
+  const log = [...(current?.log ?? []), { at: new Date().toISOString(), message }].slice(-30);
+  return (await store.update({ log })).log ?? [];
+}
 
 let memoryState: AsanaWebhookState | null = null;
 let storeChain: Promise<unknown> = Promise.resolve();
@@ -160,6 +173,7 @@ export async function receiveAsanaWebhook(
     accept?: (taskGid: string) => Promise<unknown>;
     confirmSection?: (taskGid: string, sectionGid: string) => Promise<boolean>;
     reportFailure?: (taskGid: string, message: string) => Promise<void>;
+    record?: (message: string) => Promise<void>;
     readSecret?: (stashGid: string) => Promise<string>;
     writeSecret?: (stashGid: string, secret: string) => Promise<void>;
   },
@@ -175,6 +189,7 @@ export async function receiveAsanaWebhook(
       secret: input.hookSecret,
       ...(sectionGid ? { sectionGid } : {}),
     });
+    await options.record?.("Handshake completed.");
     return { status: 200, headers: { "X-Hook-Secret": input.hookSecret }, body: null };
   }
 
@@ -190,6 +205,7 @@ export async function receiveAsanaWebhook(
     }
   }
   if (!secret || !asanaSignatureMatches(input.body, secret, input.signature)) {
+    await options.record?.("Delivery rejected. The signature did not match.");
     return { status: 401, headers: {}, body: { error: "Webhook signature was rejected." } };
   }
   const readySection = sectionGid || state?.sectionGid || "";
@@ -203,6 +219,7 @@ export async function receiveAsanaWebhook(
 
   const events = Array.isArray(payload.events) ? payload.events : [];
   if (events.length === 0) {
+    await options.record?.("Heartbeat received.");
     return { status: 200, headers: {}, body: { ok: true, accepted: [] } };
   }
   if (!readySection) {
@@ -224,8 +241,14 @@ export async function receiveAsanaWebhook(
     } catch (error) {
       const message = error instanceof Error ? error.message : "Account creation failed.";
       await options.reportFailure?.(taskGid, message);
+      await options.record?.(`Task ${taskGid} failed. ${message}`);
     }
   }
+  await options.record?.(
+    accepted.length > 0
+      ? `Delivery accepted ${accepted.join(", ")}.`
+      : `Delivery received ${events.length} event(s). No task in Ready for TES was accepted.`,
+  );
   return { status: 200, headers: {}, body: { ok: true, accepted } };
 }
 

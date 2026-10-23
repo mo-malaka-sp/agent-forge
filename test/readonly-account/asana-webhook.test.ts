@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { describe, it } from "node:test";
 
 import {
+  appendWebhookLog,
   asanaSignatureMatches,
   memoryWebhookStore,
   receiveAsanaWebhook,
@@ -182,6 +183,18 @@ describe("Asana ready-section webhook", () => {
     assert.equal(result.status, 200);
     assert.deepEqual(result.body?.accepted, []);
     assert.deepEqual(failures, ["This email already has an identity."]);
+  });
+
+  it("keeps the handshake secret when a delivery is logged", async () => {
+    const store = memoryWebhookStore({
+      secret: "handshake-secret",
+      sectionGid: SECTION,
+      projectGid: "1200000000000001",
+      webhookGid: "1200000000000099",
+    });
+    const log = await appendWebhookLog(store, "Delivery accepted 1234567890123.");
+    assert.equal(log.length, 1);
+    assert.equal((await store.load())?.secret, "handshake-secret");
   });
 
   it("rejects a bad signature before creating an account", async () => {

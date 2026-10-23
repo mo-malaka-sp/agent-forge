@@ -5,6 +5,7 @@ import { resolveAgentForgeDataDir } from "@/lib/db/store";
 import {
   activateTestAccount,
   asanaAccountLocation,
+  findAsanaDriveAccounts,
   openRequestedAccount,
   readonlyAccountClient,
   type TenantRefs,
@@ -156,6 +157,45 @@ export async function acceptAsanaTask(
   );
 }
 
+export async function finishPendingAsanaAccounts(
+  options: {
+    token?: string;
+    fetchImpl?: typeof fetch;
+    store?: JobStore;
+    client?: SailClient;
+  } = {},
+): Promise<AsanaAccountStatus[]> {
+  const store = options.store ?? fileJobStore();
+  const client = options.client ?? readonlyAccountClient();
+  const jobs = store.load();
+  const discovered = await findAsanaDriveAccounts(client);
+  let changed = false;
+  for (const account of discovered) {
+    if (jobs.some((job) => job.asanaTaskGid === account.taskGid)) {
+      continue;
+    }
+    const sent = await invitationAlreadySent(account.taskGid, options.token, options.fetchImpl);
+    jobs.push({
+      asanaTaskGid: account.taskGid,
+      user: account.user,
+      refs: account.refs,
+      sailPointTaskId: null,
+      processed: false,
+      inviteSent: sent,
+      inviteError: null,
+      attempt: 0,
+      commented: sent,
+      detail: sent ? "Invitation already sent." : "Account already exists for this Asana task.",
+      createdAt: new Date().toISOString(),
+    });
+    changed = true;
+  }
+  if (changed) {
+    store.save(jobs);
+  }
+  return tickAsanaAccounts({ ...options, store, client });
+}
+
 export async function tickAsanaAccounts(
   options: {
     token?: string;
@@ -213,8 +253,13 @@ async function advanceJob(
     job.inviteError = result.inviteError;
     job.detail = result.detail;
     store.save(jobs);
+    await commentAsanaOnce(
+      job.asanaTaskGid,
+      ["SAF Test Drive", `Username: ${job.user.id}`, job.detail].join("\n"),
+      options.token,
+      options.fetchImpl,
+    );
     if (result.done) {
-      await commentOnAsanaTask(job, options.token, options.fetchImpl);
       job.commented = true;
       store.save(jobs);
     }
@@ -231,6 +276,25 @@ function statusOf(job: AsanaAccountJob): AsanaAccountStatus {
     done: job.commented,
     detail: job.detail,
   };
+}
+
+async function invitationAlreadySent(
+  taskGid: string,
+  token = process.env.ASANA_ACCESS_TOKEN?.trim() ?? "",
+  fetchImpl: typeof fetch = fetch,
+): Promise<boolean> {
+  if (!token) {
+    return false;
+  }
+  const response = await fetchImpl(
+    `${ASANA_API}/tasks/${taskGid}/stories?opt_fields=text&limit=20`,
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+  );
+  if (!response.ok) {
+    return false;
+  }
+  const body = (await response.json()) as { data?: Array<{ text?: string }> };
+  return (body.data ?? []).some((story) => (story.text ?? "").includes("Invitation sent"));
 }
 
 async function fetchAsanaTask(
@@ -284,23 +348,6 @@ export async function commentAsanaOnce(
   if (!response.ok) {
     throw new Error(`Asana did not save the account comment (${response.status}).`);
   }
-}
-
-async function commentOnAsanaTask(
-  job: AsanaAccountJob,
-  token = process.env.ASANA_ACCESS_TOKEN?.trim() ?? "",
-  fetchImpl: typeof fetch = fetch,
-): Promise<void> {
-  if (!token) {
-    throw new Error("Set ASANA_ACCESS_TOKEN to the Asana personal access token.");
-  }
-  const text = [
-    "SAF Test Drive account",
-    `Username: ${job.user.id}`,
-    `Email: ${job.user.email}`,
-    job.detail,
-  ].join("\n");
-  await commentAsanaOnce(job.asanaTaskGid, text, token, fetchImpl);
 }
 
 function emailFromTask(task: AsanaTask): string {
