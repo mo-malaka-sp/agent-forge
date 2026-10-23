@@ -8,6 +8,8 @@ const PUBLIC_PATHS = new Set([
   "/api/auth/login",
   "/api/health",
   "/api/saf-poc/agent-condition/tick",
+  "/api/readonly-account/asana",
+  "/api/readonly-account/asana/tick",
   "/webhooks/saf",
   "/jwks",
 ]);

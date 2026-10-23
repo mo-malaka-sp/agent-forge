@@ -74,6 +74,8 @@ export type ActivationInput = TenantRefs & {
   passwordSet?: boolean;
   passwordError?: string | null;
   redirectEmail?: string;
+  sendInvite?: boolean;
+  inviteEmail?: string;
   inviteSent?: boolean;
   inviteError?: string | null;
   attempt: number;
@@ -534,6 +536,150 @@ export async function setTenantEmailRedirect(client: Client, email: string): Pro
   return address;
 }
 
+export function requestedUser(
+  givenName: string,
+  familyName: string,
+  email: string,
+  digits = 0,
+  random: () => number = Math.random,
+): TestUser {
+  let suffix = "";
+  for (let index = 0; index < digits; index += 1) {
+    suffix += pick(DIGITS.split(""), random);
+  }
+  const first = givenName.trim().toLowerCase();
+  const last = familyName.trim().toLowerCase();
+  const id = `${first}.${last}${suffix}`;
+  return {
+    id,
+    name: `${capitalize(first)} ${capitalize(last)}`,
+    givenName: capitalize(first),
+    familyName: capitalize(last),
+    email: email.trim(),
+    password: "",
+  };
+}
+
+export function asanaAccountLocation(taskGid: string): string {
+  return `${CAMPAIGN_LOCATION} asana:${taskGid}`;
+}
+
+export async function pickUniqueRequestedUser(
+  client: Client,
+  sourceId: string,
+  givenName: string,
+  familyName: string,
+  email: string,
+  random: () => number = Math.random,
+): Promise<{ user: TestUser; attempts: number }> {
+  const identities = await list(
+    client,
+    filtered("/identities/v1", `email eq ${quoted(email.trim())}`),
+  );
+  if (identities.length > 0) {
+    throw new Error("This email already has an identity.");
+  }
+  let attempts = 0;
+  for (const digits of [0, 2, 3]) {
+    for (let index = 0; index < ATTEMPTS_PER_LENGTH; index += 1) {
+      attempts += 1;
+      const user = requestedUser(givenName, familyName, email, digits, random);
+      const accounts = await list(
+        client,
+        filtered(
+          "/accounts/v1",
+          `sourceId eq ${quoted(sourceId)} and nativeIdentity eq ${quoted(user.id)}`,
+        ),
+      );
+      const aliases = await list(
+        client,
+        filtered("/identities/v1", `alias eq ${quoted(user.id)}`),
+      );
+      if (accounts.length === 0 && aliases.length === 0) {
+        return { user, attempts };
+      }
+    }
+  }
+  throw new Error(`Could not find an unused sign-in id after ${attempts} attempts. Try again.`);
+}
+
+export async function createRequestedAccount(
+  client: Client,
+  user: TestUser,
+  location: string,
+  refs: TenantRefs,
+): Promise<CreateResult> {
+  const response = record(
+    await client.request("POST", "/accounts/v1", {
+      attributes: {
+        sourceId: refs.sourceId,
+        id: user.id,
+        name: user.id,
+        givenName: user.givenName,
+        familyName: user.familyName,
+        "e-mail": user.email,
+        location,
+        groups: GROUP_VALUE,
+      },
+    }),
+  );
+  return { user, attempts: 1, taskId: text(response.id) || null, refs, emailRedirect: null };
+}
+
+export async function findAccountByLocation(
+  client: Client,
+  sourceId: string,
+  location: string,
+): Promise<JsonRecord | null> {
+  const accounts = await list(
+    client,
+    filtered("/accounts/v1", `sourceId eq ${quoted(sourceId)}`),
+  );
+  return (
+    accounts.find((account) => text(record(account.attributes).location) === location) ?? null
+  );
+}
+
+export async function openRequestedAccount(
+  client: Client,
+  input: { givenName: string; familyName: string; email: string; location: string },
+  random: () => number = Math.random,
+): Promise<{ created: boolean; result: CreateResult }> {
+  const refs = await resolveRefs(client);
+  const existing = await findAccountByLocation(client, refs.sourceId, input.location);
+  if (existing) {
+    const attributes = record(existing.attributes);
+    const id = text(existing.nativeIdentity) || text(attributes.id);
+    return {
+      created: false,
+      result: {
+        user: {
+          id,
+          name: `${capitalize(input.givenName.trim().toLowerCase())} ${capitalize(input.familyName.trim().toLowerCase())}`,
+          givenName: text(attributes.givenName) || capitalize(input.givenName),
+          familyName: text(attributes.familyName) || capitalize(input.familyName),
+          email: text(attributes["e-mail"]) || input.email,
+          password: "",
+        },
+        attempts: 0,
+        taskId: null,
+        refs,
+        emailRedirect: null,
+      },
+    };
+  }
+  const { user, attempts } = await pickUniqueRequestedUser(
+    client,
+    refs.sourceId,
+    input.givenName,
+    input.familyName,
+    input.email,
+    random,
+  );
+  const result = await createRequestedAccount(client, user, input.location, refs);
+  return { created: true, result: { ...result, attempts } };
+}
+
 export async function createTestAccount(
   client: Client,
   random: () => number = Math.random,
@@ -693,7 +839,8 @@ export async function activateTestAccount(
   let inviteSent = input.inviteSent === true;
   let inviteError = input.inviteError ?? null;
   const redirectEmail = input.redirectEmail?.trim() ?? "";
-  if (ready && redirectEmail && !inviteSent && !inviteError) {
+  const wantsInvite = Boolean(redirectEmail || input.sendInvite);
+  if (ready && wantsInvite && !inviteSent && !inviteError) {
     try {
       await client.request("POST", "/beta/identities/invite", {
         ids: [identityId],
@@ -711,10 +858,11 @@ export async function activateTestAccount(
   const done =
     ready &&
     (!input.password || passwordSet || Boolean(passwordError)) &&
-    (!redirectEmail || inviteSent || Boolean(inviteError));
+    (!wantsInvite || inviteSent || Boolean(inviteError));
+  const invitationInbox = redirectEmail || input.inviteEmail?.trim() || "the requester";
   const detail = done
     ? inviteSent
-      ? `Invitation sent to ${redirectEmail}. The username is ${input.userId}. The link expires in 7 days.`
+      ? `Invitation sent to ${invitationInbox}. The username is ${input.userId}. The link expires in 7 days.`
       : inviteError
         ? `The identity is active and has the role. ${inviteError}`
         : passwordError
