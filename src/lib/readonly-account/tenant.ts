@@ -474,7 +474,11 @@ async function isTaken(client: Client, sourceId: string, user: TestUser): Promis
       `alias eq ${quoted(user.id)} or email eq ${quoted(user.email)}`,
     ),
   );
-  return identities.length > 0;
+  return identities.some(
+    (identity) =>
+      text(identity.alias).toLowerCase() === user.id.toLowerCase() ||
+      identityUsesEmail(identity, user.email),
+  );
 }
 
 export async function pickUniqueUser(
@@ -564,6 +568,14 @@ export function asanaAccountLocation(taskGid: string): string {
   return `${CAMPAIGN_LOCATION} asana:${taskGid}`;
 }
 
+function identityUsesEmail(identity: JsonRecord, email: string): boolean {
+  const wanted = email.trim().toLowerCase();
+  const attributes = record(identity.attributes);
+  return [identity.email, identity.workEmail, attributes.email, attributes["e-mail"]].some(
+    (value) => text(value).toLowerCase() === wanted,
+  );
+}
+
 export async function pickUniqueRequestedUser(
   client: Client,
   sourceId: string,
@@ -576,8 +588,10 @@ export async function pickUniqueRequestedUser(
     client,
     filtered("/identities/v1", `email eq ${quoted(email.trim())}`),
   );
-  if (identities.length > 0) {
-    throw new Error("This email already has an identity.");
+  const matches = identities.filter((identity) => identityUsesEmail(identity, email));
+  if (matches.length > 0) {
+    const name = text(matches[0]?.name) || text(matches[0]?.alias) || "an existing identity";
+    throw new Error(`${email.trim()} is already used by ${name}.`);
   }
   let attempts = 0;
   for (const digits of [0, 2, 3]) {

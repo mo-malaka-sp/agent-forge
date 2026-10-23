@@ -8,6 +8,7 @@ import {
   encryptPassword,
   generateTestUser,
   NAME_LISTS,
+  pickUniqueRequestedUser,
   pickUniqueUser,
   roleMembership,
   setupTenant,
@@ -66,6 +67,27 @@ const BASE_ROUTES: Record<string, Route> = {
 };
 
 describe("read-only test account generation", () => {
+  it("ignores a different identity returned for a plus-address search", async () => {
+    const email = "mo.malaka+rosak@sailpoint.com";
+    const { client } = fakeTenant({
+      [`GET /identities/v1?filters=email eq "${email}"`]: () => [
+        { name: "Mo Malaka", email: "mo.malaka@sailpoint.com" },
+      ],
+      'GET /accounts/v1?filters=sourceId eq "src-admins" and nativeIdentity eq "rosa.kim"': () => [],
+      'GET /identities/v1?filters=alias eq "rosa.kim"': () => [],
+    });
+    const { user } = await pickUniqueRequestedUser(
+      client as never,
+      "src-admins",
+      "Rosa",
+      "Kim",
+      email,
+      () => 0,
+    );
+    assert.equal(user.id, "rosa.kim");
+    assert.equal(user.email, email);
+  });
+
   it("uses short names, unambiguous digits, and the test mail domain", () => {
     const user = generateTestUser(2);
     const plain = generateTestUser(0, () => 0);
@@ -106,7 +128,10 @@ describe("read-only test account generation", () => {
   it("switches to three digits after ten collisions, then stops", async () => {
     const { client } = fakeTenant({
       "GET /accounts/v1": () => [],
-      "GET /identities/v1": () => [{ id: "someone" }],
+      "GET /identities/v1": (call) => {
+        const alias = call.path.match(/alias eq "([^"]+)"/)?.[1];
+        return alias ? [{ id: "someone", alias }] : [{ id: "someone" }];
+      },
     });
     await assert.rejects(() => pickUniqueUser(client, "src-admins"), /after 30 attempts/);
   });
