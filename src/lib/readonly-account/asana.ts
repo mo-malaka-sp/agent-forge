@@ -3,10 +3,18 @@ import path from "node:path";
 
 import { resolveAgentForgeDataDir } from "@/lib/db/store";
 import {
+  ASSIGNED_SECTION_NAME,
+  DEFAULT_ASANA_PROJECT_NAME,
+  defaultWebhookStore,
+  findProjectGid,
+  findSectionGid,
+  taskIsInSection,
+} from "@/lib/readonly-account/asana-webhook";
+import {
   activateTestAccount,
   asanaAccountLocation,
   findAsanaDriveAccounts,
-  openRequestedAccount,
+  openLeadSeAccount,
   readonlyAccountClient,
   type TenantRefs,
   type TestUser,
@@ -16,8 +24,16 @@ type SailClient = ReturnType<typeof readonlyAccountClient>;
 
 const ASANA_API = "https://app.asana.com/api/1.0";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const EMAIL_IN_TEXT = /[^\s@]+@[^\s@]+\.[^\s@]+/;
 const TASK_GID = /^[0-9]{5,20}$/;
+const LEAD_SE_FIELD = /^lead se$/i;
+const TASK_FIELDS = [
+  "name",
+  "custom_fields.name",
+  "custom_fields.type",
+  "custom_fields.people_value",
+  "custom_fields.people_value.name",
+  "custom_fields.people_value.email",
+].join(",");
 
 export type AsanaAccountJob = {
   asanaTaskGid: string;
@@ -42,15 +58,25 @@ export type AsanaAccountStatus = {
   detail: string;
 };
 
+type AsanaPerson = {
+  gid?: string;
+  name?: string;
+  email?: string | null;
+};
+
 type AsanaTask = {
   name?: string;
-  notes?: string;
-  assignee?: { email?: string } | null;
   custom_fields?: Array<{
     name?: string;
-    display_value?: string | null;
-    text_value?: string | null;
+    type?: string;
+    people_value?: AsanaPerson[] | null;
   }>;
+};
+
+export type LeadSe = {
+  gid: string;
+  name: string;
+  email: string;
 };
 
 type JobStore = {
@@ -66,21 +92,17 @@ export function asanaTaskGid(value: string): string {
   return gid;
 }
 
-export function personFromAsanaTask(task: AsanaTask): {
-  givenName: string;
-  familyName: string;
-  email: string;
-} {
-  const email = emailFromTask(task);
-  if (!email) {
-    throw new Error("The Asana task needs an email address.");
+export function leadSeFromAsanaTask(task: AsanaTask): LeadSe {
+  const field = (task.custom_fields ?? []).find((item) => LEAD_SE_FIELD.test((item.name ?? "").trim()));
+  const person = (field?.people_value ?? []).find((value) => value.gid || value.email || value.name);
+  if (!person) {
+    throw new Error("The task needs a Lead SE.");
   }
-  const name = nameFromTask(task);
-  const parts = nameParts(name);
-  if (!parts) {
-    throw new Error("The Asana task name needs a first and last name.");
-  }
-  return { ...parts, email };
+  return {
+    gid: person.gid?.trim() ?? "",
+    name: person.name?.trim() ?? "",
+    email: person.email?.trim() ?? "",
+  };
 }
 
 export function fileJobStore(filePath = defaultJobPath()): JobStore {
@@ -107,6 +129,7 @@ export async function acceptAsanaTask(
     store?: JobStore;
     random?: () => number;
     client?: SailClient;
+    projectGid?: string;
   } = {},
 ): Promise<AsanaAccountStatus> {
   const gid = asanaTaskGid(taskGid);
@@ -120,15 +143,16 @@ export async function acceptAsanaTask(
         token: options.token,
         fetchImpl: options.fetchImpl,
         client,
+        projectGid: options.projectGid,
       }),
     );
   }
   const task = await fetchAsanaTask(gid, options.token, options.fetchImpl);
-  const person = personFromAsanaTask(task);
-  const opened = await openRequestedAccount(
+  const leadEmail = await leadSeEmail(leadSeFromAsanaTask(task), options.token, options.fetchImpl);
+  const opened = await openLeadSeAccount(
     client,
     {
-      ...person,
+      leadEmail,
       location: asanaAccountLocation(gid),
     },
     options.random,
@@ -153,6 +177,7 @@ export async function acceptAsanaTask(
       token: options.token,
       fetchImpl: options.fetchImpl,
       client,
+      projectGid: options.projectGid,
     }),
   );
 }
@@ -163,6 +188,7 @@ export async function finishPendingAsanaAccounts(
     fetchImpl?: typeof fetch;
     store?: JobStore;
     client?: SailClient;
+    projectGid?: string;
   } = {},
 ): Promise<AsanaAccountStatus[]> {
   const store = options.store ?? fileJobStore();
@@ -184,7 +210,7 @@ export async function finishPendingAsanaAccounts(
       inviteSent: sent,
       inviteError: null,
       attempt: 0,
-      commented: sent,
+      commented: false,
       detail: sent ? "Invitation already sent." : "Account already exists for this Asana task.",
       createdAt: new Date().toISOString(),
     });
@@ -202,6 +228,7 @@ export async function tickAsanaAccounts(
     fetchImpl?: typeof fetch;
     store?: JobStore;
     client?: SailClient;
+    projectGid?: string;
   } = {},
 ): Promise<AsanaAccountStatus[]> {
   const store = options.store ?? fileJobStore();
@@ -217,6 +244,7 @@ export async function tickAsanaAccounts(
             token: options.token,
             fetchImpl: options.fetchImpl,
             client,
+            projectGid: options.projectGid,
           }),
         ),
       );
@@ -233,7 +261,7 @@ async function advanceJob(
   job: AsanaAccountJob,
   store: JobStore,
   jobs: AsanaAccountJob[],
-  options: { token?: string; fetchImpl?: typeof fetch; client: SailClient },
+  options: { token?: string; fetchImpl?: typeof fetch; client: SailClient; projectGid?: string },
 ): Promise<AsanaAccountJob> {
   if (!job.commented) {
     const result = await activateTestAccount(options.client, {
@@ -259,12 +287,99 @@ async function advanceJob(
       options.token,
       options.fetchImpl,
     );
-    if (result.done) {
+    if (result.done && result.inviteSent) {
+      try {
+        await moveTaskToAssignedSection(job.asanaTaskGid, options);
+        job.commented = true;
+        store.save(jobs);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "The task could not be moved to Assigned.";
+        await commentAsanaOnce(
+          job.asanaTaskGid,
+          `SAF Test Drive\n${message}`,
+          options.token,
+          options.fetchImpl,
+        );
+      }
+    } else if (result.done) {
       job.commented = true;
       store.save(jobs);
     }
   }
   return job;
+}
+
+export async function moveTaskToAssignedSection(
+  taskGid: string,
+  options: { token?: string; fetchImpl?: typeof fetch; projectGid?: string } = {},
+): Promise<void> {
+  const token = options.token?.trim() || process.env.ASANA_ACCESS_TOKEN?.trim() || "";
+  if (!token) {
+    throw new Error("Set ASANA_ACCESS_TOKEN to the Asana personal access token.");
+  }
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const projectGid = await resolveProjectGid(token, fetchImpl, options.projectGid);
+  const assignedGid = await findSectionGid(token, projectGid, ASSIGNED_SECTION_NAME, fetchImpl);
+  if (await taskIsInSection(token, taskGid, assignedGid, fetchImpl)) {
+    return;
+  }
+  const response = await fetchImpl(`${ASANA_API}/sections/${assignedGid}/addTask`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ data: { task: taskGid } }),
+  });
+  if (!response.ok) {
+    throw new Error(`The task could not be moved to Assigned (${response.status}).`);
+  }
+}
+
+async function resolveProjectGid(
+  token: string,
+  fetchImpl: typeof fetch,
+  projectGid?: string,
+): Promise<string> {
+  const given = projectGid?.trim() || process.env.ASANA_PROJECT_GID?.trim() || "";
+  if (given) {
+    return given;
+  }
+  const stored = (await defaultWebhookStore().load())?.projectGid?.trim() ?? "";
+  if (stored) {
+    return stored;
+  }
+  return findProjectGid(token, DEFAULT_ASANA_PROJECT_NAME, fetchImpl);
+}
+
+async function leadSeEmail(
+  lead: LeadSe,
+  token = process.env.ASANA_ACCESS_TOKEN?.trim() ?? "",
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  if (EMAIL.test(lead.email)) {
+    return lead.email;
+  }
+  if (!lead.gid) {
+    throw new Error("The task needs a Lead SE.");
+  }
+  if (!token) {
+    throw new Error("Set ASANA_ACCESS_TOKEN to the Asana personal access token.");
+  }
+  const response = await fetchImpl(
+    `${ASANA_API}/users/${lead.gid}?opt_fields=${encodeURIComponent("email,name")}`,
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+  );
+  if (!response.ok) {
+    throw new Error(`Asana did not return the Lead SE (${response.status}).`);
+  }
+  const body = (await response.json()) as { data?: { email?: string } };
+  const email = body.data?.email?.trim() ?? "";
+  if (!EMAIL.test(email)) {
+    throw new Error("The task needs a Lead SE.");
+  }
+  return email;
 }
 
 function statusOf(job: AsanaAccountJob): AsanaAccountStatus {
@@ -305,7 +420,7 @@ async function fetchAsanaTask(
   if (!token) {
     throw new Error("Set ASANA_ACCESS_TOKEN to the Asana personal access token.");
   }
-  const fields = "name,notes,assignee.email,custom_fields.name,custom_fields.display_value,custom_fields.text_value";
+  const fields = TASK_FIELDS;
   const response = await fetchImpl(
     `${ASANA_API}/tasks/${taskGid}?opt_fields=${encodeURIComponent(fields)}`,
     { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
@@ -348,50 +463,6 @@ export async function commentAsanaOnce(
   if (!response.ok) {
     throw new Error(`Asana did not save the account comment (${response.status}).`);
   }
-}
-
-function emailFromTask(task: AsanaTask): string {
-  for (const field of task.custom_fields ?? []) {
-    if (!/e-?mail/i.test(field.name ?? "")) {
-      continue;
-    }
-    const value = (field.display_value || field.text_value || "").trim();
-    if (EMAIL.test(value)) {
-      return value;
-    }
-  }
-  const noted = task.notes?.match(EMAIL_IN_TEXT)?.[0];
-  if (noted) {
-    return noted;
-  }
-  const assignee = task.assignee?.email?.trim() ?? "";
-  return EMAIL.test(assignee) ? assignee : "";
-}
-
-function nameFromTask(task: AsanaTask): string {
-  for (const field of task.custom_fields ?? []) {
-    if (!/^(name|requester|full name)$/i.test(field.name ?? "")) {
-      continue;
-    }
-    const value = (field.display_value || field.text_value || "").trim();
-    if (value) {
-      return value;
-    }
-  }
-  return task.name?.trim() ?? "";
-}
-
-function nameParts(value: string): { givenName: string; familyName: string } | null {
-  const words = value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .split(/[^a-z]+/)
-    .filter((word) => word.length > 1);
-  if (words.length < 2) {
-    return null;
-  }
-  return { givenName: words[0], familyName: words[1] };
 }
 
 function defaultJobPath(): string {

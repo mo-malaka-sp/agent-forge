@@ -8,6 +8,8 @@ import {
   encryptPassword,
   generateTestUser,
   NAME_LISTS,
+  leadSePlusAddress,
+  pickUniqueLeadSeCustomer,
   pickUniqueRequestedUser,
   pickUniqueUser,
   roleMembership,
@@ -86,6 +88,62 @@ describe("read-only test account generation", () => {
     );
     assert.equal(user.id, "rosa.kim");
     assert.equal(user.email, email);
+  });
+
+  it("keeps a random customer when a plus search returns the Lead SE", async () => {
+    const lead = "matt.brands@sailpoint.com";
+    const { client } = fakeTenant({
+      "GET /accounts/v1": () => [],
+      "GET /identities/v1": () => [{ name: "Matt Brands", email: lead, alias: "matt.brands" }],
+    });
+    const { user, attempts } = await pickUniqueLeadSeCustomer(client as never, "src-admins", lead, () => 0);
+    assert.equal(attempts, 1);
+    assert.equal(user.id, "maya.chen");
+    assert.equal(user.email, "matt.brands+maya.chen@sailpoint.com");
+    assert.equal(user.name, "Maya Chen");
+  });
+
+  it("picks another name when the sign-in id or plus-address is already used", async () => {
+    const lead = "matt.brands+existing@sailpoint.com";
+    assert.equal(leadSePlusAddress(lead, "maya.chen"), "matt.brands+maya.chen@sailpoint.com");
+    const { client } = fakeTenant({
+      "GET /accounts/v1": () => [],
+      "GET /identities/v1": (call) =>
+        call.path.includes("matt.brands+maya.chen@sailpoint.com")
+          ? [{ name: "Maya Chen", alias: "other.person", email: "matt.brands+maya.chen@sailpoint.com" }]
+          : [],
+    });
+    const { user, attempts } = await pickUniqueLeadSeCustomer(client as never, "src-admins", lead, () => 0);
+    assert.equal(user.id, "maya.chen22");
+    assert.equal(user.email, "matt.brands+maya.chen22@sailpoint.com");
+    assert.equal(attempts, 11);
+  });
+
+  it("gives one Lead SE a different customer on the next request", async () => {
+    const used = new Set<string>();
+    const { client } = fakeTenant({
+      "GET /accounts/v1": (call) => {
+        const id = call.path.match(/nativeIdentity eq "([^"]+)"/)?.[1] ?? "";
+        return used.has(id) ? [{ id }] : [];
+      },
+      "GET /identities/v1": () => [],
+    });
+    const first = await pickUniqueLeadSeCustomer(
+      client as never,
+      "src-admins",
+      "matt.brands@sailpoint.com",
+      () => 0,
+    );
+    used.add(first.user.id);
+    const second = await pickUniqueLeadSeCustomer(
+      client as never,
+      "src-admins",
+      "matt.brands@sailpoint.com",
+      () => 0,
+    );
+    assert.equal(first.user.id, "maya.chen");
+    assert.equal(second.user.id, "maya.chen22");
+    assert.notEqual(first.user.email, second.user.email);
   });
 
   it("uses short names, unambiguous digits, and the test mail domain", () => {

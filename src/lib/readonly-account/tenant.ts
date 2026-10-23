@@ -540,6 +540,43 @@ export async function setTenantEmailRedirect(client: Client, email: string): Pro
   return address;
 }
 
+export function leadSePlusAddress(leadEmail: string, id: string): string {
+  const trimmed = leadEmail.trim();
+  const at = trimmed.lastIndexOf("@");
+  const local = at > 0 ? trimmed.slice(0, at).split("+")[0] : "";
+  const domain = at > 0 ? trimmed.slice(at + 1) : "";
+  if (!local || !domain || domain.includes("@") || !/^[a-z0-9.]+$/i.test(id)) {
+    throw new Error("The Lead SE email is not valid.");
+  }
+  return `${local}+${id}@${domain}`;
+}
+
+export async function pickUniqueLeadSeCustomer(
+  client: Client,
+  sourceId: string,
+  leadEmail: string,
+  random: () => number = Math.random,
+): Promise<{ user: TestUser; attempts: number }> {
+  let attempts = 0;
+  for (const digits of [0, 2, 3]) {
+    for (let index = 0; index < ATTEMPTS_PER_LENGTH; index += 1) {
+      attempts += 1;
+      const generated = generateTestUser(digits, random);
+      const user: TestUser = {
+        ...generated,
+        email: leadSePlusAddress(leadEmail, generated.id),
+        password: "",
+      };
+      if (!(await isTaken(client, sourceId, user))) {
+        return { user, attempts };
+      }
+    }
+  }
+  throw new Error(
+    `Could not find an unused test account name after ${attempts} attempts. Try again.`,
+  );
+}
+
 export function requestedUser(
   givenName: string,
   familyName: string,
@@ -681,6 +718,46 @@ export async function findAccountByLocation(
   return (
     accounts.find((account) => text(record(account.attributes).location) === location) ?? null
   );
+}
+
+export async function openLeadSeAccount(
+  client: Client,
+  input: { leadEmail: string; location: string },
+  random: () => number = Math.random,
+): Promise<{ created: boolean; result: CreateResult }> {
+  const refs = await resolveRefs(client);
+  const existing = await findAccountByLocation(client, refs.sourceId, input.location);
+  if (existing) {
+    const attributes = record(existing.attributes);
+    const id = text(existing.nativeIdentity) || text(attributes.id);
+    const givenName = text(attributes.givenName);
+    const familyName = text(attributes.familyName);
+    return {
+      created: false,
+      result: {
+        user: {
+          id,
+          name: `${givenName} ${familyName}`.trim() || id,
+          givenName,
+          familyName,
+          email: text(attributes["e-mail"]) || leadSePlusAddress(input.leadEmail, id),
+          password: "",
+        },
+        attempts: 0,
+        taskId: null,
+        refs,
+        emailRedirect: null,
+      },
+    };
+  }
+  const { user, attempts } = await pickUniqueLeadSeCustomer(
+    client,
+    refs.sourceId,
+    input.leadEmail,
+    random,
+  );
+  const result = await createRequestedAccount(client, user, input.location, refs);
+  return { created: true, result: { ...result, attempts } };
 }
 
 export async function openRequestedAccount(

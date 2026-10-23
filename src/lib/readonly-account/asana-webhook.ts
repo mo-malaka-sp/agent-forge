@@ -11,6 +11,7 @@ const WEBHOOK_KEY = "READONLY_ACCOUNT#asana-webhook";
 
 export const DEFAULT_ASANA_PROJECT_NAME = "POC Gateway - Request Management";
 export const DEFAULT_ASANA_SECTION_NAME = "Ready for TES";
+export const ASSIGNED_SECTION_NAME = "Assigned";
 
 export type WebhookLogEntry = {
   at: string;
@@ -326,7 +327,11 @@ export async function registerReadySectionWebhook(options: {
   };
 }
 
-async function findProjectGid(token: string, projectName: string, fetchImpl: typeof fetch): Promise<string> {
+export async function findProjectGid(
+  token: string,
+  projectName: string,
+  fetchImpl: typeof fetch,
+): Promise<string> {
   const workspaces = await listRecords(token, "/workspaces?opt_fields=name&limit=100", fetchImpl);
   for (const workspace of workspaces) {
     if (!workspace.gid) {
@@ -345,7 +350,7 @@ async function findProjectGid(token: string, projectName: string, fetchImpl: typ
   throw new Error(`Asana project ${projectName} was not found.`);
 }
 
-async function findSectionGid(
+export async function findSectionGid(
   token: string,
   projectGid: string,
   sectionName: string,
