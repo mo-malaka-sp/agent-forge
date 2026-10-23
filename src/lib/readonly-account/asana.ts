@@ -11,7 +11,7 @@ import {
   type TestUser,
 } from "@/lib/readonly-account/tenant";
 
-type SailClient = Parameters<typeof activateTestAccount>[0];
+type SailClient = ReturnType<typeof readonlyAccountClient>;
 
 const ASANA_API = "https://app.asana.com/api/1.0";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -114,7 +114,13 @@ export async function acceptAsanaTask(
   const jobs = store.load();
   const existing = jobs.find((job) => job.asanaTaskGid === gid);
   if (existing) {
-    return statusOf(await advanceJob(existing, store, jobs, { ...options, client }));
+    return statusOf(
+      await advanceJob(existing, store, jobs, {
+        token: options.token,
+        fetchImpl: options.fetchImpl,
+        client,
+      }),
+    );
   }
   const task = await fetchAsanaTask(gid, options.token, options.fetchImpl);
   const person = personFromAsanaTask(task);
@@ -141,7 +147,13 @@ export async function acceptAsanaTask(
   };
   jobs.push(job);
   store.save(jobs);
-  return statusOf(await advanceJob(job, store, jobs, options));
+  return statusOf(
+    await advanceJob(job, store, jobs, {
+      token: options.token,
+      fetchImpl: options.fetchImpl,
+      client,
+    }),
+  );
 }
 
 export async function tickAsanaAccounts(
@@ -159,7 +171,15 @@ export async function tickAsanaAccounts(
   const statuses: AsanaAccountStatus[] = [];
   for (const job of pending) {
     try {
-      statuses.push(statusOf(await advanceJob(job, store, jobs, { ...options, client })));
+      statuses.push(
+        statusOf(
+          await advanceJob(job, store, jobs, {
+            token: options.token,
+            fetchImpl: options.fetchImpl,
+            client,
+          }),
+        ),
+      );
     } catch (error) {
       job.detail = error instanceof Error ? error.message : "Account activation failed.";
       store.save(jobs);

@@ -31,7 +31,7 @@ const DIGITS = "23456789";
 const ATTEMPTS_PER_LENGTH = 10;
 const SAFE_ID = /^[A-Za-z0-9-]+$/;
 
-type Client = ReturnType<typeof createSailPointClient>;
+type Client = ReturnType<typeof readonlyAccountClient>;
 type JsonRecord = Record<string, unknown>;
 
 export type StepStatus = "found" | "created" | "updated" | "ok" | "pending" | "failed";
