@@ -154,6 +154,30 @@ export default function HomePage() {
               </span>
             </Link>
           ))}
+          <Link
+            href="/ask-tenant"
+            className="home-feature-card home-feature-card--cobalt home-ask-card"
+            aria-label="Ask this tenant: Ask a question"
+          >
+            <div className="home-feature-card__top">
+              <span className="home-feature-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M5 6h14v9H8l-3 3V6Z" />
+                  <path d="M8 10h8M8 13h5" />
+                </svg>
+              </span>
+            </div>
+            <p className="home-feature-card__eyebrow">Ask</p>
+            <h3>Ask this tenant</h3>
+            <p className="home-feature-card__description">
+              Ask a question about the connected Identity Security Cloud tenant. Answers come from
+              ISC search and the SAF events already stored here.
+            </p>
+            <span className="home-feature-card__cta">
+              Ask a question
+              <span aria-hidden="true">→</span>
+            </span>
+          </Link>
         </div>
       </section>
 

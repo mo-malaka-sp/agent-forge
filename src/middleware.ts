@@ -11,6 +11,7 @@ const PUBLIC_PATHS = new Set([
   "/api/readonly-account/asana",
   "/api/readonly-account/asana/tick",
   "/api/readonly-account/asana/webhook",
+  "/api/ask-tenant/mcp",
   "/webhooks/saf",
   "/jwks",
 ]);

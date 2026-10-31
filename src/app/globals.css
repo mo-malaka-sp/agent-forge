@@ -685,6 +685,11 @@ select {
   gap: 18px;
 }
 
+.home-feature-card.home-ask-card {
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
 .home-feature-card {
   --card-accent: var(--brand-aqua);
   --card-tint: rgba(84, 192, 231, 0.12);
