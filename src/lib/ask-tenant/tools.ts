@@ -1,15 +1,35 @@
 import { iscRequest } from "@/lib/isc/client";
 import { getIscCredentials, type IscCredentials } from "@/lib/isc/config";
 import { listSafEvents } from "@/lib/saf-poc/events";
+import {
+  listTenantAgents,
+  readAgentRiskSnapshot,
+  type AgentRiskSnapshot,
+  type TenantAgent,
+} from "@/lib/saf-poc/tenant-agents";
 
 export const ROW_LIMIT = 25;
+const AGENT_CANDIDATE_LIMIT = 5;
 
 export const ASK_TOOL_NAMES = [
   "search_identities",
   "search_access",
   "search_audit_events",
   "list_saf_events",
+  "list_agents",
+  "describe_agent",
 ] as const;
+
+/** Fallback when a question matches no topic. describe_agent is excluded — it is
+ * narrow and costs one SailPoint call per candidate agent, so it only runs when
+ * the question names a capability, finding, or feature. */
+const DEFAULT_TOOLS: AskToolName[] = [
+  "search_identities",
+  "search_access",
+  "search_audit_events",
+  "list_saf_events",
+  "list_agents",
+];
 
 export type AskToolName = (typeof ASK_TOOL_NAMES)[number];
 
@@ -29,6 +49,8 @@ export interface AskDeps {
   tenant: string | null;
   search: (indices: string[], query: string) => Promise<unknown[]>;
   safEvents: () => Promise<SafEventInput[]>;
+  listAgents: () => Promise<TenantAgent[]>;
+  agentFindings: (agentId: string) => Promise<AgentRiskSnapshot>;
 }
 
 export interface AskRead {
@@ -56,6 +78,11 @@ const TOPIC_RULES: Array<{ tool: AskToolName; pattern: RegExp }> = [
   { tool: "search_audit_events", pattern: /\b(audit|event|events|activity|changed|change|happened|latest|recent|log|logs)\b/i },
   { tool: "search_access", pattern: /\b(access|entitlement|entitlements|role|roles|permission|permissions|profile)\b/i },
   { tool: "search_identities", pattern: /\b(identity|identities|user|users|person|people|account|accounts|who)\b/i },
+  { tool: "list_agents", pattern: /\b(agents?|machine identit(?:y|ies))\b/i },
+  {
+    tool: "describe_agent",
+    pattern: /\b(capabilit(?:y|ies)|findings?|anomal(?:y|ies)|features?)\b/i,
+  },
 ];
 
 const STOP_WORDS = new Set([
@@ -69,6 +96,8 @@ const STOP_WORDS = new Set([
   "account", "accounts", "event", "events", "audit", "role", "roles",
   "entitlement", "entitlements", "saf", "caep", "datadog", "agent", "agents",
   "risk", "connected", "there", "their", "them", "any", "are", "was", "were",
+  "machine", "capability", "capabilities", "finding", "findings",
+  "anomaly", "anomalies", "feature", "features",
 ]);
 
 const TOOL_LABELS: Record<AskToolName, string> = {
@@ -76,9 +105,11 @@ const TOOL_LABELS: Record<AskToolName, string> = {
   search_access: "Access",
   search_audit_events: "Audit events",
   list_saf_events: "SAF events",
+  list_agents: "SAF agents",
+  describe_agent: "Agent findings",
 };
 
-const TOOL_INDICES: Record<Exclude<AskToolName, "list_saf_events">, string[]> = {
+const TOOL_INDICES: Record<"search_identities" | "search_access" | "search_audit_events", string[]> = {
   search_identities: ["identities"],
   search_access: ["entitlements", "roles", "accessprofiles"],
   search_audit_events: ["events"],
@@ -90,7 +121,7 @@ export function isWriteRequest(value: string): boolean {
 
 export function toolsForQuestion(question: string): AskToolName[] {
   const matched = TOPIC_RULES.filter((rule) => rule.pattern.test(question)).map((rule) => rule.tool);
-  return matched.length > 0 ? matched : [...ASK_TOOL_NAMES];
+  return matched.length > 0 ? matched : [...DEFAULT_TOOLS];
 }
 
 export function searchText(question: string): string {
@@ -177,6 +208,41 @@ function slimAudit(row: unknown): Record<string, unknown> {
   };
 }
 
+function slimAgent(agent: TenantAgent): Record<string, unknown> {
+  return {
+    id: agent.id,
+    name: agent.name,
+    riskLevel: agent.riskLevel || undefined,
+    source: agent.source || undefined,
+    agentType: agent.agentType || agent.subtype || undefined,
+    businessApplication: agent.businessApplication || undefined,
+    owner: agent.ownerName || undefined,
+  };
+}
+
+function matchingAgents(agents: TenantAgent[], query: string): TenantAgent[] {
+  const sorted = [...agents].sort((left, right) => left.name.localeCompare(right.name));
+  if (query === "*") {
+    return sorted;
+  }
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return sorted.filter((agent) => {
+    const haystack = [
+      agent.name,
+      agent.id,
+      agent.source,
+      agent.agentType,
+      agent.subtype,
+      agent.businessApplication,
+      agent.ownerName,
+      agent.riskLevel,
+    ]
+      .join(" ")
+      .toLowerCase();
+    return tokens.every((token) => haystack.includes(token));
+  });
+}
+
 function slimSaf(event: SafEventInput): Record<string, unknown> {
   return {
     id: event.id,
@@ -207,6 +273,26 @@ function rowLine(tool: AskToolName, row: Record<string, unknown>): string {
     const actor = text(row.actor);
     const created = text(row.created);
     return [action, actor ? `by ${actor}` : "", created ? `at ${created}` : ""].filter(Boolean).join(" ");
+  }
+  if (tool === "list_agents") {
+    const name = text(row.name) ?? text(row.id) ?? "Agent";
+    const risk = text(row.riskLevel) ?? "Unknown";
+    const source = text(row.source);
+    const owner = text(row.owner);
+    return [
+      `${name} — ${risk} risk`,
+      source ? `(${source})` : "",
+      owner ? `owner ${owner}` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+  if (tool === "describe_agent") {
+    const agent = text(row.agent) ?? "Agent";
+    const severity = text(row.severity) ?? "Unknown";
+    const finding = text(row.finding) ?? "No findings.";
+    const detectedAt = text(row.detectedAt);
+    return `${agent}: ${finding} (severity ${severity})${detectedAt ? ` at ${detectedAt}` : ""}`;
   }
   const title = text(row.title) ?? text(row.eventType) ?? "SAF event";
   const identity = text(row.identity);
@@ -260,6 +346,59 @@ async function runRead(tool: AskToolName, query: string, deps: AskDeps): Promise
         ...base,
         rows: matched.slice(0, ROW_LIMIT).map(slimSaf),
         truncated: matched.length > ROW_LIMIT,
+      };
+    }
+    if (tool === "list_agents") {
+      if (!deps.tenant) {
+        return { ...base, error: "Connect an ISC tenant before asking." };
+      }
+      const matched = matchingAgents(await deps.listAgents(), query);
+      return {
+        ...base,
+        rows: matched.slice(0, ROW_LIMIT).map(slimAgent),
+        truncated: matched.length > ROW_LIMIT,
+      };
+    }
+    if (tool === "describe_agent") {
+      if (!deps.tenant) {
+        return { ...base, error: "Connect an ISC tenant before asking." };
+      }
+      const matched = matchingAgents(await deps.listAgents(), query);
+      const candidates = matched.slice(0, AGENT_CANDIDATE_LIMIT);
+      const rows: Record<string, unknown>[] = [];
+      for (const candidate of candidates) {
+        try {
+          const snapshot = await deps.agentFindings(candidate.id);
+          if (snapshot.findings.length === 0) {
+            rows.push({
+              agent: candidate.name,
+              severity: snapshot.calculatedSeverity,
+              finding: snapshot.findingsNote || "No findings.",
+              detectedAt: "",
+            });
+          } else {
+            for (const finding of snapshot.findings) {
+              rows.push({
+                agent: candidate.name,
+                severity: snapshot.calculatedSeverity,
+                finding: finding.title,
+                detectedAt: finding.detectedAt,
+              });
+            }
+          }
+        } catch (candidateError) {
+          rows.push({
+            agent: candidate.name,
+            severity: "Unavailable",
+            finding: `Could not load findings: ${errorMessage(candidateError)}`,
+            detectedAt: "",
+          });
+        }
+      }
+      return {
+        ...base,
+        rows: rows.slice(0, ROW_LIMIT),
+        truncated: matched.length > candidates.length || rows.length > ROW_LIMIT,
       };
     }
     if (!deps.tenant) {
@@ -409,5 +548,17 @@ export function liveAskDeps(): AskDeps {
       return searchConnectedTenant(credentials, indices, query);
     },
     safEvents: async () => listSafEvents(),
+    listAgents: async () => {
+      if (!credentials) {
+        throw new Error("Connect an ISC tenant before asking.");
+      }
+      return listTenantAgents();
+    },
+    agentFindings: async (agentId) => {
+      if (!credentials) {
+        throw new Error("Connect an ISC tenant before asking.");
+      }
+      return readAgentRiskSnapshot(agentId);
+    },
   };
 }

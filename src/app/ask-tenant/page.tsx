@@ -26,8 +26,9 @@ export default function AskTenantPage() {
         <p>
           Claude can call the same reads at <code>/api/ask-tenant/mcp</code> without opening this
           page. The tools are <code>search_identities</code>, <code>search_access</code>,{" "}
-          <code>search_audit_events</code>, and <code>list_saf_events</code>. They use the tenant
-          this app is already connected to.
+          <code>search_audit_events</code>, <code>list_saf_events</code>,{" "}
+          <code>list_agents</code>, and <code>describe_agent</code>. They use the tenant this app
+          is already connected to.
         </p>
         <p>
           Send the worker token in the <code>x-agentforge-worker</code> header, or as{" "}

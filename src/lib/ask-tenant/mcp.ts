@@ -18,6 +18,10 @@ const TOOL_DESCRIPTIONS: Record<AskToolName, string> = {
     "Read audit events on the connected ISC tenant. At most 25 rows.",
   list_saf_events:
     "Read SAF risk and CAEP events already stored in AgentForge. At most 25 rows.",
+  list_agents:
+    "Read the SAF agent identities registered on the connected ISC tenant: name, risk level, owner, source, and business application. At most 25 rows.",
+  describe_agent:
+    "Read one or more SAF agents' risk severity and detected findings on the connected ISC tenant. Matches up to 5 agents by name. At most 25 rows.",
 };
 
 export interface McpHttpResult {
