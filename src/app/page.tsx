@@ -1,6 +1,9 @@
 import Link from "next/link";
 
+export const dynamic = "force-dynamic";
+
 import { HomeContinueDemo } from "@/components/HomeContinueDemo";
+import { HomeTenantCard } from "@/components/HomeTenantCard";
 import { getIscPublicStatus } from "@/lib/isc/config";
 
 const PATHS = [
@@ -97,30 +100,10 @@ export default function HomePage() {
 
       <HomeContinueDemo />
 
-      <Link href="/demo?phase=setup" className="home-tenant" aria-labelledby="tenant-heading">
-        <div className="home-tenant__intro">
-          <div>
-            <span className="forge-eyebrow">Shared tenant</span>
-            <h2 id="tenant-heading">
-              {isc.credentialsConfigured && isc.tenant
-                ? isc.tenant
-                : "Connect one ISC tenant"}
-            </h2>
-            <p>
-              Discover, Govern, and Protect all use this Identity Security Cloud
-              connection.
-            </p>
-          </div>
-          <span
-            className={`home-status home-status--on-light ${
-              isc.credentialsConfigured ? "home-status--connected" : "home-status--attention"
-            }`}
-          >
-            <span className="home-status__dot" aria-hidden="true" />
-            {isc.credentialsConfigured ? "Connected" : "Not connected"}
-          </span>
-        </div>
-      </Link>
+      <HomeTenantCard
+        serverConnected={isc.credentialsConfigured}
+        serverTenant={isc.tenant}
+      />
 
       <section className="home-workspaces" aria-labelledby="workspace-heading">
         <div className="home-section-heading">

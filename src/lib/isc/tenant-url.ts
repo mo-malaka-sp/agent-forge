@@ -4,7 +4,7 @@ export interface ParsedIscTenantUrl {
   tenantUrl: string;
 }
 
-const EXAMPLE_TENANT_URL = "https://company23447-poc.identitynow-demo.com/";
+const EXAMPLE_TENANT_URL = "https://acme.identitynow-demo.com/";
 
 export function formatIscTenantUrl(tenant: string, domain: string): string {
   const slug = tenant.trim();

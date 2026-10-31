@@ -54,8 +54,8 @@ export function IscCredentialsPanel({
       }
 
       setView(body);
-      setTenantUrl("");
-      setClientId("");
+      setTenantUrl(body.configured && body.tenantUrl ? body.tenantUrl : "");
+      setClientId(body.configured && body.clientId ? body.clientId : "");
       setClientSecret("");
     } catch (loadError) {
       setError(

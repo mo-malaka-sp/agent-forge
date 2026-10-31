@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { handleMcpRequest, mcpCallerAllowed, rpcError, rpcId } from "@/lib/ask-tenant/mcp";
 import { liveAskDeps } from "@/lib/ask-tenant/tools";
 import { readSession, SESSION_COOKIE } from "@/lib/auth/session";
+import { withRequestIscRuntime } from "@/lib/isc/apply-runtime";
 import { workerAuthorized } from "@/lib/saf-poc/agent-condition";
 
 export const runtime = "nodejs";
@@ -48,7 +49,9 @@ export async function POST(request: NextRequest) {
       { status: 401, headers: { "Cache-Control": "no-store" } },
     );
   }
-  const result = await handleMcpRequest(payload, liveAskDeps());
+  const result = await withRequestIscRuntime(request, undefined, () =>
+    handleMcpRequest(payload, liveAskDeps()),
+  );
   if (result.body === null) {
     return new NextResponse(null, { status: result.status, headers: { "Cache-Control": "no-store" } });
   }

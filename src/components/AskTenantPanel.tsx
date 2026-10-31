@@ -1,14 +1,29 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import type { AskAnswer } from "@/lib/ask-tenant/tools";
+import { loadIscSessionCache, withIscRuntimeHeaders } from "@/lib/isc/session-cache";
+import { resolveVisibleTenant } from "@/lib/isc/visible-tenant";
 
 export function AskTenantPanel({ tenant }: { tenant: string | null }) {
+  const [activeTenant, setActiveTenant] = useState(tenant);
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AskAnswer | null>(null);
+
+  useEffect(() => {
+    const sessionTenant = loadIscSessionCache()?.tenant ?? null;
+    const visible = resolveVisibleTenant({
+      serverConnected: Boolean(tenant),
+      serverTenant: tenant,
+      sessionTenant,
+      apiConfigured: null,
+      apiTenant: null,
+    });
+    setActiveTenant(visible.tenant);
+  }, [tenant]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -21,7 +36,7 @@ export function AskTenantPanel({ tenant }: { tenant: string | null }) {
     try {
       const response = await fetch("/api/ask-tenant", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: withIscRuntimeHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ question: trimmed }),
       });
       const payload = (await response.json().catch(() => ({}))) as AskAnswer & { error?: string };
@@ -39,6 +54,11 @@ export function AskTenantPanel({ tenant }: { tenant: string | null }) {
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        {activeTenant
+          ? `Questions read tenant ${activeTenant}.`
+          : "No ISC tenant is connected in this browser."}
+      </p>
       <form onSubmit={onSubmit} className="space-y-3">
         <label className="block text-sm font-medium text-zinc-800 dark:text-zinc-200" htmlFor="ask-tenant-question">
           Question
@@ -50,8 +70,8 @@ export function AskTenantPanel({ tenant }: { tenant: string | null }) {
           rows={3}
           maxLength={500}
           placeholder={
-            tenant
-              ? `Ask about identities, access, audit events, or SAF activity on ${tenant}`
+            activeTenant
+              ? `Ask about identities, access, audit events, or SAF activity on ${activeTenant}`
               : "Connect an ISC tenant, or ask about SAF events already stored here"
           }
           className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"

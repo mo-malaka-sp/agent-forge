@@ -1,4 +1,6 @@
 import { AskTenantPanel } from "@/components/AskTenantPanel";
+
+export const dynamic = "force-dynamic";
 import { getIscPublicStatus } from "@/lib/isc/config";
 
 export default function AskTenantPage() {
@@ -13,9 +15,6 @@ export default function AskTenantPage() {
           Ask this tenant
         </h1>
         <p className="max-w-3xl text-sm text-zinc-600 dark:text-zinc-400">
-          {tenant
-            ? `Questions read tenant ${tenant}. `
-            : "No ISC tenant is connected. "}
           Answers come from Identity Security Cloud search and the SAF events already stored in
           AgentForge. Each read returns at most 25 rows. Questions that create, change, or delete
           data are refused.
