@@ -29,14 +29,15 @@ export interface McpHttpResult {
   body: unknown | null;
 }
 
-export function mcpClientConfig(mcpUrl: string, workerToken: string): string {
+export function mcpClientConfig(mcpUrl: string, username: string, password: string): string {
+  const credentials = Buffer.from(`${username}:${password}`).toString("base64");
   return `${JSON.stringify(
     {
       mcpServers: {
         "ask-this-tenant": {
           url: mcpUrl,
           headers: {
-            Authorization: `Bearer ${workerToken}`,
+            Authorization: `Basic ${credentials}`,
           },
         },
       },
@@ -51,19 +52,39 @@ export function bearerToken(authorization: string | null): string | null {
   return match?.[1] ?? null;
 }
 
+export function basicCredentials(
+  authorization: string | null,
+): { username: string; password: string } | null {
+  const match = authorization?.match(/^Basic\s+(\S+)/i);
+  if (!match?.[1]) {
+    return null;
+  }
+  const decoded = Buffer.from(match[1], "base64").toString("utf8");
+  const separator = decoded.indexOf(":");
+  if (separator < 0) {
+    return null;
+  }
+  return {
+    username: decoded.slice(0, separator),
+    password: decoded.slice(separator + 1),
+  };
+}
+
 export function mcpCallerAllowed(
   sessionUser: string | null,
   workerHeader: string | null,
   authorizationHeader: string | null,
   workerMatches: (value: string | null) => boolean,
+  loginMatches: (username: string, password: string) => boolean = () => false,
 ): boolean {
   if (sessionUser) {
     return true;
   }
-  if (workerMatches(workerHeader)) {
+  if (workerMatches(workerHeader) || workerMatches(bearerToken(authorizationHeader))) {
     return true;
   }
-  return workerMatches(bearerToken(authorizationHeader));
+  const basic = basicCredentials(authorizationHeader);
+  return basic ? loginMatches(basic.username, basic.password) : false;
 }
 
 function rpcError(id: unknown, code: number, message: string) {

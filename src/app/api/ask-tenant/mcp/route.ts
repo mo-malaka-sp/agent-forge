@@ -2,15 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { handleMcpRequest, mcpCallerAllowed, rpcError, rpcId } from "@/lib/ask-tenant/mcp";
 import { liveAskDeps } from "@/lib/ask-tenant/tools";
+import { credentialsMatch } from "@/lib/auth/credentials";
 import { readSession, SESSION_COOKIE } from "@/lib/auth/session";
 import { withRequestIscRuntime } from "@/lib/isc/apply-runtime";
 import { workerAuthorized } from "@/lib/saf-poc/agent-condition";
 
 export const runtime = "nodejs";
 
-// Claude calls this without opening the page. The tools use the ISC tenant
-// AgentForge is already connected to. A signed-in session or the worker token
-// is required. Header x-agentforge-worker or Authorization: Bearer.
+// A chat app is not signed in through the browser. It sends the same
+// AgentForge username and password as HTTP Basic auth.
 async function allowed(request: NextRequest): Promise<boolean> {
   const session = await readSession(request.cookies.get(SESSION_COOKIE)?.value);
   return mcpCallerAllowed(
@@ -18,6 +18,7 @@ async function allowed(request: NextRequest): Promise<boolean> {
     request.headers.get("x-agentforge-worker"),
     request.headers.get("authorization"),
     workerAuthorized,
+    credentialsMatch,
   );
 }
 
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
       rpcError(
         rpcId(payload),
         -32001,
-        "Sign in, or send the worker token in x-agentforge-worker or Authorization: Bearer.",
+        "Sign in with the AgentForge username and password.",
       ),
       { status: 401, headers: { "Cache-Control": "no-store" } },
     );

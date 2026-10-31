@@ -62,6 +62,17 @@ const PATHS = [
     icon: "endpoint",
     accent: "blue",
   },
+  {
+    href: "/ask-tenant",
+    step: "06",
+    eyebrow: "Discover",
+    title: "Ask this tenant",
+    description:
+      "Ask a question about the connected Identity Security Cloud tenant. Answers come from ISC search, SAF agents, and the events already stored here.",
+    cta: "Ask a question",
+    icon: "ask",
+    accent: "aqua",
+  },
 ] as const;
 
 export default function HomePage() {
@@ -137,30 +148,6 @@ export default function HomePage() {
               </span>
             </Link>
           ))}
-          <Link
-            href="/ask-tenant"
-            className="home-feature-card home-feature-card--cobalt"
-            aria-label="Ask this tenant: Ask a question"
-          >
-            <div className="home-feature-card__top">
-              <span className="home-feature-card__icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <path d="M5 6h14v9H8l-3 3V6Z" />
-                  <path d="M8 10h8M8 13h5" />
-                </svg>
-              </span>
-            </div>
-            <p className="home-feature-card__eyebrow">Ask</p>
-            <h3>Ask this tenant</h3>
-            <p className="home-feature-card__description">
-              Ask a question about the connected Identity Security Cloud tenant. Answers come from
-              ISC search and the SAF events already stored here.
-            </p>
-            <span className="home-feature-card__cta">
-              Ask a question
-              <span aria-hidden="true">→</span>
-            </span>
-          </Link>
         </div>
       </section>
 
@@ -205,6 +192,14 @@ function FeatureIcon({ name }: { name: (typeof PATHS)[number]["icon"] }) {
       <svg viewBox="0 0 24 24" fill="none">
         <path d="M4 5h16v10H4V5Z" />
         <path d="M8 19h8M12 15v4" />
+      </svg>
+    );
+  }
+  if (name === "ask") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M5 6h14v9H8l-3 3V6Z" />
+        <path d="M8 10h8M8 13h5" />
       </svg>
     );
   }

@@ -226,9 +226,9 @@ describe("ask tenant", () => {
 });
 
 describe("ask tenant mcp", () => {
-  it("builds a Cursor config with the worker token", () => {
+  it("builds an MCP config with the AgentForge sign-in", () => {
     const config = JSON.parse(
-      mcpClientConfig("https://agentforge.example/api/ask-tenant/mcp", "worker-token"),
+      mcpClientConfig("https://agentforge.example/api/ask-tenant/mcp", "agentforge", "secret"),
     ) as {
       mcpServers: {
         "ask-this-tenant": { url: string; headers: { Authorization: string } };
@@ -238,7 +238,21 @@ describe("ask tenant mcp", () => {
       config.mcpServers["ask-this-tenant"].url,
       "https://agentforge.example/api/ask-tenant/mcp",
     );
-    assert.equal(config.mcpServers["ask-this-tenant"].headers.Authorization, "Bearer worker-token");
+    assert.equal(
+      config.mcpServers["ask-this-tenant"].headers.Authorization,
+      `Basic ${Buffer.from("agentforge:secret").toString("base64")}`,
+    );
+  });
+
+  it("accepts the same username and password as the app sign-in", () => {
+    const authorization = `Basic ${Buffer.from("agentforge:secret").toString("base64")}`;
+    const matches = (username: string, password: string) =>
+      username === "agentforge" && password === "secret";
+    assert.equal(mcpCallerAllowed(null, null, authorization, () => false, matches), true);
+    assert.equal(
+      mcpCallerAllowed(null, null, "Basic bm90Om1l", () => false, matches),
+      false,
+    );
   });
 
   it("allows a signed-in session or a matching worker token", () => {
