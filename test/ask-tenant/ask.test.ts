@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { handleMcpRequest, mcpCallerAllowed } from "@/lib/ask-tenant/mcp";
+import { handleMcpRequest, mcpCallerAllowed, mcpClientConfig } from "@/lib/ask-tenant/mcp";
 import {
   answerQuestion,
   ROW_LIMIT,
@@ -226,6 +226,21 @@ describe("ask tenant", () => {
 });
 
 describe("ask tenant mcp", () => {
+  it("builds a Cursor config with the worker token", () => {
+    const config = JSON.parse(
+      mcpClientConfig("https://agentforge.example/api/ask-tenant/mcp", "worker-token"),
+    ) as {
+      mcpServers: {
+        "ask-this-tenant": { url: string; headers: { Authorization: string } };
+      };
+    };
+    assert.equal(
+      config.mcpServers["ask-this-tenant"].url,
+      "https://agentforge.example/api/ask-tenant/mcp",
+    );
+    assert.equal(config.mcpServers["ask-this-tenant"].headers.Authorization, "Bearer worker-token");
+  });
+
   it("allows a signed-in session or a matching worker token", () => {
     const matches = (value: string | null) => value === "worker-token";
     assert.equal(mcpCallerAllowed("mo", null, null, matches), true);

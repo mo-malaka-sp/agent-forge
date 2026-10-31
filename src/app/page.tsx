@@ -139,7 +139,7 @@ export default function HomePage() {
           ))}
           <Link
             href="/ask-tenant"
-            className="home-feature-card home-feature-card--cobalt home-ask-card"
+            className="home-feature-card home-feature-card--cobalt"
             aria-label="Ask this tenant: Ask a question"
           >
             <div className="home-feature-card__top">

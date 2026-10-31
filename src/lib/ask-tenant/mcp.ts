@@ -29,6 +29,23 @@ export interface McpHttpResult {
   body: unknown | null;
 }
 
+export function mcpClientConfig(mcpUrl: string, workerToken: string): string {
+  return `${JSON.stringify(
+    {
+      mcpServers: {
+        "ask-this-tenant": {
+          url: mcpUrl,
+          headers: {
+            Authorization: `Bearer ${workerToken}`,
+          },
+        },
+      },
+    },
+    null,
+    2,
+  )}\n`;
+}
+
 export function bearerToken(authorization: string | null): string | null {
   const match = authorization?.match(/^Bearer\s+(\S+)/i);
   return match?.[1] ?? null;
