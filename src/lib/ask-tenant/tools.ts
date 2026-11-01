@@ -70,6 +70,8 @@ export interface AskAnswer {
   refused: boolean;
   answer: string;
   reads: AskRead[];
+  answerSource?: "keyword" | "model" | "fallback";
+  modelError?: string;
 }
 
 const WRITE_REQUEST =

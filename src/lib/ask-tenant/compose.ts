@@ -101,12 +101,16 @@ export async function answerAskedQuestion(
   converse: AskConverse | null,
 ): Promise<AskAnswer> {
   if (!converse) {
-    return answerQuestion(question, deps);
+    return { ...(await answerQuestion(question, deps)), answerSource: "keyword" };
   }
   try {
-    return await composeAnswer(question, deps, converse);
-  } catch {
-    return answerQuestion(question, deps);
+    return { ...(await composeAnswer(question, deps, converse)), answerSource: "model" };
+  } catch (error) {
+    return {
+      ...(await answerQuestion(question, deps)),
+      answerSource: "fallback",
+      modelError: error instanceof Error ? error.message.slice(0, 240) : "The model call failed.",
+    };
   }
 }
 

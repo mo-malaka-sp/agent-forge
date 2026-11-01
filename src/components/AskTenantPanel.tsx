@@ -92,15 +92,24 @@ export function AskTenantPanel({ tenant }: { tenant: string | null }) {
       ) : null}
 
       {result ? (
-        <pre
-          className={`overflow-x-auto whitespace-pre-wrap rounded-md border p-3 text-sm ${
+        <div
+          className={`rounded-md border p-3 text-sm ${
             result.refused
               ? "border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
               : "border-zinc-200 bg-zinc-50 text-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
           }`}
         >
-          {result.answer}
-        </pre>
+          {result.answerSource ? (
+            <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+              {result.answerSource === "model"
+                ? "Answered with the tenant tools and Nova Lite."
+                : result.answerSource === "fallback"
+                  ? `Tenant-tool fallback: ${result.modelError ?? "The model call failed."}`
+                  : "Answered with direct tenant-tool routing. Configure ASK_TENANT_MODEL_ID to enable Nova Lite."}
+            </p>
+          ) : null}
+          <pre className="overflow-x-auto whitespace-pre-wrap font-inherit">{result.answer}</pre>
+        </div>
       ) : null}
     </div>
   );

@@ -129,11 +129,14 @@ describe("ask tenant model", () => {
     const result = await answerAskedQuestion("List the AI Agents", deps(), converse);
     assert.match(result.answer, /FINANCE_OPERATIONS_SUPERVISOR/);
     assert.match(result.answer, /company23069-poc/);
+    assert.equal(result.answerSource, "fallback");
+    assert.match(result.modelError ?? "", /Bedrock unavailable/);
   });
 
   it("keeps keyword routing when no model is configured", async () => {
     const result = await answerAskedQuestion("List the AI Agents", deps(), null);
     assert.match(result.answer, /SAF agents matching/);
+    assert.equal(result.answerSource, "keyword");
   });
 
   it("stops after four tool calls", async () => {
