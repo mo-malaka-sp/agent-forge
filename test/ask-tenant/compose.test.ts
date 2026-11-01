@@ -82,6 +82,15 @@ describe("ask tenant model", () => {
     assert.equal(result.refused, false);
   });
 
+  it("removes model thinking from the displayed answer", async () => {
+    const converse: AskConverse = async () => ({
+      text: "<thinking>Internal reasoning.</thinking>\nPOLICY_CONCIERGE answers policy questions.",
+      tools: [],
+    });
+    const result = await composeAnswer("What can POLICY_CONCIERGE do?", deps(), converse);
+    assert.equal(result.answer, "POLICY_CONCIERGE answers policy questions.");
+  });
+
   it("normalizes a full agent question supplied as a tool query", async () => {
     const client = deps();
     let rounds = 0;

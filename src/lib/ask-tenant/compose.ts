@@ -18,6 +18,8 @@ const SYSTEM_PROMPT = [
   "Call the provided tools. They are the same read-only tools an MCP client uses.",
   "Use only the tool results. If a tool returns no rows, say so.",
   "Do not invent agents, access, events, or findings.",
+  "Do not infer restrictions, permissions, or behavior that the tool results do not state.",
+  "Return only the final answer. Never include thinking, analysis, or <thinking> tags.",
   "Do not create, change, or delete data.",
   "When you have the results, answer in a few sentences.",
 ].join(" ");
@@ -188,7 +190,7 @@ export async function composeAnswer(
 }
 
 function answered(deps: AskDeps, text: string, reads: AskRead[]): AskAnswer {
-  const answer = text.trim();
+  const answer = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim();
   if (!answer) {
     throw new Error("The model returned an empty answer.");
   }
