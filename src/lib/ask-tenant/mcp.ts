@@ -11,17 +11,17 @@ const PROTOCOL_VERSION = "2025-03-26";
 
 const TOOL_DESCRIPTIONS: Record<AskToolName, string> = {
   search_identities:
-    "Read identities on the ISC tenant AgentForge is connected to. One tenant, at most 25 rows.",
+    `Read identities on the ISC tenant AgentForge is connected to. One tenant, at most ${ROW_LIMIT} rows.`,
   search_access:
-    "Read entitlements, roles, and access profiles on the connected ISC tenant. At most 25 rows.",
+    `Read entitlements, roles, and access profiles on the connected ISC tenant. At most ${ROW_LIMIT} rows.`,
   search_audit_events:
-    "Read audit events on the connected ISC tenant. At most 25 rows.",
+    `Read audit events on the connected ISC tenant. At most ${ROW_LIMIT} rows.`,
   list_saf_events:
-    "Read SAF risk and CAEP events already stored in AgentForge. At most 25 rows.",
+    `Read SAF risk and CAEP events already stored in AgentForge. At most ${ROW_LIMIT} rows.`,
   list_agents:
-    "Read the SAF agent identities registered on the connected ISC tenant: name, risk level, owner, source, and business application. At most 25 rows.",
+    `Read the SAF agent identities registered on the connected ISC tenant: name, risk level, owner, source, and business application. At most ${ROW_LIMIT} rows.`,
   describe_agent:
-    "Read one or more SAF agents' risk severity and detected findings on the connected ISC tenant. Matches up to 5 agents by name. At most 25 rows.",
+    `Read one or more SAF agents' risk severity and detected findings on the connected ISC tenant. Matches up to 5 agents by name. At most ${ROW_LIMIT} rows.`,
 };
 
 export interface McpHttpResult {
@@ -148,7 +148,7 @@ async function handleMessage(message: unknown, deps: AskDeps): Promise<McpHttpRe
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: "agentforge-ask-tenant", version: "1.0.0" },
         instructions:
-          "Read-only tools for the one ISC tenant AgentForge is connected to. Each call returns at most 25 rows. These tools cannot create, change, or delete data.",
+          `Read-only tools for the one ISC tenant AgentForge is connected to. Each call returns at most ${ROW_LIMIT} rows. These tools cannot create, change, or delete data.`,
       }),
     };
   }

@@ -1,4 +1,5 @@
 import { AskTenantPanel } from "@/components/AskTenantPanel";
+import { ROW_LIMIT } from "@/lib/ask-tenant/tools";
 import { getIscPublicStatus } from "@/lib/isc/config";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export default function AskTenantPage() {
         </h1>
         <p className="max-w-3xl text-sm text-zinc-600 dark:text-zinc-400">
           Answers come from Identity Security Cloud search and the SAF events already stored in
-          AgentForge. Each read returns at most 25 rows. Questions that create, change, or delete
+          AgentForge. Each read returns at most {ROW_LIMIT} rows. Questions that create, change, or delete
           data are refused.
         </p>
       </section>

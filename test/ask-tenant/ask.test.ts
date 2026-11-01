@@ -133,7 +133,7 @@ describe("ask tenant", () => {
   });
 
   it("caps each read at the row limit", async () => {
-    const rows = Array.from({ length: 40 }, (_, index) => ({ id: `id-${index}`, name: `user${index}` }));
+    const rows = Array.from({ length: ROW_LIMIT + 1 }, (_, index) => ({ id: `id-${index}`, name: `user${index}` }));
     const result = await answerQuestion("list identities", {
       ...deps(),
       search: async () => rows,

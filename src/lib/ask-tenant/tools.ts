@@ -8,7 +8,7 @@ import {
   type TenantAgent,
 } from "@/lib/saf-poc/tenant-agents";
 
-export const ROW_LIMIT = 25;
+export const ROW_LIMIT = 250;
 const AGENT_CANDIDATE_LIMIT = 5;
 
 export const ASK_TOOL_NAMES = [
