@@ -82,6 +82,34 @@ describe("ask tenant model", () => {
     assert.equal(result.refused, false);
   });
 
+  it("normalizes a full agent question supplied as a tool query", async () => {
+    const client = deps();
+    let rounds = 0;
+    const converse: AskConverse = async () => {
+      rounds += 1;
+      if (rounds === 1) {
+        return {
+          text: "",
+          tools: [
+            {
+              id: "call-1",
+              name: "describe_agent",
+              query: "What can FINANCE_OPERATIONS_SUPERVISOR do, and what can it not do?",
+            },
+          ],
+        };
+      }
+      return { text: "It is a finance supervisor.", tools: [] };
+    };
+    const result = await composeAnswer(
+      "What can FINANCE_OPERATIONS_SUPERVISOR do, and what can it not do?",
+      client,
+      converse,
+    );
+    assert.equal(result.reads[0]?.query, "FINANCE_OPERATIONS_SUPERVISOR");
+    assert.equal(result.reads[0]?.rows[0]?.name, "FINANCE_OPERATIONS_SUPERVISOR");
+  });
+
   it("refuses a write before the model is called", async () => {
     let called = false;
     const converse: AskConverse = async () => {

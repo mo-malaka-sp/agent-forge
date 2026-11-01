@@ -103,7 +103,7 @@ const STOP_WORDS = new Set([
   "anomaly", "anomalies", "feature", "features",
   "use", "using", "used", "owned",
   "tool", "tools", "skill", "skills", "detail", "details", "describe",
-  "configured", "configuration", "model", "models", "can",
+  "configured", "configuration", "model", "models", "can", "do", "not",
 ]);
 
 const TOOL_LABELS: Record<AskToolName, string> = {
@@ -501,7 +501,11 @@ export async function runAskTool(
     };
   }
   const tool = name as AskToolName;
-  const textQuery = (query?.trim() || "*").slice(0, 200);
+  const rawQuery = (query?.trim() || "*").slice(0, 200);
+  const textQuery =
+    tool === "list_agents" || tool === "describe_agent"
+      ? searchText(rawQuery).slice(0, 200)
+      : rawQuery;
   return runRead(tool, textQuery, deps);
 }
 
