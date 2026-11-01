@@ -60,6 +60,7 @@ export interface AskRead {
   tenant: string | null;
   rows: Record<string, unknown>[];
   truncated: boolean;
+  note?: string;
   error?: string;
 }
 
@@ -81,7 +82,8 @@ const TOPIC_RULES: Array<{ tool: AskToolName; pattern: RegExp }> = [
   { tool: "list_agents", pattern: /\b(agents?|machine identit(?:y|ies))\b/i },
   {
     tool: "describe_agent",
-    pattern: /\b(capabilit(?:y|ies)|findings?|anomal(?:y|ies)|features?)\b/i,
+    pattern:
+      /\b(capabilit(?:y|ies)|findings?|anomal(?:y|ies)|features?|tools?|skills?|details?|describe|configured|configuration|models?|what can)\b/i,
   },
 ];
 
@@ -99,6 +101,8 @@ const STOP_WORDS = new Set([
   "machine", "capability", "capabilities", "finding", "findings",
   "anomaly", "anomalies", "feature", "features",
   "use", "using", "used", "owned",
+  "tool", "tools", "skill", "skills", "detail", "details", "describe",
+  "configured", "configuration", "model", "models", "can",
 ]);
 
 const TOOL_LABELS: Record<AskToolName, string> = {
@@ -107,7 +111,7 @@ const TOOL_LABELS: Record<AskToolName, string> = {
   search_audit_events: "Audit events",
   list_saf_events: "SAF events",
   list_agents: "SAF agents",
-  describe_agent: "Agent findings",
+  describe_agent: "Agent details",
 };
 
 const TOOL_INDICES: Record<"search_identities" | "search_access" | "search_audit_events", string[]> = {
@@ -122,6 +126,9 @@ export function isWriteRequest(value: string): boolean {
 
 export function toolsForQuestion(question: string): AskToolName[] {
   const matched = TOPIC_RULES.filter((rule) => rule.pattern.test(question)).map((rule) => rule.tool);
+  if (matched.includes("describe_agent")) {
+    return matched.filter((tool) => tool !== "list_agents");
+  }
   return matched.length > 0 ? matched : [...DEFAULT_TOOLS];
 }
 
@@ -289,11 +296,22 @@ function rowLine(tool: AskToolName, row: Record<string, unknown>): string {
       .join(" ");
   }
   if (tool === "describe_agent") {
-    const agent = text(row.agent) ?? "Agent";
-    const severity = text(row.severity) ?? "Unknown";
-    const finding = text(row.finding) ?? "No findings.";
-    const detectedAt = text(row.detectedAt);
-    return `${agent}: ${finding} (severity ${severity})${detectedAt ? ` at ${detectedAt}` : ""}`;
+    const lines = [rowLine("list_agents", row)];
+    const details = Array.isArray(row.details) ? (row.details as Array<{ label: string; value: string }>) : [];
+    if (details.length === 0) {
+      lines.push("    SailPoint stores no other fields on this agent.");
+    }
+    for (const detail of details) {
+      lines.push(`    ${detail.label}: ${detail.value}`);
+    }
+    const findings = Array.isArray(row.findings) ? (row.findings as string[]) : [];
+    if (findings.length === 0) {
+      lines.push(`    Findings: ${text(row.findingsNote) ?? "None."}`);
+    }
+    for (const finding of findings) {
+      lines.push(`    Finding: ${finding}`);
+    }
+    return lines.join("\n");
   }
   const title = text(row.title) ?? text(row.eventType) ?? "SAF event";
   const identity = text(row.identity);
@@ -368,38 +386,32 @@ async function runRead(tool: AskToolName, query: string, deps: AskDeps): Promise
       const candidates = matched.slice(0, AGENT_CANDIDATE_LIMIT);
       const rows: Record<string, unknown>[] = [];
       for (const candidate of candidates) {
+        const row: Record<string, unknown> = {
+          ...slimAgent(candidate),
+          riskLevel: candidate.riskLevel || "Unknown",
+        };
         try {
           const snapshot = await deps.agentFindings(candidate.id);
-          if (snapshot.findings.length === 0) {
-            rows.push({
-              agent: candidate.name,
-              severity: snapshot.calculatedSeverity,
-              finding: snapshot.findingsNote || "No findings.",
-              detectedAt: "",
-            });
-          } else {
-            for (const finding of snapshot.findings) {
-              rows.push({
-                agent: candidate.name,
-                severity: snapshot.calculatedSeverity,
-                finding: finding.title,
-                detectedAt: finding.detectedAt,
-              });
-            }
-          }
+          row.details = snapshot.profile ?? [];
+          row.findings = snapshot.findings.map((finding) =>
+            finding.detectedAt ? `${finding.title} (detected ${finding.detectedAt})` : finding.title,
+          );
+          row.findingsNote = snapshot.findingsNote;
         } catch (candidateError) {
-          rows.push({
-            agent: candidate.name,
-            severity: "Unavailable",
-            finding: `Could not load findings: ${errorMessage(candidateError)}`,
-            detectedAt: "",
-          });
+          row.details = [];
+          row.findings = [];
+          row.findingsNote = `Could not load this agent from SailPoint: ${errorMessage(candidateError)}`;
         }
+        rows.push(row);
       }
       return {
         ...base,
-        rows: rows.slice(0, ROW_LIMIT),
-        truncated: matched.length > candidates.length || rows.length > ROW_LIMIT,
+        rows,
+        truncated: false,
+        note:
+          matched.length > candidates.length
+            ? `Showing the first ${candidates.length} of ${matched.length} agents. Name an agent to see the others.`
+            : undefined,
       };
     }
     if (!deps.tenant) {
@@ -427,6 +439,9 @@ export function formatAnswer(tenant: string | null, reads: AskRead[]): string {
     }
     const limitNote = read.truncated ? ", limit reached" : "";
     lines.push("", `${read.label} matching ${match} (${read.rows.length}${limitNote}):`);
+    if (read.note) {
+      lines.push(read.note);
+    }
     if (read.rows.length === 0) {
       lines.push("- None.");
       continue;

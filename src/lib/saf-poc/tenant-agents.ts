@@ -63,11 +63,108 @@ export type AgentFinding = {
   detectedAt: string;
 };
 
+export type AgentProfileField = {
+  label: string;
+  value: string;
+};
+
 export type AgentRiskSnapshot = {
   calculatedSeverity: string;
   findings: AgentFinding[];
   findingsNote: string;
+  profile?: AgentProfileField[];
 };
+
+const PROFILE_FIELD_LIMIT = 25;
+const PROFILE_LIST_LIMIT = 15;
+const PROFILE_SKIP_KEY = /(^id$|Id$|_id$|^uuid$|secret|token|password|credential|api_?key|^risk)/i;
+const PROFILE_TOP_LEVEL_SKIP = new Set([
+  "id",
+  "name",
+  "displayName",
+  "attributes",
+  "owners",
+  "owner",
+  "risk",
+  "riskLevel",
+  "source",
+  "sourceId",
+  "uuid",
+  "modified",
+  "manuallyEdited",
+  "datasetId",
+  "existsOnSource",
+  "links",
+  "_links",
+  "email",
+]);
+
+export function agentProfileFields(value: unknown): AgentProfileField[] {
+  const record = asRecord(value);
+  if (!record) {
+    return [];
+  }
+  const fields: AgentProfileField[] = [];
+  const add = (key: string, raw: unknown) => {
+    if (fields.length >= PROFILE_FIELD_LIMIT || PROFILE_SKIP_KEY.test(key)) {
+      return;
+    }
+    const shown = profileValue(raw);
+    const label = profileLabel(key);
+    if (!shown || !label || fields.some((field) => field.label === label)) {
+      return;
+    }
+    fields.push({ label, value: shown });
+  };
+  for (const [key, raw] of Object.entries(record)) {
+    if (!PROFILE_TOP_LEVEL_SKIP.has(key)) {
+      add(key, raw);
+    }
+  }
+  for (const [key, raw] of Object.entries(asRecord(record.attributes) ?? {})) {
+    add(key, raw);
+  }
+  return fields;
+}
+
+function profileValue(raw: unknown): string {
+  if (typeof raw === "string") {
+    const value = raw.trim();
+    return value.length > 240 ? `${value.slice(0, 237)}...` : value;
+  }
+  if (typeof raw === "number" || typeof raw === "boolean") {
+    return String(raw);
+  }
+  if (Array.isArray(raw)) {
+    const items = raw.map(profileItem).filter(Boolean);
+    if (items.length === 0) {
+      return "";
+    }
+    const shown = items.slice(0, PROFILE_LIST_LIMIT).join(", ");
+    return items.length > PROFILE_LIST_LIMIT ? `${shown}, and ${items.length - PROFILE_LIST_LIMIT} more` : shown;
+  }
+  return profileItem(raw);
+}
+
+function profileItem(raw: unknown): string {
+  if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") {
+    return String(raw).trim();
+  }
+  const record = asRecord(raw);
+  if (!record) {
+    return "";
+  }
+  return text(record.displayName) || text(record.name) || text(record.value) || text(record.title);
+}
+
+function profileLabel(key: string): string {
+  const words = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .toLowerCase();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "";
+}
 
 export function parseAgentFindings(records: unknown[]): AgentFinding[] {
   return records.flatMap((record) => {
@@ -109,6 +206,7 @@ export async function readAgentRiskSnapshot(
     calculatedSeverity: agent?.riskLevel || "Unavailable",
     findings,
     findingsNote,
+    profile: agentProfileFields(identity),
   };
 }
 

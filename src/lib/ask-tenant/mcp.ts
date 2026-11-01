@@ -21,7 +21,7 @@ const TOOL_DESCRIPTIONS: Record<AskToolName, string> = {
   list_agents:
     `Read the SAF agent identities registered on the connected ISC tenant: name, risk level, owner, source, and business application. At most ${ROW_LIMIT} rows.`,
   describe_agent:
-    `Read one or more SAF agents' risk severity and detected findings on the connected ISC tenant. Matches up to 5 agents by name. At most ${ROW_LIMIT} rows.`,
+    "Describe SAF agents on the connected ISC tenant: risk, source, owner, every field SailPoint stores on the agent, and detected findings. Matches up to 5 agents by name, source, or owner.",
 };
 
 export interface McpHttpResult {

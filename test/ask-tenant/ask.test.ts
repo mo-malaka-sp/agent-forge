@@ -4,13 +4,14 @@ import { describe, it } from "node:test";
 import { handleMcpRequest, mcpCallerAllowed, mcpClientConfig } from "@/lib/ask-tenant/mcp";
 import {
   answerQuestion,
+  readAsText,
   ROW_LIMIT,
   runAskTool,
   searchText,
   type AskDeps,
   type SafEventInput,
 } from "@/lib/ask-tenant/tools";
-import type { AgentRiskSnapshot, TenantAgent } from "@/lib/saf-poc/tenant-agents";
+import { agentProfileFields, type AgentRiskSnapshot, type TenantAgent } from "@/lib/saf-poc/tenant-agents";
 
 const AGENTS: TenantAgent[] = [
   {
@@ -46,6 +47,10 @@ const AGENT_FINDINGS: Record<string, AgentRiskSnapshot> = {
     calculatedSeverity: "High",
     findings: [{ title: "Excessive outbound access", detectedAt: "2026-10-20T00:00:00.000Z" }],
     findingsNote: "",
+    profile: [
+      { label: "Description", value: "Answers finance questions" },
+      { label: "Tools", value: "cortex_analyst, sql_exec" },
+    ],
   },
   "agt-2": {
     calculatedSeverity: "Low",
@@ -203,24 +208,71 @@ describe("ask tenant", () => {
     assert.doesNotMatch(result.answer, /Identities matching/);
   });
 
-  it("describes one agent's findings when asked about capabilities", async () => {
+  it("describes an agent's stored fields and findings when asked about capabilities", async () => {
     const client = deps();
     const result = await answerQuestion('What are "Finance Navigator" capabilities?', client);
     assert.deepEqual(result.reads.map((read) => read.tool), ["describe_agent"]);
-    assert.match(result.answer, /Finance Navigator: Excessive outbound access \(severity High\)/);
+    assert.match(result.answer, /Finance Navigator — High risk \(AWS Bedrock - spciem\) owner Dana Lee/);
+    assert.match(result.answer, /Description: Answers finance questions/);
+    assert.match(result.answer, /Tools: cortex_analyst, sql_exec/);
+    assert.match(result.answer, /Finding: Excessive outbound access \(detected 2026-10-20/);
     assert.doesNotMatch(result.answer, /Policy Concierge/);
   });
 
-  it("notes no findings for a clean agent", async () => {
+  it("answers agent features with details only, not a second agent list", async () => {
+    const client = deps();
+    const result = await answerQuestion("What features do the agents have?", client);
+    assert.deepEqual(result.reads.map((read) => read.tool), ["describe_agent"]);
+    assert.doesNotMatch(result.answer, /SAF agents matching/);
+    assert.doesNotMatch(result.answer, /limit reached/);
+  });
+
+  it("says which agents were skipped instead of reporting a row limit", async () => {
+    const many: TenantAgent[] = Array.from({ length: 6 }, (_, index) => ({
+      ...AGENTS[1],
+      id: `agt-many-${index}`,
+      name: `Agent ${index}`,
+    }));
+    const result = await answerQuestion("What features do the agents have?", deps({ listAgents: async () => many }));
+    assert.match(result.answer, /Showing the first 5 of 6 agents/);
+    assert.doesNotMatch(result.answer, /limit reached/);
+  });
+
+  it("reads stored agent fields without ids, owners, or secrets", () => {
+    const fields = agentProfileFields({
+      id: "agt-1",
+      name: "FINANCE_OPERATIONS_SUPERVISOR",
+      description: "Supervises finance agents",
+      created: "2026-09-01T00:00:00.000Z",
+      owners: { primaryIdentity: { name: "nate.mcqueen" } },
+      sourceId: "src-1",
+      userEntitlements: [{ displayName: "SNOWFLAKE_FINANCE_READ" }, { displayName: "CORTEX_USER" }],
+      attributes: {
+        model: "claude-sonnet",
+        tools: ["cortex_analyst", { name: "sql_exec" }],
+        apiToken: "do-not-show",
+        warehouseId: "wh-1",
+        emptyList: [],
+      },
+    });
+    assert.deepEqual(fields, [
+      { label: "Description", value: "Supervises finance agents" },
+      { label: "Created", value: "2026-09-01T00:00:00.000Z" },
+      { label: "User entitlements", value: "SNOWFLAKE_FINANCE_READ, CORTEX_USER" },
+      { label: "Model", value: "claude-sonnet" },
+      { label: "Tools", value: "cortex_analyst, sql_exec" },
+    ]);
+  });
+
+  it("notes no findings and no stored fields for a clean agent", async () => {
     const client = deps();
     const read = await runAskTool("describe_agent", "Policy Concierge", client);
     assert.equal(read.rows.length, 1);
-    assert.deepEqual(read.rows[0], {
-      agent: "Policy Concierge",
-      severity: "Low",
-      finding: "SailPoint returned no findings for this agent.",
-      detectedAt: "",
-    });
+    assert.equal(read.rows[0]?.name, "Policy Concierge");
+    assert.deepEqual(read.rows[0]?.findings, []);
+    const text = readAsText(read);
+    assert.match(text, /SailPoint stores no other fields on this agent/);
+    assert.match(text, /Findings: SailPoint returned no findings for this agent/);
   });
 
   it("requires a connected tenant for agent tools", async () => {
