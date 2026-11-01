@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { askTenantModelId, signAwsRequest } from "@/lib/ask-tenant/bedrock";
+import { askTenantModelId } from "@/lib/ask-tenant/bedrock";
 import {
   answerAskedQuestion,
   bedrockToolSpecs,
@@ -170,21 +170,4 @@ describe("ask tenant model", () => {
     assert.equal(askTenantModelId(), previous?.trim() || null);
   });
 
-  it("signs the AWS sample request", () => {
-    const headers = signAwsRequest({
-      method: "GET",
-      url: "https://example.amazonaws.com/?Param2=value2&Param1=value1",
-      headers: {},
-      body: "",
-      region: "us-east-1",
-      service: "service",
-      accessKeyId: "AKIDEXAMPLE",
-      secretAccessKey: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
-      amzDate: "20150830T123600Z",
-    });
-    assert.equal(
-      headers.authorization,
-      "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/service/aws4_request, SignedHeaders=host;x-amz-date, Signature=b97d918cfa904a5beff61c982a1b6f458b799221646efd99d3219ec94cdf2500",
-    );
-  });
 });

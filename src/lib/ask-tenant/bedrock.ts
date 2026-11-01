@@ -1,6 +1,7 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, type BinaryLike, type Hash, type Hmac } from "node:crypto";
 
 import { defaultProvider } from "@aws-sdk/credential-provider-node";
+import { SignatureV4 } from "@smithy/signature-v4";
 
 import {
   bedrockToolSpecs,
@@ -29,58 +30,6 @@ export function bedrockConverseFromEnv(): AskConverse | null {
   return (turn) => converseOnce(region, modelId, turn);
 }
 
-export function signAwsRequest(input: {
-  method: string;
-  url: string;
-  headers: Record<string, string>;
-  body: string;
-  region: string;
-  service: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  sessionToken?: string;
-  amzDate: string;
-  contentSha256?: boolean;
-}): Record<string, string> {
-  const url = new URL(input.url);
-  const payloadHash = sha256(input.body);
-  const headers = new Map<string, string>();
-  for (const [key, value] of Object.entries(input.headers)) {
-    headers.set(key.toLowerCase(), value.trim());
-  }
-  headers.set("host", url.host);
-  headers.set("x-amz-date", input.amzDate);
-  if (input.contentSha256) {
-    headers.set("x-amz-content-sha256", payloadHash);
-  }
-  if (input.sessionToken) {
-    headers.set("x-amz-security-token", input.sessionToken);
-  }
-  const signedHeaderNames = [...headers.keys()].sort();
-  const canonicalHeaders = signedHeaderNames.map((key) => `${key}:${headers.get(key)}\n`).join("");
-  const canonicalRequest = [
-    input.method.toUpperCase(),
-    canonicalUri(url.pathname),
-    canonicalQuery(url.searchParams),
-    canonicalHeaders,
-    signedHeaderNames.join(";"),
-    payloadHash,
-  ].join("\n");
-  const dateStamp = input.amzDate.slice(0, 8);
-  const scope = `${dateStamp}/${input.region}/${input.service}/aws4_request`;
-  const stringToSign = ["AWS4-HMAC-SHA256", input.amzDate, scope, sha256(canonicalRequest)].join("\n");
-  const signature = createHmac("sha256", signingKey(input.secretAccessKey, dateStamp, input.region, input.service))
-    .update(stringToSign)
-    .digest("hex");
-  const signed = Object.fromEntries(headers);
-  signed.authorization = [
-    `AWS4-HMAC-SHA256 Credential=${input.accessKeyId}/${scope}`,
-    `SignedHeaders=${signedHeaderNames.join(";")}`,
-    `Signature=${signature}`,
-  ].join(", ");
-  return signed;
-}
-
 async function converseOnce(region: string, modelId: string, turn: AskModelTurn): Promise<ReturnType<typeof readModelResponse>> {
   const credentials = await defaultProvider()();
   const body = JSON.stringify({
@@ -89,21 +38,27 @@ async function converseOnce(region: string, modelId: string, turn: AskModelTurn)
     ...(turn.toolsEnabled ? { toolConfig: { tools: bedrockToolSpecs().map(toToolSpec) } } : {}),
     inferenceConfig: { maxTokens: 700, temperature: 0.2 },
   });
-  const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, "");
   const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${encodeURIComponent(modelId)}/converse`;
-  const headers = signAwsRequest({
-    method: "POST",
-    url,
-    headers: { "content-type": "application/json" },
-    body,
+  const endpoint = new URL(url);
+  const signer = new SignatureV4({
+    credentials,
     region,
     service: "bedrock",
-    accessKeyId: credentials.accessKeyId,
-    secretAccessKey: credentials.secretAccessKey,
-    sessionToken: credentials.sessionToken,
-    amzDate,
-    contentSha256: true,
+    sha256: NodeSha256,
   });
+  const signed = await signer.sign({
+    method: "POST",
+    protocol: endpoint.protocol,
+    hostname: endpoint.hostname,
+    path: `${endpoint.pathname}${endpoint.search}`,
+    headers: { "content-type": "application/json" },
+    body,
+  });
+  const headers = Object.fromEntries(
+    Object.entries(signed.headers).flatMap(([key, value]) =>
+      typeof value === "string" ? [[key, value]] : [],
+    ),
+  );
   const response = await fetch(url, { method: "POST", headers, body });
   if (!response.ok) {
     const detail = await response.text();
@@ -154,36 +109,24 @@ function toToolSpec(tool: ReturnType<typeof bedrockToolSpecs>[number]) {
   };
 }
 
-function canonicalUri(pathname: string): string {
-  const decoded = pathname.split("/").map((segment) => {
-    try {
-      return decodeURIComponent(segment);
-    } catch {
-      return segment;
-    }
-  });
-  return decoded.map((segment) => encodeURIComponent(segment)).join("/") || "/";
-}
+class NodeSha256 {
+  private readonly secret?: unknown;
+  private hash: Hash | Hmac;
 
-function canonicalQuery(params: URLSearchParams): string {
-  return [...params.entries()]
-    .map(([key, value]) => [encodeURIComponent(key), encodeURIComponent(value)] as const)
-    .sort((left, right) => (left[0] === right[0] ? left[1].localeCompare(right[1]) : left[0].localeCompare(right[0])))
-    .map(([key, value]) => `${key}=${value}`)
-    .join("&");
-}
+  constructor(secret?: unknown) {
+    this.secret = secret;
+    this.hash = secret ? createHmac("sha256", secret as BinaryLike) : createHash("sha256");
+  }
 
-function signingKey(secret: string, dateStamp: string, region: string, service: string): Buffer {
-  const dateKey = hmac(`AWS4${secret}`, dateStamp);
-  const regionKey = hmac(dateKey, region);
-  const serviceKey = hmac(regionKey, service);
-  return hmac(serviceKey, "aws4_request");
-}
+  update(data: Uint8Array | string): void {
+    this.hash.update(data);
+  }
 
-function hmac(key: string | Buffer, value: string): Buffer {
-  return createHmac("sha256", key).update(value).digest();
-}
+  async digest(): Promise<Uint8Array> {
+    return this.hash.digest();
+  }
 
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+  reset(): void {
+    this.hash = this.secret ? createHmac("sha256", this.secret as BinaryLike) : createHash("sha256");
+  }
 }
