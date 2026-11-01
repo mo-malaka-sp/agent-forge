@@ -51,7 +51,10 @@ async function converseOnce(region: string, modelId: string, turn: AskModelTurn)
     protocol: endpoint.protocol,
     hostname: endpoint.hostname,
     path: `${endpoint.pathname}${endpoint.search}`,
-    headers: { "content-type": "application/json" },
+    headers: {
+      host: endpoint.host,
+      "content-type": "application/json",
+    },
     body,
   });
   const headers = Object.fromEntries(
