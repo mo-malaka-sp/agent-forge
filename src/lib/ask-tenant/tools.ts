@@ -1,3 +1,4 @@
+import { narrateAgent } from "@/lib/ask-tenant/narrate";
 import { iscRequest } from "@/lib/isc/client";
 import { getIscCredentials, type IscCredentials } from "@/lib/isc/config";
 import { listSafEvents } from "@/lib/saf-poc/events";
@@ -295,24 +296,6 @@ function rowLine(tool: AskToolName, row: Record<string, unknown>): string {
       .filter(Boolean)
       .join(" ");
   }
-  if (tool === "describe_agent") {
-    const lines = [rowLine("list_agents", row)];
-    const details = Array.isArray(row.details) ? (row.details as Array<{ label: string; value: string }>) : [];
-    if (details.length === 0) {
-      lines.push("    SailPoint stores no other fields on this agent.");
-    }
-    for (const detail of details) {
-      lines.push(`    ${detail.label}: ${detail.value}`);
-    }
-    const findings = Array.isArray(row.findings) ? (row.findings as string[]) : [];
-    if (findings.length === 0) {
-      lines.push(`    Findings: ${text(row.findingsNote) ?? "None."}`);
-    }
-    for (const finding of findings) {
-      lines.push(`    Finding: ${finding}`);
-    }
-    return lines.join("\n");
-  }
   const title = text(row.title) ?? text(row.eventType) ?? "SAF event";
   const identity = text(row.identity);
   const when = text(row.receivedAt);
@@ -430,11 +413,28 @@ async function runRead(tool: AskToolName, query: string, deps: AskDeps): Promise
 }
 
 export function formatAnswer(tenant: string | null, reads: AskRead[]): string {
-  const lines = [tenantLine(tenant), `Each read returns at most ${ROW_LIMIT} rows.`];
+  const narrative = reads.length > 0 && reads.every((read) => read.tool === "describe_agent");
+  const lines = [tenantLine(tenant)];
+  if (!narrative) {
+    lines.push(`Each read returns at most ${ROW_LIMIT} rows.`);
+  }
   for (const read of reads) {
     const match = read.query === "*" ? "the newest rows" : read.query;
     if (read.error) {
       lines.push("", `${read.label}: ${read.error}`);
+      continue;
+    }
+    if (read.tool === "describe_agent") {
+      if (read.note) {
+        lines.push("", read.note);
+      }
+      if (read.rows.length === 0) {
+        lines.push("", "No matching agents.");
+        continue;
+      }
+      for (const row of read.rows) {
+        lines.push("", narrateAgent(row));
+      }
       continue;
     }
     const limitNote = read.truncated ? ", limit reached" : "";

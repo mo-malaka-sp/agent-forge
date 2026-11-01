@@ -11,6 +11,7 @@ import {
   type AskDeps,
   type SafEventInput,
 } from "@/lib/ask-tenant/tools";
+import { narrateAgent } from "@/lib/ask-tenant/narrate";
 import { agentProfileFields, type AgentRiskSnapshot, type TenantAgent } from "@/lib/saf-poc/tenant-agents";
 
 const AGENTS: TenantAgent[] = [
@@ -212,10 +213,11 @@ describe("ask tenant", () => {
     const client = deps();
     const result = await answerQuestion('What are "Finance Navigator" capabilities?', client);
     assert.deepEqual(result.reads.map((read) => read.tool), ["describe_agent"]);
-    assert.match(result.answer, /Finance Navigator — High risk \(AWS Bedrock - spciem\) owner Dana Lee/);
-    assert.match(result.answer, /Description: Answers finance questions/);
-    assert.match(result.answer, /Tools: cortex_analyst, sql_exec/);
-    assert.match(result.answer, /Finding: Excessive outbound access \(detected 2026-10-20/);
+    assert.match(result.answer, /Finance Navigator is a high-risk agent on AWS Bedrock - spciem, owned by Dana Lee/);
+    assert.match(result.answer, /Answers finance questions/);
+    assert.match(result.answer, /tools cortex_analyst, sql_exec/);
+    assert.match(result.answer, /Excessive outbound access \(detected 2026-10-20/);
+    assert.doesNotMatch(result.answer, /Description:/);
     assert.doesNotMatch(result.answer, /Policy Concierge/);
   });
 
@@ -264,6 +266,54 @@ describe("ask tenant", () => {
     ]);
   });
 
+  it("writes one agent answer instead of repeating every stored field", () => {
+    const answer = narrateAgent({
+      name: "POLICY_CONCIERGE",
+      riskLevel: "Medium",
+      source: "Snowflake SaaS",
+      owner: "mo.malaka",
+      findings: [],
+      findingsNote: "SailPoint returned no findings for this agent.",
+      details: [
+        {
+          label: "Description",
+          value:
+            "Answers employee questions from the approved synthetic policy corpus. Search only: no eligibility decisions and no actions.",
+        },
+        { label: "Manually created", value: "false" },
+        { label: "Subtype", value: "AI Agent" },
+        { label: "Native identity", value: "AGENT_GOVERNANCE_DEMO.DEMO.POLICY_CONCIERGE" },
+        { label: "User entitlements", value: "POLICY_CONCIERGE_USERS" },
+        { label: "Business application refs", value: "Snowflake Cortex" },
+        { label: "Effective sanctioned status", value: "SANCTIONED" },
+        { label: "Name", value: "POLICY_CONCIERGE" },
+        { label: "Model", value: "auto" },
+        { label: "Roles", value: "AGENT_DEMO_DEPLOYER, AGENT_POLICY_RUNTIME, POLICY_CONCIERGE_USERS" },
+        { label: "Comment", value: "Answers employee questions from the approved synthetic policy corpus." },
+        { label: "Profile", value: '{"display_name":"Policy Concierge","color":"blue"}' },
+        {
+          label: "Instructions",
+          value:
+            '{"response":"You are Policy Concierge. Answer only from retrieved policy text. Cite the policy title. Do not infer employee-specific eligibility and do not take actions.","orchestration":"...',
+        },
+        { label: "Sp description", value: "Answers employee questions from the approved synthetic policy corpus." },
+        { label: "Sp business application", value: "snowflake.cortex" },
+        { label: "Status", value: "Active" },
+        { label: "Agent type", value: "Enterprise" },
+      ],
+    });
+    assert.match(answer, /POLICY_CONCIERGE is a medium-risk enterprise agent on Snowflake SaaS, owned by mo.malaka/);
+    assert.match(answer, /It is active and sanctioned/);
+    assert.match(answer, /approved synthetic policy corpus/);
+    assert.match(answer, /Answer only from retrieved policy text/);
+    assert.match(answer, /model auto/);
+    assert.match(answer, /Snowflake Cortex/);
+    assert.match(answer, /AGENT_POLICY_RUNTIME/);
+    assert.match(answer, /no findings/);
+    assert.equal(answer.split("approved synthetic policy corpus").length - 1, 1);
+    assert.doesNotMatch(answer, /Description:|Manually created|display_name|snowflake\.cortex/);
+  });
+
   it("notes no findings and no stored fields for a clean agent", async () => {
     const client = deps();
     const read = await runAskTool("describe_agent", "Policy Concierge", client);
@@ -271,8 +321,10 @@ describe("ask tenant", () => {
     assert.equal(read.rows[0]?.name, "Policy Concierge");
     assert.deepEqual(read.rows[0]?.findings, []);
     const text = readAsText(read);
-    assert.match(text, /SailPoint stores no other fields on this agent/);
-    assert.match(text, /Findings: SailPoint returned no findings for this agent/);
+    assert.match(text, /Policy Concierge is a low-risk agent on GCP Vertex - spciem, owned by Jordan Lee/);
+    assert.match(text, /SailPoint stores no description of what it does/);
+    assert.match(text, /SailPoint returned no findings for this agent/);
+    assert.doesNotMatch(text, /Description:/);
   });
 
   it("requires a connected tenant for agent tools", async () => {

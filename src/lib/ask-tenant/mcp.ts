@@ -21,8 +21,18 @@ const TOOL_DESCRIPTIONS: Record<AskToolName, string> = {
   list_agents:
     `Read the SAF agent identities registered on the connected ISC tenant: name, risk level, owner, source, and business application. At most ${ROW_LIMIT} rows.`,
   describe_agent:
-    "Describe SAF agents on the connected ISC tenant: risk, source, owner, every field SailPoint stores on the agent, and detected findings. Matches up to 5 agents by name, source, or owner.",
+    "Describe SAF agents on the connected ISC tenant in a short answer: what the agent does, how it runs, its access, and any findings. Matches up to 5 agents by name, source, or owner.",
 };
+
+const QUERY_DESCRIPTION = `Search text. Use * for the newest rows. At most ${ROW_LIMIT} rows are returned.`;
+
+export function mcpToolDefinitions(): Array<{ name: AskToolName; description: string; queryDescription: string }> {
+  return ASK_TOOL_NAMES.map((name) => ({
+    name,
+    description: TOOL_DESCRIPTIONS[name],
+    queryDescription: QUERY_DESCRIPTION,
+  }));
+}
 
 export interface McpHttpResult {
   status: number;
@@ -108,7 +118,7 @@ function toolSchema() {
     properties: {
       query: {
         type: "string",
-        description: `Search text. Use * for the newest rows. At most ${ROW_LIMIT} rows are returned.`,
+        description: QUERY_DESCRIPTION,
       },
     },
     additionalProperties: false,

@@ -18,6 +18,7 @@ frontend:
         - env | grep -e '^DATADOG_' >> .env.production || true
         - env | grep -e '^WEBHOOK_TOKEN=' >> .env.production || true
         - env | grep -e '^ASANA_' >> .env.production || true
+        - env | grep -e '^ASK_TENANT_' >> .env.production || true
         - npm run build
   artifacts:
     baseDirectory: .next
