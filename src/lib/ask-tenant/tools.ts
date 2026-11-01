@@ -98,6 +98,7 @@ const STOP_WORDS = new Set([
   "risk", "connected", "there", "their", "them", "any", "are", "was", "were",
   "machine", "capability", "capabilities", "finding", "findings",
   "anomaly", "anomalies", "feature", "features",
+  "use", "using", "used", "owned",
 ]);
 
 const TOOL_LABELS: Record<AskToolName, string> = {

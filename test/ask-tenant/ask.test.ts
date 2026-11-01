@@ -177,6 +177,22 @@ describe("ask tenant", () => {
     assert.equal(client.searches.length, 0);
   });
 
+  it("matches agents by source when the question says use Snowflake", async () => {
+    const client = deps();
+    const snowflake: TenantAgent = {
+      ...AGENTS[0],
+      id: "agt-snow",
+      name: "FINANCE_OPERATIONS_SUPERVISOR",
+      source: "Snowflake SaaS",
+      ownerName: "nate.mcqueen",
+    };
+    client.listAgents = async () => [snowflake, AGENTS[1]];
+    const result = await answerQuestion("Which agents use Snowflake?", client);
+    assert.equal(result.reads[0]?.query, "Snowflake");
+    assert.match(result.answer, /FINANCE_OPERATIONS_SUPERVISOR/);
+    assert.doesNotMatch(result.answer, /Policy Concierge/);
+  });
+
   it("lists SAF agents instead of identities for a plain agent question", async () => {
     const client = deps();
     const result = await answerQuestion("List the AI Agents", client);
