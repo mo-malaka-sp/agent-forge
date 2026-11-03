@@ -7,10 +7,12 @@ import {
   type SailPointSetupConfig,
 } from "@/lib/saf-poc/sailpoint";
 
-export const ADMINS_SOURCE_NAME = "ISC Admins";
+export const TESTDRIVE_SOURCE_NAME = "TestDriveUsers";
+export const TESTDRIVE_TYPE = "TestDrive";
+export const TESTDRIVE_STATUS = "active";
 export const IDENTITYNOW_SOURCE_NAME = "IdentityNow";
 export const ROLE_NAME = "ReadOnly-Admins";
-export const GROUP_VALUE = "ReadOnly-Admins";
+export const PASSWORD_SCOPE = "sp:scopes:all";
 export const SAF_ADMIN_ENTITLEMENT = "SAF Admin";
 export const TEST_EMAIL_DOMAIN = "testmail.identitysoon.com";
 export const CAMPAIGN_LOCATION = "SAF Test Drive";
@@ -52,11 +54,20 @@ export type TestUser = {
   password: string;
 };
 
+export type AccountSchema = {
+  names: string[];
+  identityAttribute: string;
+  displayAttribute: string;
+};
+
 export type TenantRefs = {
   sourceId: string;
   profileId: string;
   activeStateId: string;
   identityNowSourceId: string;
+  sourceName?: string;
+  accountNameIsEmail?: boolean;
+  schema?: AccountSchema | null;
 };
 
 export type CreateResult = {
@@ -70,6 +81,7 @@ export type CreateResult = {
 export type ActivationInput = TenantRefs & {
   userId: string;
   taskId?: string | null;
+  accountName?: string;
   password?: string;
   passwordSet?: boolean;
   passwordError?: string | null;
@@ -117,6 +129,18 @@ export function readonlyAccountClient(config: SailPointSetupConfig = loadSafPocC
         ...EXPERIMENTAL_HEADER,
         ...extraHeaders,
       }),
+    requestWithScope: (
+      scope: string,
+      method: string,
+      path: string,
+      body?: unknown,
+      contentType?: string,
+      extraHeaders?: Record<string, string>,
+    ) =>
+      client.requestWithScope(scope, method, path, body, contentType, {
+        ...EXPERIMENTAL_HEADER,
+        ...extraHeaders,
+      }),
   };
 }
 
@@ -143,8 +167,11 @@ async function list(client: Client, path: string): Promise<JsonRecord[]> {
 }
 
 function accountIsUser(account: JsonRecord, userId: string): boolean {
+  const attributes = record(account.attributes);
   return (
-    text(account.nativeIdentity) === userId || text(record(account.attributes).id) === userId
+    text(account.nativeIdentity) === userId ||
+    text(attributes.id) === userId ||
+    text(attributes["e-mail"]) === userId
   );
 }
 
@@ -157,7 +184,7 @@ async function assertCreateTask(client: Client, taskId: string | null | undefine
   );
   const completion = text(status.completionStatus).toUpperCase();
   if (["ERROR", "FAILED", "FAILURE", "TERMINATED"].includes(completion)) {
-    throw new Error(`The ISC Admins account task failed (${completion}). ${inputTaskDetail(status)}`);
+    throw new Error(`The ${TESTDRIVE_SOURCE_NAME} account task failed (${completion}). ${inputTaskDetail(status)}`);
   }
 }
 
@@ -176,23 +203,31 @@ function requireSafeId(label: string, value: string): string {
   return value;
 }
 
-async function findSource(client: Client, name: string): Promise<JsonRecord> {
+async function findSourceByName(client: Client, name: string): Promise<JsonRecord | null> {
   const sources = await list(client, filtered("/sources/v1", `name eq ${quoted(name)}`));
   const source = sources.find((candidate) => text(candidate.name) === name);
   if (!source || !text(source.id)) {
+    return null;
+  }
+  return source;
+}
+
+async function findSource(client: Client, name: string): Promise<JsonRecord> {
+  const source = await findSourceByName(client, name);
+  if (!source) {
     throw new Error(`Source "${name}" was not found in the tenant.`);
   }
   return source;
 }
 
-async function findProfile(client: Client, sourceId: string): Promise<JsonRecord> {
+async function findProfile(client: Client, sourceId: string, sourceName: string): Promise<JsonRecord> {
   const profiles = await list(client, "/identity-profiles/v1");
   const profile = profiles.find(
     (candidate) => text(record(candidate.authoritativeSource).id) === sourceId,
   );
   if (!profile || !text(profile.id)) {
     throw new Error(
-      `No identity profile uses "${ADMINS_SOURCE_NAME}" as its authoritative source.`,
+      `No identity profile uses "${sourceName}" as its authoritative source.`,
     );
   }
   return profile;
@@ -254,35 +289,46 @@ export function roleMembership(sourceId: string) {
       operation: "OR",
       children: [
         {
-          operation: "CONTAINS",
-          key: { type: "ACCOUNT", property: "attribute.groups", sourceId },
-          stringValue: GROUP_VALUE,
+          operation: "EQUALS",
+          key: { type: "ACCOUNT", property: "attribute.type", sourceId },
+          stringValue: TESTDRIVE_TYPE,
         },
       ],
     },
   };
 }
 
-function hasGroupsCriteria(membership: unknown, sourceId: string): boolean {
-  const selector = record(membership);
-  if (text(selector.type) !== "STANDARD") {
-    return false;
-  }
+function hasTypeCriteria(membership: unknown, sourceId: string): boolean {
   const matches = (node: unknown): boolean => {
     const criteria = record(node);
     const key = record(criteria.key);
     if (
-      text(criteria.operation) === "CONTAINS" &&
-      text(key.type) === "ACCOUNT" &&
-      text(key.property) === "attribute.groups" &&
+      text(criteria.operation) === "EQUALS" &&
+      text(key.property) === "attribute.type" &&
       text(key.sourceId) === sourceId &&
-      text(criteria.stringValue) === GROUP_VALUE
+      text(criteria.stringValue) === TESTDRIVE_TYPE
     ) {
       return true;
     }
     return Array.isArray(criteria.children) && criteria.children.some(matches);
   };
-  return matches(selector.criteria);
+  return matches(record(membership).criteria);
+}
+
+function membershipWithType(membership: unknown, sourceId: string) {
+  if (hasTypeCriteria(membership, sourceId)) {
+    return membership;
+  }
+  const child = roleMembership(sourceId).criteria.children[0];
+  const current = record(membership);
+  const criteria = record(current.criteria);
+  if (text(current.type) === "STANDARD" && text(criteria.operation) === "OR" && Array.isArray(criteria.children)) {
+    return {
+      ...current,
+      criteria: { ...criteria, children: [...criteria.children, child] },
+    };
+  }
+  return roleMembership(sourceId);
 }
 
 export function rolePatch(role: JsonRecord, entitlementId: string, sourceId: string) {
@@ -298,8 +344,9 @@ export function rolePatch(role: JsonRecord, entitlementId: string, sourceId: str
       value: { type: "ENTITLEMENT", id: entitlementId },
     });
   }
-  if (!hasGroupsCriteria(role.membership, sourceId)) {
-    operations.push({ op: "replace", path: "/membership", value: roleMembership(sourceId) });
+  const next = membershipWithType(role.membership, sourceId);
+  if (JSON.stringify(role.membership ?? null) !== JSON.stringify(next)) {
+    operations.push({ op: "replace", path: "/membership", value: next });
   }
   return operations;
 }
@@ -308,14 +355,51 @@ async function patch(client: Client, path: string, operations: unknown[]) {
   return client.request("PATCH", path, operations, "application/json-patch+json");
 }
 
+async function readAccountSchema(client: Client, sourceId: string): Promise<AccountSchema> {
+  const schemas = await list(client, `/sources/v1/${encodeURIComponent(sourceId)}/schemas`);
+  const account =
+    schemas.find((schema) => text(schema.name).toLowerCase() === "account") ?? schemas[0];
+  if (!account) {
+    throw new Error(`SailPoint did not return an account schema for ${TESTDRIVE_SOURCE_NAME}.`);
+  }
+  const attributes = Array.isArray(account.attributes) ? account.attributes : [];
+  const names = attributes.map((attribute) => text(record(attribute).name)).filter(Boolean);
+  if (!names.some((name) => name.toLowerCase() === "type")) {
+    throw new Error(
+      `The ${ROLE_NAME} role cannot be granted from ${TESTDRIVE_SOURCE_NAME}. The account schema has no type attribute.`,
+    );
+  }
+  return {
+    names,
+    identityAttribute: text(account.identityAttribute) || "e-mail",
+    displayAttribute: text(account.displayAttribute) || "e-mail",
+  };
+}
+
+async function chooseAccountSource(client: Client): Promise<{
+  source: JsonRecord;
+  profile: JsonRecord;
+  schema: AccountSchema;
+}> {
+  const source = await findSource(client, TESTDRIVE_SOURCE_NAME);
+  const sourceId = text(source.id);
+  return {
+    source,
+    profile: await findProfile(client, sourceId, TESTDRIVE_SOURCE_NAME),
+    schema: await readAccountSchema(client, sourceId),
+  };
+}
+
 export async function setupTenant(client: Client): Promise<SetupResult> {
   const steps: SetupStep[] = [];
   try {
-    const source = await findSource(client, ADMINS_SOURCE_NAME);
+    const chosen = await chooseAccountSource(client);
+    const source = chosen.source;
+    const sourceName = text(source.name);
     const sourceId = text(source.id);
-    steps.push({ label: `${ADMINS_SOURCE_NAME} source`, status: "found", detail: sourceId });
+    steps.push({ label: `${sourceName} source`, status: "found", detail: sourceId });
 
-    const profile = await findProfile(client, sourceId);
+    const profile = chosen.profile;
     const profileId = text(profile.id);
     steps.push({
       label: "Identity profile",
@@ -357,12 +441,12 @@ export async function setupTenant(client: Client): Promise<SetupResult> {
     if (!existing) {
       const owner = record(source.owner);
       if (!text(owner.id)) {
-        throw new Error(`"${ADMINS_SOURCE_NAME}" has no owner to own the role.`);
+        throw new Error(`"${sourceName}" has no owner to own the role.`);
       }
       const created = record(
         await client.request("POST", "/roles/v1", {
           name: ROLE_NAME,
-          description: `Grants ${SAF_ADMIN_ENTITLEMENT} to ${ADMINS_SOURCE_NAME} accounts whose groups contain ${GROUP_VALUE}.`,
+          description: `Grants ${SAF_ADMIN_ENTITLEMENT} to ${TESTDRIVE_SOURCE_NAME} accounts whose type is ${TESTDRIVE_TYPE}.`,
           owner: { type: "IDENTITY", id: text(owner.id), name: text(owner.name) },
           enabled: true,
           requestable: false,
@@ -405,6 +489,10 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+export function accountPassword(suffix = ""): string {
+  return `TestDrive${suffix || "9"}!`;
+}
+
 export function generateTestUser(digits: number, random: () => number = Math.random): TestUser {
   const first = pick(FIRST_NAMES, random);
   const last = pick(LAST_NAMES, random);
@@ -419,7 +507,7 @@ export function generateTestUser(digits: number, random: () => number = Math.ran
     givenName: capitalize(first),
     familyName: capitalize(last),
     email: `${id}@${TEST_EMAIL_DOMAIN}`,
-    password: `TestDrive${suffix}!`,
+    password: accountPassword(suffix),
   };
 }
 
@@ -435,7 +523,7 @@ export function encryptPassword(publicKey: string, password: string): string {
 
 async function setIdentityPassword(client: Client, userName: string, password: string) {
   const info = record(
-    await client.request("POST", "/query-password-info/v1", {
+    await client.requestWithScope(PASSWORD_SCOPE, "POST", "/query-password-info/v1", {
       userName,
       sourceName: IDENTITYNOW_SOURCE_NAME,
     }),
@@ -443,12 +531,15 @@ async function setIdentityPassword(client: Client, userName: string, password: s
   const publicKey = text(info.publicKey);
   const publicKeyId = text(info.publicKeyId);
   const identityId = text(info.identityId);
+  const accounts = Array.isArray(info.accounts) ? info.accounts : [];
+  const accountId = text(record(accounts[0]).accountId) || userName;
   if (!publicKey || !publicKeyId || !identityId) {
     throw new Error("SailPoint did not return the password encryption key.");
   }
-  await client.request("POST", "/set-password/v1", {
+  await client.requestWithScope(PASSWORD_SCOPE, "POST", "/set-password/v1", {
     identityId,
     publicKeyId,
+    accountId,
     sourceId: text(info.sourceId) || undefined,
     encryptedPassword: encryptPassword(publicKey, password),
   });
@@ -457,15 +548,18 @@ async function setIdentityPassword(client: Client, userName: string, password: s
 export const NAME_LISTS = { first: FIRST_NAMES, last: LAST_NAMES, digits: DIGITS };
 
 async function isTaken(client: Client, sourceId: string, user: TestUser): Promise<boolean> {
-  const accounts = await list(
-    client,
-    filtered(
-      "/accounts/v1",
-      `sourceId eq ${quoted(sourceId)} and nativeIdentity eq ${quoted(user.id)}`,
-    ),
-  );
-  if (accounts.length > 0) {
-    return true;
+  const names = user.email && user.email !== user.id ? [user.id, user.email] : [user.id];
+  for (const name of names) {
+    const accounts = await list(
+      client,
+      filtered(
+        "/accounts/v1",
+        `sourceId eq ${quoted(sourceId)} and nativeIdentity eq ${quoted(name)}`,
+      ),
+    );
+    if (accounts.length > 0) {
+      return true;
+    }
   }
   const identities = await list(
     client,
@@ -502,9 +596,9 @@ export async function pickUniqueUser(
 }
 
 async function resolveRefs(client: Client): Promise<TenantRefs> {
-  const source = await findSource(client, ADMINS_SOURCE_NAME);
-  const sourceId = text(source.id);
-  const profileId = text((await findProfile(client, sourceId)).id);
+  const chosen = await chooseAccountSource(client);
+  const sourceId = text(chosen.source.id);
+  const profileId = text(chosen.profile.id);
   const active = await findActiveState(client, profileId);
   if (!active || active.enabled !== true) {
     throw new Error("The active lifecycle state is not ready. Run Set up tenant first.");
@@ -515,9 +609,12 @@ async function resolveRefs(client: Client): Promise<TenantRefs> {
   }
   return {
     sourceId,
+    sourceName: text(chosen.source.name),
     profileId,
     activeStateId: text(active.id),
     identityNowSourceId: await identityNowSourceId(client),
+    accountNameIsEmail: true,
+    schema: chosen.schema,
   };
 }
 
@@ -565,7 +662,6 @@ export async function pickUniqueLeadSeCustomer(
       const user: TestUser = {
         ...generated,
         email: leadSePlusAddress(leadEmail, generated.id),
-        password: "",
       };
       if (!(await isTaken(client, sourceId, user))) {
         return { user, attempts };
@@ -654,6 +750,46 @@ export async function pickUniqueRequestedUser(
   throw new Error(`Could not find an unused sign-in id after ${attempts} attempts. Try again.`);
 }
 
+function schemaKey(schema: AccountSchema, ...candidates: string[]): string | null {
+  const names = new Map(schema.names.map((name) => [name.toLowerCase(), name]));
+  for (const candidate of candidates) {
+    const found = names.get(candidate.toLowerCase());
+    if (found) {
+      return found;
+    }
+  }
+  return null;
+}
+
+export function accountAttributes(
+  user: TestUser,
+  location: string,
+  refs: TenantRefs,
+): Record<string, string> {
+  if (!refs.schema) {
+    throw new Error(`SailPoint did not return an account schema for ${TESTDRIVE_SOURCE_NAME}.`);
+  }
+  const attributes: Record<string, string> = { sourceId: refs.sourceId };
+  const assign = (key: string | null, value: string) => {
+    if (key && value) {
+      attributes[key] = value;
+    }
+  };
+  assign(schemaKey(refs.schema, refs.schema.identityAttribute, "e-mail"), user.email);
+  assign(schemaKey(refs.schema, refs.schema.displayAttribute), user.email);
+  assign(schemaKey(refs.schema, "givenName", "firstName", "firstname"), user.givenName);
+  assign(schemaKey(refs.schema, "familyName", "lastName", "lastname"), user.familyName);
+  assign(schemaKey(refs.schema, "e-mail", "email", "mail"), user.email);
+  assign(schemaKey(refs.schema, "type"), TESTDRIVE_TYPE);
+  assign(schemaKey(refs.schema, "status"), TESTDRIVE_STATUS);
+  assign(schemaKey(refs.schema, "location"), location);
+  return attributes;
+}
+
+export function accountLookupName(user: TestUser, refs: TenantRefs): string {
+  return refs.accountNameIsEmail ? user.email : user.id;
+}
+
 export async function createRequestedAccount(
   client: Client,
   user: TestUser,
@@ -662,16 +798,7 @@ export async function createRequestedAccount(
 ): Promise<CreateResult> {
   const response = record(
     await client.request("POST", "/accounts/v1", {
-      attributes: {
-        sourceId: refs.sourceId,
-        id: user.id,
-        name: user.id,
-        givenName: user.givenName,
-        familyName: user.familyName,
-        "e-mail": user.email,
-        location,
-        groups: GROUP_VALUE,
-      },
+      attributes: accountAttributes(user, location, refs),
     }),
   );
   return { user, attempts: 1, taskId: text(response.id) || null, refs, emailRedirect: null };
@@ -686,7 +813,7 @@ export async function findAsanaDriveAccounts(client: Client): Promise<
   for (const account of accounts) {
     const attributes = record(account.attributes);
     const taskGid = text(attributes.location).match(/asana:(\d{5,20})$/)?.[1] ?? "";
-    const id = text(account.nativeIdentity) || text(attributes.id);
+    const id = text(account.nativeIdentity) || text(attributes["e-mail"]) || text(attributes.id);
     if (!taskGid || !id) {
       continue;
     }
@@ -729,7 +856,7 @@ export async function openLeadSeAccount(
   const existing = await findAccountByLocation(client, refs.sourceId, input.location);
   if (existing) {
     const attributes = record(existing.attributes);
-    const id = text(existing.nativeIdentity) || text(attributes.id);
+    const id = text(existing.nativeIdentity) || text(attributes["e-mail"]) || text(attributes.id);
     const givenName = text(attributes.givenName);
     const familyName = text(attributes.familyName);
     return {
@@ -769,7 +896,7 @@ export async function openRequestedAccount(
   const existing = await findAccountByLocation(client, refs.sourceId, input.location);
   if (existing) {
     const attributes = record(existing.attributes);
-    const id = text(existing.nativeIdentity) || text(attributes.id);
+    const id = text(existing.nativeIdentity) || text(attributes["e-mail"]) || text(attributes.id);
     return {
       created: false,
       result: {
@@ -812,16 +939,7 @@ export async function createTestAccount(
   const { user, attempts } = await pickUniqueUser(client, refs.sourceId, random);
   const response = record(
     await client.request("POST", "/accounts/v1", {
-      attributes: {
-        sourceId: refs.sourceId,
-        id: user.id,
-        name: user.id,
-        givenName: user.givenName,
-        familyName: user.familyName,
-        "e-mail": user.email,
-        location: CAMPAIGN_LOCATION,
-        groups: GROUP_VALUE,
-      },
+      attributes: accountAttributes(user, CAMPAIGN_LOCATION, refs),
     }),
   );
   return { user, attempts, taskId: text(response.id) || null, refs, emailRedirect };
@@ -857,17 +975,19 @@ export async function activateTestAccount(
     inviteError: input.inviteError ?? null,
   });
 
+  const accountKey = input.accountName?.trim() || input.userId;
+  const sourceLabel = input.sourceName?.trim() || TESTDRIVE_SOURCE_NAME;
   const accounts = await list(
     client,
     filtered(
       "/accounts/v1",
-      `sourceId eq ${quoted(sourceId)} and nativeIdentity eq ${quoted(input.userId)}`,
+      `sourceId eq ${quoted(sourceId)} and nativeIdentity eq ${quoted(accountKey)}`,
     ),
   );
-  const account = accounts.find((candidate) => accountIsUser(candidate, input.userId));
+  const account = accounts.find((candidate) => accountIsUser(candidate, accountKey));
   if (!account) {
     await assertCreateTask(client, input.taskId);
-    return pending("account-pending", `Waiting for ${ADMINS_SOURCE_NAME} to show ${input.userId}.`);
+    return pending("account-pending", `Waiting for ${sourceLabel} to show ${accountKey}.`);
   }
 
   const identityId = text(account.identityId);
@@ -901,18 +1021,6 @@ export async function activateTestAccount(
   const alias = text(identity.alias) || text(identity.name) || null;
   let passwordSet = input.passwordSet === true;
   let passwordError = input.passwordError ?? null;
-  if (input.password && alias && !passwordSet && !passwordError) {
-    try {
-      await setIdentityPassword(client, alias, input.password);
-      passwordSet = true;
-    } catch (error) {
-      if (!(error instanceof SailPointApiError) || error.status !== 403) {
-        throw error;
-      }
-      passwordError =
-        "SailPoint refused to set the password with the admin credential. Use Actions, Reset Password on the identity and send it to an inbox you can open.";
-    }
-  }
   let lifecycleState = text(record(identity.lifecycleState).stateName) || null;
   if (lifecycleState !== ACTIVE_STATE) {
     await client.request(
@@ -944,6 +1052,26 @@ export async function activateTestAccount(
       if (!(error instanceof SailPointApiError) || error.status !== 400) {
         throw error;
       }
+    }
+  }
+
+  const identityNowAccount = record(identityNowAccounts[0]);
+  const identityNowName =
+    text(identityNowAccount.nativeIdentity) ||
+    text(record(identityNowAccount.attributes).id) ||
+    text(record(identityNowAccount.attributes).name) ||
+    input.accountName ||
+    input.userId;
+  if (input.password && identityNowAccounts.length > 0 && identityNowName && !passwordSet && !passwordError) {
+    try {
+      await setIdentityPassword(client, identityNowName, input.password);
+      passwordSet = true;
+    } catch (error) {
+      if (!(error instanceof SailPointApiError) || error.status !== 403) {
+        throw error;
+      }
+      passwordError =
+        "SailPoint refused to set the password. The API client needs the sp:scopes:all scope.";
     }
   }
 
@@ -980,9 +1108,12 @@ export async function activateTestAccount(
     (!input.password || passwordSet || Boolean(passwordError)) &&
     (!wantsInvite || inviteSent || Boolean(inviteError));
   const invitationInbox = redirectEmail || input.inviteEmail?.trim() || "the requester";
+  const invitation = `Invitation sent to ${invitationInbox}. The link expires in 7 days.`;
   const detail = done
     ? inviteSent
-      ? `Invitation sent to ${invitationInbox}. The username is ${input.userId}. The link expires in 7 days.`
+      ? passwordError
+        ? `${invitation} ${passwordError}`
+        : invitation
       : inviteError
         ? `The identity is active and has the role. ${inviteError}`
         : passwordError

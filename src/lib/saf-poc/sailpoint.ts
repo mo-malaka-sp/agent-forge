@@ -316,7 +316,7 @@ export function createSailPointClient(
   const origin = config.apiBase;
   let accessToken = "";
 
-  const authorize = async (): Promise<string> => {
+  const fetchToken = async (scope?: string): Promise<string> => {
     if (!config.clientId || !config.clientSecret) {
       throw new Error(
         "Save the ISC tenant connection, or set SAF_CLIENT_ID and SAF_CLIENT_SECRET.",
@@ -325,14 +325,18 @@ export function createSailPointClient(
     if (!origin) {
       throw new Error("Set SAF_TENANT or save the ISC tenant connection first.");
     }
+    const params = new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+    });
+    if (scope) {
+      params.set("scope", scope);
+    }
     const response = await fetchImpl(`${origin}/oauth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "client_credentials",
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-      }).toString(),
+      body: params.toString(),
     });
     if (!response.ok) {
       throw new SailPointApiError(response.status, await readError(response));
@@ -341,24 +345,26 @@ export function createSailPointClient(
     if (!body.access_token) {
       throw new Error("SailPoint token response did not include an access token.");
     }
-    accessToken = body.access_token;
+    return body.access_token;
+  };
+
+  const authorize = async (): Promise<string> => {
+    accessToken = await fetchToken();
     return accessToken;
   };
 
-  const request = async (
+  const send = async (
+    token: string,
     method: string,
     requestPath: string,
     body?: unknown,
     contentType = "application/json",
     extraHeaders?: Record<string, string>,
   ) => {
-    if (!accessToken) {
-      await authorize();
-    }
     const response = await fetchImpl(`${origin}${requestPath}`, {
       method,
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${token}`,
         Accept: "application/json",
         ...extraHeaders,
         ...(body === undefined ? {} : { "Content-Type": contentType }),
@@ -374,6 +380,28 @@ export function createSailPointClient(
     const text = await response.text();
     return text ? (JSON.parse(text) as unknown) : null;
   };
+
+  const request = async (
+    method: string,
+    requestPath: string,
+    body?: unknown,
+    contentType = "application/json",
+    extraHeaders?: Record<string, string>,
+  ) => {
+    if (!accessToken) {
+      await authorize();
+    }
+    return send(accessToken, method, requestPath, body, contentType, extraHeaders);
+  };
+
+  const requestWithScope = async (
+    scope: string,
+    method: string,
+    requestPath: string,
+    body?: unknown,
+    contentType = "application/json",
+    extraHeaders?: Record<string, string>,
+  ) => send(await fetchToken(scope), method, requestPath, body, contentType, extraHeaders);
 
   const listAll = async <T>(
     requestPath: string,
@@ -444,13 +472,14 @@ export function createSailPointClient(
         throw error;
       }
     },
-    async listRecords(
+    async     listRecords(
       requestPath: string,
       extraHeaders?: Record<string, string>,
     ): Promise<unknown[]> {
       return listAll<unknown>(requestPath, extraHeaders);
     },
     request,
+    requestWithScope,
   };
 }
 

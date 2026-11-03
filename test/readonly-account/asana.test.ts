@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { describe, it } from "node:test";
 
 import {
@@ -45,6 +46,10 @@ function fakeTenant(routes: Record<string, (call: Call) => unknown>) {
       return new Response(`unexpected ${method} ${path}`, { status: 500 });
     }
     const body = route(call);
+    if (body && typeof body === "object" && "__httpStatus" in body) {
+      const status = Number((body as { __httpStatus: number }).__httpStatus);
+      return new Response(JSON.stringify(body), { status });
+    }
     return body === null ? new Response(null, { status: 204 }) : Response.json(body);
   };
   return { client: createSailPointClient(config(), fetchImpl), calls };
@@ -169,12 +174,25 @@ function asanaFetch(
   return fetchImpl;
 }
 
+const PASSWORD_KEY = generateKeyPairSync("rsa", { modulusLength: 2048 }).publicKey.export({
+  type: "spki",
+  format: "pem",
+}).toString();
+
 const READY_ROUTES = {
-  'GET /sources/v1?filters=name eq "ISC Admins"': () => [
-    { id: "src-admins", name: "ISC Admins", owner: { id: "owner-1", name: "Admin", type: "IDENTITY" } },
+  'GET /sources/v1?filters=name eq "TestDriveUsers"': () => [
+    { id: "src-td", name: "TestDriveUsers", owner: { id: "owner-1", name: "Admin", type: "IDENTITY" } },
   ],
   "GET /identity-profiles/v1": () => [
-    { id: "profile-1", name: "Admins", authoritativeSource: { id: "src-admins" } },
+    { id: "profile-1", name: "Test Drive", authoritativeSource: { id: "src-td" } },
+  ],
+  "GET /sources/v1/src-td/schemas": () => [
+    {
+      name: "account",
+      identityAttribute: "e-mail",
+      displayAttribute: "e-mail",
+      attributes: ["givenName", "familyName", "e-mail", "type", "status"].map((name) => ({ name })),
+    },
   ],
   "GET /identity-profiles/v1/profile-1/lifecycle-states": () => [
     { id: "state-active", technicalName: "active", enabled: true },
@@ -200,6 +218,14 @@ const READY_ROUTES = {
     { id: "assign-1", role: { name: "ReadOnly-Admins" } },
   ],
   "POST /beta/identities/invite": () => ({ id: "invite-task" }),
+  "POST /query-password-info/v1": () => ({
+    identityId: "ident-1",
+    sourceId: "src-idn",
+    publicKeyId: "key-1",
+    publicKey: PASSWORD_KEY,
+    accounts: [{ accountId: "maya.chen" }],
+  }),
+  "POST /set-password/v1": () => ({}),
 };
 
 function rememberedAccounts() {
@@ -238,7 +264,7 @@ function rememberedAccounts() {
         const attributes = (call.body as { attributes: Record<string, string> }).attributes;
         accounts.push({
           id: `acct-${accounts.length + 1}`,
-          nativeIdentity: attributes.id,
+          nativeIdentity: attributes["e-mail"] || attributes.id,
           identityId: "ident-1",
           attributes,
         });
@@ -294,14 +320,12 @@ describe("Asana test-drive requests", () => {
     assert.notEqual(first.userId, "state.farm");
     const created = calls.find((call) => call.method === "POST" && call.path === "/accounts/v1");
     assert.deepEqual((created?.body as { attributes: Record<string, string> }).attributes, {
-      sourceId: "src-admins",
-      id: "maya.chen",
-      name: "maya.chen",
+      sourceId: "src-td",
       givenName: "Maya",
       familyName: "Chen",
       "e-mail": "matt.brands+maya.chen@sailpoint.com",
-      location: `SAF Test Drive asana:${TASK_GID}`,
-      groups: "ReadOnly-Admins",
+      type: "TestDrive",
+      status: "active",
     });
     assert.equal(calls.filter((call) => call.path.includes("email-test-mode")).length, 0);
     assert.ok(urls.some((url) => url.includes("custom_fields.people_value.email")));
@@ -312,7 +336,7 @@ describe("Asana test-drive requests", () => {
     assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1").length, 1);
     assert.equal(stories.length, 1);
     assert.equal(moves.length, 1);
-    assert.match(JSON.stringify(stories[0]), /Username: maya.chen/);
+    assert.match(JSON.stringify(stories[0]), /Username: matt.brands\+maya.chen@sailpoint.com/);
     assert.equal(accounts.length, 1);
   });
 
@@ -471,28 +495,30 @@ describe("Asana test-drive requests", () => {
     const stories: unknown[] = [];
     const { client, calls } = fakeTenant({
       ...READY_ROUTES,
-      'GET /accounts/v1?filters=sourceId eq "src-admins"': () => [
+      'GET /accounts/v1?filters=sourceId eq "src-td"': () => [
         {
           id: "acct-rosa",
           nativeIdentity: "rosa.stone",
           identityId: "ident-rosa",
           attributes: {
-            id: "rosa.stone",
             givenName: "Rosa",
             familyName: "Stone",
             "e-mail": "mo.malaka+rosa@sailpoint.com",
+            type: "TestDrive",
+            status: "active",
             location: `SAF Test Drive asana:${TASK_GID}`,
           },
         },
       ],
-      'GET /accounts/v1?filters=sourceId eq "src-admins" and nativeIdentity eq "rosa.stone"': () => [
-        {
-          id: "acct-rosa",
-          nativeIdentity: "rosa.stone",
-          identityId: "ident-rosa",
-          attributes: { id: "rosa.stone" },
-        },
-      ],
+      'GET /accounts/v1?filters=sourceId eq "src-td" and nativeIdentity eq "mo.malaka+rosa@sailpoint.com"':
+        () => [
+          {
+            id: "acct-rosa",
+            nativeIdentity: "mo.malaka+rosa@sailpoint.com",
+            identityId: "ident-rosa",
+            attributes: { "e-mail": "mo.malaka+rosa@sailpoint.com" },
+          },
+        ],
       "GET /identities/v1/ident-rosa": () => ({
         id: "ident-rosa",
         alias: "rosa.stone",
@@ -517,6 +543,57 @@ describe("Asana test-drive requests", () => {
     assert.equal(statuses[0]?.userId, "rosa.stone");
     assert.match(statuses[0]?.detail ?? "", /Invitation sent to mo.malaka\+rosa@sailpoint.com/);
     assert.ok(calls.some((call) => call.method === "POST" && call.path.includes("set-lifecycle-state")));
+    assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
+  });
+
+  it("creates the Lead SE only on TestDriveUsers and comments the password", async () => {
+    const stories: unknown[] = [];
+    const { routes } = rememberedAccounts();
+    const { client, calls } = fakeTenant({
+      ...READY_ROUTES,
+      ...routes,
+    });
+    const status = await acceptAsanaTask(TASK_GID, {
+      token: "asana-token",
+      client,
+      store: memoryStore(),
+      projectGid: "project-1",
+      random: () => 0,
+      fetchImpl: asanaFetch(stories) as typeof fetch,
+    });
+    const created = calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1");
+    assert.equal(created.length, 1);
+    const attributes = (created[0]?.body as { attributes: Record<string, string> }).attributes;
+    assert.equal(attributes.sourceId, "src-td");
+    assert.equal(attributes["e-mail"], "matt.brands+maya.chen@sailpoint.com");
+    assert.equal(attributes.type, "TestDrive");
+    assert.equal(attributes.status, "active");
+    assert.equal(attributes.groups, undefined);
+    assert.equal(status.done, true);
+    assert.match(JSON.stringify(stories[0]), /Username: matt.brands\+maya.chen@sailpoint.com/);
+    assert.match(JSON.stringify(stories[0]), /Password: TestDrive9!/);
+    assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
+  });
+
+  it("comments no password when set-password is forbidden and still invites", async () => {
+    const stories: unknown[] = [];
+    const { client, calls } = fakeTenant({
+      ...READY_ROUTES,
+      ...WAITING_ACCOUNT,
+      "POST /set-password/v1": () => ({ __httpStatus: 403, message: "Forbidden" }),
+    });
+    const job = waitingJob();
+    job.user.password = "TestDrive9!";
+    const [status] = await tickAsanaAccounts({
+      token: "asana-token",
+      client,
+      store: memoryStore([job]),
+      projectGid: "project-1",
+      fetchImpl: asanaFetch(stories) as typeof fetch,
+    });
+    assert.equal(status?.done, true);
+    assert.match(status?.detail ?? "", /sp:scopes:all/);
+    assert.doesNotMatch(JSON.stringify(stories[0]), /Password:/);
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
   });
 });

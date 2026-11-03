@@ -11,8 +11,8 @@ export default function ReadonlyAccountPage() {
           Read-only test accounts
         </h1>
         <p className="max-w-3xl text-sm text-zinc-600 dark:text-zinc-400">
-          Create a sign-in user on the ISC Admins source. The ReadOnly-Admins role grants
-          SAF Admin to accounts whose groups contain ReadOnly-Admins.
+          Create a sign-in user on the TestDriveUsers source. The account type is TestDrive,
+          and the ReadOnly-Admins role grants SAF Admin to those accounts.
         </p>
       </section>
       <ReadonlyAccountPanel />

@@ -11,6 +11,7 @@ import {
   taskIsInSection,
 } from "@/lib/readonly-account/asana-webhook";
 import {
+  accountPassword,
   activateTestAccount,
   asanaAccountLocation,
   findAsanaDriveAccounts,
@@ -264,12 +265,18 @@ async function advanceJob(
   options: { token?: string; fetchImpl?: typeof fetch; client: SailClient; projectGid?: string },
 ): Promise<AsanaAccountJob> {
   if (!job.commented) {
+    if (!job.user.password) {
+      job.user.password = accountPassword();
+      store.save(jobs);
+    }
     const result = await activateTestAccount(options.client, {
       ...job.refs,
       userId: job.user.id,
+      accountName: job.refs.accountNameIsEmail ? job.user.email : job.user.id,
       taskId: job.sailPointTaskId,
       attempt: job.attempt,
       processed: job.processed,
+      password: job.user.password,
       sendInvite: true,
       inviteEmail: job.user.email,
       inviteSent: job.inviteSent,
@@ -281,16 +288,16 @@ async function advanceJob(
     job.inviteError = result.inviteError;
     job.detail = result.detail;
     store.save(jobs);
-    await commentAsanaOnce(
-      job.asanaTaskGid,
-      ["SAF Test Drive", `Username: ${job.user.id}`, job.detail].join("\n"),
-      options.token,
-      options.fetchImpl,
-    );
+    const lines = ["SAF Test Drive", `Username: ${signInName(job)}`];
+    if (result.passwordSet && job.user.password) {
+      lines.push(`Password: ${job.user.password}`);
+    }
+    lines.push(job.detail);
+    await commentAsanaOnce(job.asanaTaskGid, lines.join("\n"), options.token, options.fetchImpl);
     if (result.done && result.inviteSent) {
       try {
         await moveTaskToAssignedSection(job.asanaTaskGid, options);
-        job.commented = true;
+        clearPassword(job);
         store.save(jobs);
       } catch (error) {
         const message = error instanceof Error ? error.message : "The task could not be moved to Assigned.";
@@ -302,11 +309,20 @@ async function advanceJob(
         );
       }
     } else if (result.done) {
-      job.commented = true;
+      clearPassword(job);
       store.save(jobs);
     }
   }
   return job;
+}
+
+function signInName(job: AsanaAccountJob): string {
+  return job.refs.accountNameIsEmail ? job.user.email : job.user.id;
+}
+
+function clearPassword(job: AsanaAccountJob) {
+  job.commented = true;
+  job.user = { ...job.user, password: "" };
 }
 
 export async function moveTaskToAssignedSection(
