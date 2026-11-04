@@ -687,6 +687,26 @@ describe("IdentityNow password", () => {
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
   });
 
+  it("keeps the identity active when the password client has no user", async () => {
+    const { client, calls } = fakeTenant({
+      ...READY_ACCOUNT,
+      'GET /accounts/v1?filters=identityId eq "ident-1" and sourceId eq "src-idn"': () => [
+        { id: "idn-1", nativeIdentity: "maya.chen42", disabled: false },
+      ],
+      "POST /query-password-info/v1": () => ({
+        __httpStatus: 500,
+        errorName: "IllegalStateException",
+        errorMessage: "there is no valid identityId in the current RequestContext",
+      }),
+    });
+    const result = await activateTestAccount(client, input);
+    assert.equal(result.done, true);
+    assert.equal(result.passwordSet, false);
+    assert.match(result.passwordError ?? "", /personal access token/);
+    assert.equal(result.inviteSent, true);
+    assert.equal(calls.some((call) => call.path === "/set-password/v1"), false);
+  });
+
   it("names the password environment variables when that API client is not configured", async () => {
     const { client, calls } = fakeTenant(
       {

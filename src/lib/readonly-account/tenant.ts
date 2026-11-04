@@ -1073,6 +1073,12 @@ export async function activateTestAccount(
       } else if (error instanceof SailPointApiError && error.status === 403) {
         passwordError =
           "SailPoint refused to set the password. The password API client needs the sp:scopes:all scope, and the user who created it must be an Admin.";
+      } else if (
+        error instanceof SailPointApiError &&
+        error.message.includes("no valid identityId")
+      ) {
+        passwordError =
+          "SailPoint refused to set the password because this API client has no user. Create a personal access token as an Admin and use it for SAF_PASSWORD_CLIENT_ID and SAF_PASSWORD_CLIENT_SECRET.";
       } else {
         throw error;
       }
