@@ -20,6 +20,8 @@ function config(): SailPointSetupConfig {
     apiBase: "https://beta-25503.api.identitynow-demo.com",
     clientId: "client-id",
     clientSecret: "client-secret",
+    passwordClientId: "password-client-id",
+    passwordClientSecret: "password-client-secret",
     ownerId: "",
     ownerName: "",
     triggerName: "CAEP Risk Level Change Events",

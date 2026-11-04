@@ -4,6 +4,7 @@ import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import {
   createSailPointClient,
   SailPointApiError,
+  SailPointPasswordClientError,
   type SailPointSetupConfig,
 } from "@/lib/saf-poc/sailpoint";
 
@@ -1067,11 +1068,14 @@ export async function activateTestAccount(
       await setIdentityPassword(client, identityNowName, input.password);
       passwordSet = true;
     } catch (error) {
-      if (!(error instanceof SailPointApiError) || error.status !== 403) {
+      if (error instanceof SailPointPasswordClientError) {
+        passwordError = error.message;
+      } else if (error instanceof SailPointApiError && error.status === 403) {
+        passwordError =
+          "SailPoint refused to set the password. The password API client needs the sp:scopes:all scope, and the user who created it must be an Admin.";
+      } else {
         throw error;
       }
-      passwordError =
-        "SailPoint refused to set the password. The API client needs the sp:scopes:all scope.";
     }
   }
 

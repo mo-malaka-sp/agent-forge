@@ -17,23 +17,26 @@ import {
 } from "@/lib/readonly-account/tenant";
 import { createSailPointClient, type SailPointSetupConfig } from "@/lib/saf-poc/sailpoint";
 
-function config(): SailPointSetupConfig {
+function config(overrides: Partial<SailPointSetupConfig> = {}): SailPointSetupConfig {
   return {
     tenant: "beta-25503",
     apiBase: "https://beta-25503.api.identitynow-demo.com",
     clientId: "client-id",
     clientSecret: "client-secret",
+    passwordClientId: "password-client-id",
+    passwordClientSecret: "password-client-secret",
     ownerId: "",
     ownerName: "",
     triggerName: "CAEP Risk Level Change Events",
     notifyEmail: "admin@example.com",
+    ...overrides,
   };
 }
 
 type Call = { method: string; path: string; body: unknown };
 type Route = (call: Call) => unknown;
 
-function fakeTenant(routes: Record<string, Route>) {
+function fakeTenant(routes: Record<string, Route>, clientConfig = config()) {
   const calls: Call[] = [];
   const fetchImpl: typeof fetch = async (url, init) => {
     const parsed = new URL(String(url));
@@ -57,7 +60,7 @@ function fakeTenant(routes: Record<string, Route>) {
     }
     return body === null ? new Response(null, { status: 204 }) : Response.json(body);
   };
-  return { client: createSailPointClient(config(), fetchImpl), calls };
+  return { client: createSailPointClient(clientConfig, fetchImpl), calls };
 }
 
 const SOURCE = {
@@ -657,8 +660,8 @@ describe("IdentityNow password", () => {
     const shared = calls.find(
       (call) => call.path === "/oauth/token" && !decodeURIComponent(String(call.body)).includes("scope="),
     );
-    assert.ok(scoped);
-    assert.ok(shared);
+    assert.match(decodeURIComponent(String(scoped?.body ?? "")), /client_id=password-client-id/);
+    assert.match(decodeURIComponent(String(shared?.body ?? "")), /client_id=client-id/);
   });
 
   it("still sends the invitation when set-password is forbidden", async () => {
@@ -682,6 +685,26 @@ describe("IdentityNow password", () => {
     assert.equal(result.inviteSent, true);
     assert.equal(result.done, true);
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
+  });
+
+  it("names the password environment variables when that API client is not configured", async () => {
+    const { client, calls } = fakeTenant(
+      {
+        ...READY_ACCOUNT,
+        'GET /accounts/v1?filters=identityId eq "ident-1" and sourceId eq "src-idn"': () => [
+          { id: "idn-1", nativeIdentity: "maya.chen42", disabled: false },
+        ],
+      },
+      config({ passwordClientId: "", passwordClientSecret: "" }),
+    );
+    const result = await activateTestAccount(client, input);
+    assert.equal(result.passwordSet, false);
+    assert.match(result.passwordError ?? "", /SAF_PASSWORD_CLIENT_ID/);
+    assert.equal(result.inviteSent, true);
+    assert.equal(
+      calls.some((call) => call.path === "/set-password/v1"),
+      false,
+    );
   });
 });
 
