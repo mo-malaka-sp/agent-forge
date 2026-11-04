@@ -685,6 +685,40 @@ describe("IdentityNow password", () => {
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
   });
 
+  it("sets the password with the second client after the SAF client is refused", async () => {
+    let attempts = 0;
+    const { client, calls } = fakeTenant(
+      {
+        ...READY_ACCOUNT,
+        'GET /accounts/v1?filters=identityId eq "ident-1" and sourceId eq "src-idn"': () => [
+          { id: "idn-1", nativeIdentity: "maya.chen42", disabled: false },
+        ],
+        "POST /v2025/query-password-info": () => ({
+          identityId: "ident-1",
+          sourceId: "src-idn",
+          publicKeyId: "key-1",
+          publicKey: PASSWORD_KEY,
+          accounts: [{ accountId: "maya.chen42" }],
+        }),
+        "POST /v2025/set-password": () => {
+          attempts += 1;
+          return attempts === 1
+            ? { __httpStatus: 403, detailCode: "403 Forbidden", messages: [{ text: "refuses to authorize it" }] }
+            : {};
+        },
+      },
+      config({ passwordClientId: "password-client-id", passwordClientSecret: "password-client-secret" }),
+    );
+    const result = await activateTestAccount(client, input);
+    assert.equal(result.passwordSet, true);
+    assert.equal(attempts, 2);
+    const bodies = calls
+      .filter((call) => call.path === "/oauth/token")
+      .map((call) => decodeURIComponent(String(call.body)));
+    assert.ok(bodies.some((body) => body.includes("client_id=client-id") && body.includes("scope=sp:scopes:all")));
+    assert.ok(bodies.some((body) => body.includes("client_id=password-client-id") && body.includes("scope=sp:scopes:all")));
+  });
+
   it("waits when IdentityNow does not recognize the password user yet", async () => {
     const { client } = fakeTenant({
       ...READY_ACCOUNT,

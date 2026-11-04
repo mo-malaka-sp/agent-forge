@@ -136,11 +136,13 @@ export function readonlyAccountClient(config: SailPointSetupConfig = loadSafPocC
       body?: unknown,
       contentType?: string,
       extraHeaders?: Record<string, string>,
+      credentials?: { clientId: string; clientSecret: string },
     ) =>
       client.requestWithScope(scope, method, path, body, contentType, {
         ...EXPERIMENTAL_HEADER,
         ...extraHeaders,
-      }),
+      }, credentials),
+    passwordCredentials: client.passwordCredentials,
   };
 }
 
@@ -521,12 +523,25 @@ export function encryptPassword(publicKey: string, password: string): string {
   ).toString("base64");
 }
 
-async function setIdentityPassword(client: Client, userName: string, password: string) {
+async function postIdentityPassword(
+  client: Client,
+  userName: string,
+  password: string,
+  credentials?: { clientId: string; clientSecret: string },
+) {
   const info = record(
-    await client.requestWithScope(PASSWORD_SCOPE, "POST", "/v2025/query-password-info", {
-      userName,
-      sourceName: IDENTITYNOW_SOURCE_NAME,
-    }),
+    await client.requestWithScope(
+      PASSWORD_SCOPE,
+      "POST",
+      "/v2025/query-password-info",
+      {
+        userName,
+        sourceName: IDENTITYNOW_SOURCE_NAME,
+      },
+      undefined,
+      undefined,
+      credentials,
+    ),
   );
   const publicKey = text(info.publicKey);
   const publicKeyId = text(info.publicKeyId);
@@ -536,13 +551,47 @@ async function setIdentityPassword(client: Client, userName: string, password: s
   if (!publicKey || !publicKeyId || !identityId) {
     throw new Error("SailPoint did not return the password encryption key.");
   }
-  await client.requestWithScope(PASSWORD_SCOPE, "POST", "/v2025/set-password", {
-    identityId,
-    publicKeyId,
-    accountId,
-    sourceId: text(info.sourceId) || undefined,
-    encryptedPassword: encryptPassword(publicKey, password),
-  });
+  await client.requestWithScope(
+    PASSWORD_SCOPE,
+    "POST",
+    "/v2025/set-password",
+    {
+      identityId,
+      publicKeyId,
+      accountId,
+      sourceId: text(info.sourceId) || undefined,
+      encryptedPassword: encryptPassword(publicKey, password),
+    },
+    undefined,
+    undefined,
+    credentials,
+  );
+}
+
+async function setIdentityPassword(client: Client, userName: string, password: string) {
+  try {
+    await postIdentityPassword(client, userName, password);
+  } catch (error) {
+    const alternate = client.passwordCredentials();
+    const canRetry =
+      alternate &&
+      error instanceof SailPointApiError &&
+      (error.status === 403 || error.message.includes("no valid identityId"));
+    if (!canRetry) {
+      throw error;
+    }
+    try {
+      await postIdentityPassword(client, userName, password, alternate);
+    } catch (second) {
+      if (second instanceof SailPointApiError && second.status === 403) {
+        throw new SailPointApiError(
+          403,
+          `SAF_CLIENT_ID was refused, then SAF_PASSWORD_CLIENT_ID was refused. ${second.message}`,
+        );
+      }
+      throw second;
+    }
+  }
 }
 
 export const NAME_LISTS = { first: FIRST_NAMES, last: LAST_NAMES, digits: DIGITS };

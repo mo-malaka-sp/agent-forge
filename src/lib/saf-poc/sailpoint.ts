@@ -120,7 +120,10 @@ export type SailPointSetupConfig = Pick<
   | "ownerName"
   | "triggerName"
   | "notifyEmail"
->;
+> & {
+  passwordClientId?: string;
+  passwordClientSecret?: string;
+};
 
 export function identityFromAccessToken(token: string): {
   id: string;
@@ -316,8 +319,13 @@ export function createSailPointClient(
   const origin = config.apiBase;
   let accessToken = "";
 
-  const fetchToken = async (scope?: string): Promise<string> => {
-    if (!config.clientId || !config.clientSecret) {
+  const fetchToken = async (
+    scope?: string,
+    credentials?: { clientId: string; clientSecret: string },
+  ): Promise<string> => {
+    const clientId = credentials?.clientId || config.clientId;
+    const clientSecret = credentials?.clientSecret || config.clientSecret;
+    if (!clientId || !clientSecret) {
       throw new Error(
         "Save the ISC tenant connection, or set SAF_CLIENT_ID and SAF_CLIENT_SECRET.",
       );
@@ -327,8 +335,8 @@ export function createSailPointClient(
     }
     const params = new URLSearchParams({
       grant_type: "client_credentials",
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
+      client_id: clientId,
+      client_secret: clientSecret,
     });
     if (scope) {
       params.set("scope", scope);
@@ -394,6 +402,15 @@ export function createSailPointClient(
     return send(accessToken, method, requestPath, body, contentType, extraHeaders);
   };
 
+  const passwordCredentials = () => {
+    const clientId = config.passwordClientId?.trim() ?? "";
+    const clientSecret = config.passwordClientSecret?.trim() ?? "";
+    if (!clientId || !clientSecret || clientId === config.clientId) {
+      return null;
+    }
+    return { clientId, clientSecret };
+  };
+
   const requestWithScope = async (
     scope: string,
     method: string,
@@ -401,7 +418,8 @@ export function createSailPointClient(
     body?: unknown,
     contentType = "application/json",
     extraHeaders?: Record<string, string>,
-  ) => send(await fetchToken(scope), method, requestPath, body, contentType, extraHeaders);
+    credentials?: { clientId: string; clientSecret: string },
+  ) => send(await fetchToken(scope, credentials), method, requestPath, body, contentType, extraHeaders);
 
   const listAll = async <T>(
     requestPath: string,
@@ -480,6 +498,7 @@ export function createSailPointClient(
     },
     request,
     requestWithScope,
+    passwordCredentials,
   };
 }
 
