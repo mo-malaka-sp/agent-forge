@@ -9,8 +9,6 @@ export interface SafPocConfig {
   apiBase: string;
   clientId: string;
   clientSecret: string;
-  passwordClientId: string;
-  passwordClientSecret: string;
   ownerId: string;
   ownerName: string;
   notifyEmail: string;
@@ -67,8 +65,6 @@ export function loadSafPocConfig(): SafPocConfig {
       stored?.clientSecret ||
       process.env.ISC_CLIENT_SECRET?.trim() ||
       "",
-    passwordClientId: process.env.SAF_PASSWORD_CLIENT_ID?.trim() || "",
-    passwordClientSecret: process.env.SAF_PASSWORD_CLIENT_SECRET?.trim() || "",
     ownerId: process.env.SAF_OWNER_ID?.trim() || "",
     ownerName: process.env.SAF_OWNER_NAME?.trim() || "",
     notifyEmail: process.env.SAF_NOTIFY_EMAIL?.trim() || "",

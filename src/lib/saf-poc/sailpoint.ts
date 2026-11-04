@@ -23,15 +23,6 @@ const RISK_EMAIL_BODY = [
   "<p>SailPoint correlated the event and started this workflow.</p>",
 ].join("");
 
-export class SailPointPasswordClientError extends Error {
-  constructor() {
-    super(
-      "Set SAF_PASSWORD_CLIENT_ID and SAF_PASSWORD_CLIENT_SECRET to the API client created for setting passwords.",
-    );
-    this.name = "SailPointPasswordClientError";
-  }
-}
-
 export class SailPointApiError extends Error {
   readonly status: number;
 
@@ -129,10 +120,7 @@ export type SailPointSetupConfig = Pick<
   | "ownerName"
   | "triggerName"
   | "notifyEmail"
-> & {
-  passwordClientId?: string;
-  passwordClientSecret?: string;
-};
+>;
 
 export function identityFromAccessToken(token: string): {
   id: string;
@@ -337,15 +325,10 @@ export function createSailPointClient(
     if (!origin) {
       throw new Error("Set SAF_TENANT or save the ISC tenant connection first.");
     }
-    const passwordClientId = config.passwordClientId?.trim() ?? "";
-    const passwordClientSecret = config.passwordClientSecret?.trim() ?? "";
-    if (scope && (!passwordClientId || !passwordClientSecret)) {
-      throw new SailPointPasswordClientError();
-    }
     const params = new URLSearchParams({
       grant_type: "client_credentials",
-      client_id: scope ? passwordClientId : config.clientId,
-      client_secret: scope ? passwordClientSecret : config.clientSecret,
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
     });
     if (scope) {
       params.set("scope", scope);

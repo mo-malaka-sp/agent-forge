@@ -23,8 +23,6 @@ function config(overrides: Partial<SailPointSetupConfig> = {}): SailPointSetupCo
     apiBase: "https://beta-25503.api.identitynow-demo.com",
     clientId: "client-id",
     clientSecret: "client-secret",
-    passwordClientId: "password-client-id",
-    passwordClientSecret: "password-client-secret",
     ownerId: "",
     ownerName: "",
     triggerName: "CAEP Risk Level Change Events",
@@ -660,7 +658,7 @@ describe("IdentityNow password", () => {
     const shared = calls.find(
       (call) => call.path === "/oauth/token" && !decodeURIComponent(String(call.body)).includes("scope="),
     );
-    assert.match(decodeURIComponent(String(scoped?.body ?? "")), /client_id=password-client-id/);
+    assert.match(decodeURIComponent(String(scoped?.body ?? "")), /client_id=client-id/);
     assert.match(decodeURIComponent(String(shared?.body ?? "")), /client_id=client-id/);
   });
 
@@ -724,29 +722,10 @@ describe("IdentityNow password", () => {
     const result = await activateTestAccount(client, input);
     assert.equal(result.done, true);
     assert.equal(result.passwordSet, false);
-    assert.match(result.passwordError ?? "", /personal access token/);
+    assert.match(result.passwordError ?? "", /SAF client token has no user/);
     assert.equal(result.inviteSent, true);
     assert.equal(calls.some((call) => call.path === "/set-password/v1"), false);
   });
 
-  it("names the password environment variables when that API client is not configured", async () => {
-    const { client, calls } = fakeTenant(
-      {
-        ...READY_ACCOUNT,
-        'GET /accounts/v1?filters=identityId eq "ident-1" and sourceId eq "src-idn"': () => [
-          { id: "idn-1", nativeIdentity: "maya.chen42", disabled: false },
-        ],
-      },
-      config({ passwordClientId: "", passwordClientSecret: "" }),
-    );
-    const result = await activateTestAccount(client, input);
-    assert.equal(result.passwordSet, false);
-    assert.match(result.passwordError ?? "", /SAF_PASSWORD_CLIENT_ID/);
-    assert.equal(result.inviteSent, true);
-    assert.equal(
-      calls.some((call) => call.path === "/set-password/v1"),
-      false,
-    );
-  });
 });
 

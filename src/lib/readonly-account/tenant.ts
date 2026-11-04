@@ -4,7 +4,6 @@ import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import {
   createSailPointClient,
   SailPointApiError,
-  SailPointPasswordClientError,
   type SailPointSetupConfig,
 } from "@/lib/saf-poc/sailpoint";
 
@@ -1079,16 +1078,14 @@ export async function activateTestAccount(
           processed,
         );
       }
-      if (error instanceof SailPointPasswordClientError) {
-        passwordError = error.message;
-      } else if (error instanceof SailPointApiError && error.status === 403) {
+      if (error instanceof SailPointApiError && error.status === 403) {
         passwordError = `SailPoint refused to set the password. ${error.message}`;
       } else if (
         error instanceof SailPointApiError &&
         error.message.includes("no valid identityId")
       ) {
         passwordError =
-          "SailPoint refused to set the password because this API client has no user. Create a personal access token as an Admin and use it for SAF_PASSWORD_CLIENT_ID and SAF_PASSWORD_CLIENT_SECRET.";
+          "SailPoint refused to set the password because the SAF client token has no user.";
       } else {
         throw error;
       }
