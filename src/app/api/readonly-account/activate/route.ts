@@ -7,6 +7,8 @@ export const runtime = "nodejs";
 
 const activationSchema = z.object({
   userId: z.string().regex(/^[a-z0-9.]+$/),
+  accountName: z.string().trim().min(1).max(254).optional(),
+  sourceName: z.string().trim().min(1).max(128).optional(),
   sourceId: z.string().min(1),
   profileId: z.string().min(1),
   activeStateId: z.string().min(1),

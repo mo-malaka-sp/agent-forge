@@ -359,6 +359,33 @@ describe("read-only account activation", () => {
     processed: false,
   };
 
+  it("finds the TestDriveUsers account by its email", async () => {
+    const email = "nina.nguyen@testmail.identitysoon.com";
+    const { client, calls } = fakeTenant({
+      [`GET /accounts/v1?filters=sourceId eq "src-td" and nativeIdentity eq "${email}"`]: () => [
+        {
+          id: "acct-1",
+          nativeIdentity: email,
+          identityId: null,
+          attributes: { "e-mail": email },
+        },
+      ],
+    });
+    const result = await activateTestAccount(client, {
+      ...input,
+      userId: "nina.nguyen",
+      sourceId: "src-td",
+      sourceName: "TestDriveUsers",
+      accountName: email,
+    });
+    assert.equal(result.phase, "identity-pending");
+    assert.match(result.detail, /Waiting for the identity/);
+    assert.equal(
+      calls.some((call) => call.path.includes(`nativeIdentity eq "${email}"`)),
+      true,
+    );
+  });
+
   it("does not treat an existing ISC Admins account as the new user", async () => {
     const { client, calls } = fakeTenant({
       "GET /accounts/v1": () => [
