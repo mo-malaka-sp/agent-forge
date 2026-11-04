@@ -1061,18 +1061,28 @@ export async function activateTestAccount(
     text(identityNowAccount.nativeIdentity) ||
     text(record(identityNowAccount.attributes).id) ||
     text(record(identityNowAccount.attributes).name) ||
-    input.accountName ||
-    input.userId;
+    alias ||
+    "";
   if (input.password && identityNowAccounts.length > 0 && identityNowName && !passwordSet && !passwordError) {
     try {
       await setIdentityPassword(client, identityNowName, input.password);
       passwordSet = true;
     } catch (error) {
+      if (
+        error instanceof SailPointApiError &&
+        error.status === 400 &&
+        error.message.includes("was not found")
+      ) {
+        return pending(
+          "activating",
+          `Waiting for IdentityNow to recognize ${identityNowName} before setting the password.`,
+          processed,
+        );
+      }
       if (error instanceof SailPointPasswordClientError) {
         passwordError = error.message;
       } else if (error instanceof SailPointApiError && error.status === 403) {
-        passwordError =
-          "SailPoint refused to set the password. The password API client needs the sp:scopes:all scope, and the user who created it must be an Admin.";
+        passwordError = `SailPoint refused to set the password. ${error.message}`;
       } else if (
         error instanceof SailPointApiError &&
         error.message.includes("no valid identityId")

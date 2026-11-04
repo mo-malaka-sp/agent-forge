@@ -594,7 +594,7 @@ describe("Asana test-drive requests", () => {
       fetchImpl: asanaFetch(stories) as typeof fetch,
     });
     assert.equal(status?.done, true);
-    assert.match(status?.detail ?? "", /sp:scopes:all/);
+    assert.match(status?.detail ?? "", /HTTP 403/);
     assert.doesNotMatch(JSON.stringify(stories[0]), /Password:/);
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
   });

@@ -681,10 +681,32 @@ describe("IdentityNow password", () => {
     });
     const result = await activateTestAccount(client, input);
     assert.equal(result.passwordSet, false);
-    assert.match(result.passwordError ?? "", /sp:scopes:all/);
+    assert.match(result.passwordError ?? "", /HTTP 403/);
     assert.equal(result.inviteSent, true);
     assert.equal(result.done, true);
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
+  });
+
+  it("waits when IdentityNow does not recognize the password user yet", async () => {
+    const { client } = fakeTenant({
+      ...READY_ACCOUNT,
+      'GET /accounts/v1?filters=identityId eq "ident-1" and sourceId eq "src-idn"': () => [
+        { id: "idn-1", nativeIdentity: "evan.hayes@testmail.identitysoon.com", disabled: false },
+      ],
+      "POST /query-password-info/v1": () => ({
+        __httpStatus: 400,
+        detailCode: "400.1.404 Referenced object not found",
+        messages: [
+          {
+            text: 'Referenced identity "evan.hayes@testmail.identitysoon.com" was not found.',
+          },
+        ],
+      }),
+    });
+    const result = await activateTestAccount(client, input);
+    assert.equal(result.done, false);
+    assert.equal(result.passwordSet, false);
+    assert.match(result.detail, /recognize evan.hayes@testmail.identitysoon.com/);
   });
 
   it("keeps the identity active when the password client has no user", async () => {
