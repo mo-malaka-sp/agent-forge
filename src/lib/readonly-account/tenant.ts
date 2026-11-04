@@ -523,7 +523,7 @@ export function encryptPassword(publicKey: string, password: string): string {
 
 async function setIdentityPassword(client: Client, userName: string, password: string) {
   const info = record(
-    await client.requestWithScope(PASSWORD_SCOPE, "POST", "/query-password-info/v1", {
+    await client.requestWithScope(PASSWORD_SCOPE, "POST", "/v2025/query-password-info", {
       userName,
       sourceName: IDENTITYNOW_SOURCE_NAME,
     }),
@@ -536,7 +536,7 @@ async function setIdentityPassword(client: Client, userName: string, password: s
   if (!publicKey || !publicKeyId || !identityId) {
     throw new Error("SailPoint did not return the password encryption key.");
   }
-  await client.requestWithScope(PASSWORD_SCOPE, "POST", "/set-password/v1", {
+  await client.requestWithScope(PASSWORD_SCOPE, "POST", "/v2025/set-password", {
     identityId,
     publicKeyId,
     accountId,

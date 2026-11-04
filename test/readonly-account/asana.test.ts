@@ -218,14 +218,14 @@ const READY_ROUTES = {
     { id: "assign-1", role: { name: "ReadOnly-Admins" } },
   ],
   "POST /beta/identities/invite": () => ({ id: "invite-task" }),
-  "POST /query-password-info/v1": () => ({
+  "POST /v2025/query-password-info": () => ({
     identityId: "ident-1",
     sourceId: "src-idn",
     publicKeyId: "key-1",
     publicKey: PASSWORD_KEY,
     accounts: [{ accountId: "maya.chen" }],
   }),
-  "POST /set-password/v1": () => ({}),
+  "POST /v2025/set-password": () => ({}),
 };
 
 function rememberedAccounts() {
@@ -580,7 +580,7 @@ describe("Asana test-drive requests", () => {
     const { client, calls } = fakeTenant({
       ...READY_ROUTES,
       ...WAITING_ACCOUNT,
-      "POST /set-password/v1": () => ({ __httpStatus: 403, message: "Forbidden" }),
+      "POST /v2025/set-password": () => ({ __httpStatus: 403, message: "Forbidden" }),
     });
     const job = waitingJob();
     job.user.password = "TestDrive9!";

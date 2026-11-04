@@ -633,21 +633,21 @@ describe("IdentityNow password", () => {
       'GET /accounts/v1?filters=identityId eq "ident-1" and sourceId eq "src-idn"': () => [
         { id: "idn-1", nativeIdentity: "maya.chen42", disabled: false },
       ],
-      "POST /query-password-info/v1": () => ({
+      "POST /v2025/query-password-info": () => ({
         identityId: "ident-1",
         sourceId: "src-idn",
         publicKeyId: "key-1",
         publicKey: PASSWORD_KEY,
         accounts: [{ accountId: "maya.chen42" }],
       }),
-      "POST /set-password/v1": () => ({}),
+      "POST /v2025/set-password": () => ({}),
     });
     const result = await activateTestAccount(client, input);
     assert.equal(result.passwordSet, true);
     assert.equal(result.inviteSent, true);
-    const query = calls.find((call) => call.path === "/query-password-info/v1");
+    const query = calls.find((call) => call.path === "/v2025/query-password-info");
     assert.deepEqual(query?.body, { userName: "maya.chen42", sourceName: "IdentityNow" });
-    const setPassword = calls.find((call) => call.path === "/set-password/v1");
+    const setPassword = calls.find((call) => call.path === "/v2025/set-password");
     const body = setPassword?.body as { accountId?: string; identityId?: string; publicKeyId?: string };
     assert.equal(body.accountId, "maya.chen42");
     assert.equal(body.identityId, "ident-1");
@@ -668,14 +668,14 @@ describe("IdentityNow password", () => {
       'GET /accounts/v1?filters=identityId eq "ident-1" and sourceId eq "src-idn"': () => [
         { id: "idn-1", nativeIdentity: "maya.chen42", disabled: false },
       ],
-      "POST /query-password-info/v1": () => ({
+      "POST /v2025/query-password-info": () => ({
         identityId: "ident-1",
         sourceId: "src-idn",
         publicKeyId: "key-1",
         publicKey: PASSWORD_KEY,
         accounts: [{ accountId: "maya.chen42" }],
       }),
-      "POST /set-password/v1": () => ({ __httpStatus: 403, message: "Forbidden" }),
+      "POST /v2025/set-password": () => ({ __httpStatus: 403, message: "Forbidden" }),
     });
     const result = await activateTestAccount(client, input);
     assert.equal(result.passwordSet, false);
@@ -691,7 +691,7 @@ describe("IdentityNow password", () => {
       'GET /accounts/v1?filters=identityId eq "ident-1" and sourceId eq "src-idn"': () => [
         { id: "idn-1", nativeIdentity: "evan.hayes@testmail.identitysoon.com", disabled: false },
       ],
-      "POST /query-password-info/v1": () => ({
+      "POST /v2025/query-password-info": () => ({
         __httpStatus: 400,
         detailCode: "400.1.404 Referenced object not found",
         messages: [
@@ -713,7 +713,7 @@ describe("IdentityNow password", () => {
       'GET /accounts/v1?filters=identityId eq "ident-1" and sourceId eq "src-idn"': () => [
         { id: "idn-1", nativeIdentity: "maya.chen42", disabled: false },
       ],
-      "POST /query-password-info/v1": () => ({
+      "POST /v2025/query-password-info": () => ({
         __httpStatus: 500,
         errorName: "IllegalStateException",
         errorMessage: "there is no valid identityId in the current RequestContext",
@@ -724,7 +724,7 @@ describe("IdentityNow password", () => {
     assert.equal(result.passwordSet, false);
     assert.match(result.passwordError ?? "", /SAF client token has no user/);
     assert.equal(result.inviteSent, true);
-    assert.equal(calls.some((call) => call.path === "/set-password/v1"), false);
+    assert.equal(calls.some((call) => call.path === "/v2025/set-password"), false);
   });
 
 });
