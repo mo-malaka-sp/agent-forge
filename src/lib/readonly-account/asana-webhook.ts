@@ -138,13 +138,15 @@ export function taskGidsForStatusEvents(events: unknown): string[] {
       continue;
     }
     const record = event as AsanaEvent;
-    const gid = record.resource?.gid ?? "";
-    if (
-      (record.action === "added" || record.action === "changed") &&
-      record.resource?.resource_type === "task" &&
-      TASK_GID.test(gid)
-    ) {
-      gids.add(gid);
+    if (record.action !== "added" && record.action !== "changed") {
+      continue;
+    }
+    const candidates = [record.resource, record.parent];
+    for (const candidate of candidates) {
+      const gid = candidate?.gid ?? "";
+      if (candidate?.resource_type === "task" && TASK_GID.test(gid)) {
+        gids.add(gid);
+      }
     }
   }
   return [...gids];
@@ -194,7 +196,7 @@ export async function receiveAsanaWebhook(
   options: {
     store: WebhookStore;
     accept?: (taskGid: string) => Promise<unknown>;
-    confirmStatus?: (taskGid: string) => Promise<boolean>;
+    confirmStatus?: (taskGid: string) => Promise<boolean | string>;
     confirmSection?: (taskGid: string, sectionGid: string) => Promise<boolean>;
     reportFailure?: (taskGid: string, message: string) => Promise<void>;
     record?: (message: string) => Promise<void>;
@@ -248,9 +250,21 @@ export async function receiveAsanaWebhook(
   }
   if (options.confirmStatus) {
     const accepted: string[] = [];
-    for (const taskGid of taskGidsForStatusEvents(events)) {
+    const notes: string[] = [];
+    const taskGids = taskGidsForStatusEvents(events);
+    if (taskGids.length === 0) {
+      await options.record?.(
+        `Delivery received ${events.length} event(s). None of them named a task.`,
+      );
+      return { status: 200, headers: {}, body: { ok: true, accepted } };
+    }
+    for (const taskGid of taskGids) {
       try {
-        if (!(await options.confirmStatus(taskGid))) {
+        const answer = await options.confirmStatus(taskGid);
+        if (answer !== true) {
+          if (typeof answer === "string" && answer.trim()) {
+            notes.push(answer.trim());
+          }
           continue;
         }
         await options.accept?.(taskGid);
@@ -264,7 +278,7 @@ export async function receiveAsanaWebhook(
     await options.record?.(
       accepted.length > 0
         ? `Delivery accepted ${accepted.join(", ")}.`
-        : `Delivery received ${events.length} event(s). No task in New request was accepted.`,
+        : `Delivery received ${events.length} event(s). ${notes.join(" ") || "No task in the trigger status was accepted."}`,
     );
     return { status: 200, headers: {}, body: { ok: true, accepted } };
   }
@@ -406,7 +420,8 @@ export async function findSectionGid(
     `/projects/${projectGid}/sections?opt_fields=name&limit=100`,
     fetchImpl,
   );
-  const match = sections.find((section) => section.name === sectionName);
+  const wanted = sectionName.trim().toLowerCase();
+  const match = sections.find((section) => (section.name ?? "").trim().toLowerCase() === wanted);
   if (!match?.gid) {
     throw new Error(`Asana section ${sectionName} was not found.`);
   }

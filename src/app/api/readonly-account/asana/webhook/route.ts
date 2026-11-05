@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { asanaAccessToken, loadAsanaDesk } from "@/lib/readonly-account/asana-desk";
-import { acceptAsanaTask, commentAsanaOnce, taskHasTriggerStatus } from "@/lib/readonly-account/asana";
+import { acceptAsanaTask, commentAsanaOnce, describeTaskStatus } from "@/lib/readonly-account/asana";
 import {
   appendWebhookLog,
   defaultWebhookStore,
@@ -31,9 +31,14 @@ export async function POST(request: Request) {
       record: (message) => appendWebhookLog(store, message).then(() => undefined),
       confirmStatus: async (taskGid) => {
         try {
-          return await taskHasTriggerStatus(taskGid, { token, desk });
-        } catch {
-          return false;
+          const status = await describeTaskStatus(taskGid, { token, desk });
+          if (status.toLowerCase() === desk.triggerStatus.trim().toLowerCase()) {
+            return true;
+          }
+          return `Task ${taskGid} is in "${status || "blank"}".`;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "The task status could not be read.";
+          return `Task ${taskGid} was not read. ${message}`;
         }
       },
       reportFailure: (taskGid, message) => commentAsanaOnce(taskGid, `SAF Test Drive\n${message}`, token),

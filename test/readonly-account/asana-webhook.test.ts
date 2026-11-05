@@ -49,9 +49,10 @@ describe("Asana ready-section webhook", () => {
     const gids = taskGidsForStatusEvents([
       { action: "added", resource: { gid: TASK, resource_type: "task" } },
       { action: "changed", resource: { gid: "1234567890124", resource_type: "task" } },
+      { action: "added", resource: { gid: "1234567890126", resource_type: "story" }, parent: { gid: "1234567890127", resource_type: "task" } },
       { action: "removed", resource: { gid: "1234567890125", resource_type: "task" } },
     ]);
-    assert.deepEqual(gids, [TASK, "1234567890124"]);
+    assert.deepEqual(gids, [TASK, "1234567890124", "1234567890127"]);
   });
 
   it("accepts a task only when its status is New request", async () => {
@@ -78,6 +79,31 @@ describe("Asana ready-section webhook", () => {
     );
     assert.equal(result.status, 200);
     assert.deepEqual(accepted, [TASK]);
+  });
+
+  it("records the status it read when the task is not New request", async () => {
+    const store = memoryWebhookStore({
+      secret: "handshake-secret",
+      sectionGid: "",
+      projectGid: "1200000000000001",
+      webhookGid: "1200000000000099",
+    });
+    const body = JSON.stringify({
+      events: [{ action: "changed", resource: { gid: TASK, resource_type: "task" } }],
+    });
+    const notes: string[] = [];
+    const result = await receiveAsanaWebhook(
+      { hookSecret: null, signature: sign(body, "handshake-secret"), body },
+      {
+        store,
+        confirmStatus: async () => `Task ${TASK} is in "Needs information".`,
+        record: async (message) => {
+          notes.push(message);
+        },
+      },
+    );
+    assert.equal(result.status, 200);
+    assert.match(notes.join("\n"), /Needs information/);
   });
 
   it("stores the handshake secret and echoes it", async () => {

@@ -13,6 +13,7 @@ import {
   DEFAULT_ASANA_PROJECT_NAME,
   defaultWebhookStore,
   findProjectGid,
+  findSectionGid,
 } from "@/lib/readonly-account/asana-webhook";
 import {
   accountPassword,
@@ -85,7 +86,7 @@ export type AsanaCustomField = {
 type AsanaTask = {
   name?: string;
   custom_fields?: AsanaCustomField[];
-  memberships?: Array<{ project?: { gid?: string } }>;
+  memberships?: Array<{ project?: { gid?: string }; section?: { gid?: string; name?: string } }>;
 };
 
 type AsanaCallOptions = {
@@ -342,40 +343,70 @@ export function fieldByName(fields: AsanaCustomField[], name: string): AsanaCust
   return fields.find((field) => (field.name ?? "").trim().toLowerCase() === wanted) ?? null;
 }
 
+export async function describeTaskStatus(
+  taskGid: string,
+  options: AsanaCallOptions = {},
+): Promise<string> {
+  const desk = options.desk ?? loadAsanaDesk();
+  const token = asanaAccessToken(options.token, desk);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const task = await fetchAsanaTask(taskGid, token, fetchImpl, true);
+  const projectGid = await resolveProjectGid(
+    token,
+    fetchImpl,
+    options.projectGid || task.memberships?.find((membership) => membership.project?.gid)?.project?.gid,
+    desk,
+  );
+  const fields = await projectCustomFields(projectGid, token, fetchImpl);
+  const status = statusField(fields, desk);
+  if (status?.gid) {
+    const value = (task.custom_fields ?? []).find((field) => field.gid === status.gid);
+    return (value?.enum_value?.name || value?.display_value || "").trim();
+  }
+  return sectionName(task, projectGid, desk).trim();
+}
+
 export async function taskHasTriggerStatus(
   taskGid: string,
   options: AsanaCallOptions = {},
 ): Promise<boolean> {
   const desk = options.desk ?? loadAsanaDesk();
-  const task = await fetchAsanaTask(taskGid, asanaAccessToken(options.token, desk), options.fetchImpl, true);
-  const projectGid = await resolveProjectGid(
-    asanaAccessToken(options.token, desk),
-    options.fetchImpl ?? fetch,
-    options.projectGid || task.memberships?.find((membership) => membership.project?.gid)?.project?.gid,
-    desk,
-  );
-  const fields = await projectCustomFields(projectGid, asanaAccessToken(options.token, desk), options.fetchImpl);
-  const status = statusField(fields, desk);
-  if (!status?.gid) {
-    return false;
+  const name = await describeTaskStatus(taskGid, options);
+  return name.toLowerCase() === desk.triggerStatus.trim().toLowerCase();
+}
+
+function sectionName(task: AsanaTask, projectGid: string, desk: AsanaDeskConfig): string {
+  const memberships = task.memberships ?? [];
+  const inProject = memberships.find((membership) => membership.project?.gid === projectGid);
+  if (inProject?.section?.name) {
+    return inProject.section.name;
   }
-  const value = (task.custom_fields ?? []).find((field) => field.gid === status.gid);
-  const name = value?.enum_value?.name || value?.display_value || "";
-  return name.trim().toLowerCase() === desk.triggerStatus.trim().toLowerCase();
+  const known = [desk.triggerStatus, desk.workingStatus, desk.doneStatus].map((name) =>
+    name.trim().toLowerCase(),
+  );
+  const named = memberships.find((membership) =>
+    known.includes((membership.section?.name ?? "").trim().toLowerCase()),
+  );
+  return named?.section?.name || memberships.find((membership) => membership.section?.name)?.section?.name || "";
 }
 
 async function setTaskStatus(taskGid: string, statusName: string, options: AsanaCallOptions) {
   const desk = options.desk ?? loadAsanaDesk();
   const token = asanaAccessToken(options.token, desk);
-  const projectGid = await resolveProjectGid(token, options.fetchImpl ?? fetch, options.projectGid, desk);
-  const fields = await projectCustomFields(projectGid, token, options.fetchImpl);
-  const status = requireStatusField(fields, desk);
-  await putCustomFields(
-    taskGid,
-    { [requireGid(status, "status")]: enumOptionGid(status, statusName) },
-    token,
-    options.fetchImpl,
-  );
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const projectGid = await resolveProjectGid(token, fetchImpl, options.projectGid, desk);
+  const fields = await projectCustomFields(projectGid, token, fetchImpl);
+  const status = statusField(fields, desk);
+  if (status?.gid) {
+    await putCustomFields(
+      taskGid,
+      { [requireGid(status, "status")]: enumOptionGid(status, statusName) },
+      token,
+      fetchImpl,
+    );
+    return;
+  }
+  await moveTaskToNamedSection(taskGid, statusName, projectGid, token, fetchImpl);
 }
 
 async function writeTaskResult(
@@ -388,29 +419,44 @@ async function writeTaskResult(
   const token = asanaAccessToken(options.token, options.desk);
   const projectGid = await resolveProjectGid(token, options.fetchImpl ?? fetch, options.projectGid, options.desk);
   const fields = await projectCustomFields(projectGid, token, options.fetchImpl);
-  const status = requireStatusField(fields, options.desk);
+  const status = statusField(fields, options.desk);
   const account = requireNamedField(fields, options.desk.accountField);
   const code = requireNamedField(fields, options.desk.codeField);
   const link = requireNamedField(fields, options.desk.tenantLinkField);
-  await putCustomFields(
-    job.asanaTaskGid,
-    {
-      [requireGid(account, options.desk.accountField)]: job.user.email,
-      [requireGid(code, options.desk.codeField)]: job.resetCode ?? "",
-      [requireGid(link, options.desk.tenantLinkField)]: tenantLink(options.desk),
-      [requireGid(status, "status")]: enumOptionGid(status, options.desk.doneStatus),
-    },
-    token,
-    options.fetchImpl,
-  );
+  const values: Record<string, string> = {
+    [requireGid(account, options.desk.accountField)]: job.user.email,
+    [requireGid(code, options.desk.codeField)]: job.resetCode ?? "",
+    [requireGid(link, options.desk.tenantLinkField)]: tenantLink(options.desk),
+  };
+  if (status?.gid) {
+    values[requireGid(status, "status")] = enumOptionGid(status, options.desk.doneStatus);
+  }
+  await putCustomFields(job.asanaTaskGid, values, token, options.fetchImpl);
+  if (!status?.gid) {
+    await moveTaskToNamedSection(job.asanaTaskGid, options.desk.doneStatus, projectGid, token, options.fetchImpl);
+  }
 }
 
-function requireStatusField(fields: AsanaCustomField[], desk: AsanaDeskConfig): AsanaCustomField {
-  const field = statusField(fields, desk);
-  if (!field?.gid) {
-    throw new Error("Asana status field with New request, Evaluation, and Approved was not found.");
+async function moveTaskToNamedSection(
+  taskGid: string,
+  sectionName: string,
+  projectGid: string,
+  token: string,
+  fetchImpl: typeof fetch,
+) {
+  const sectionGid = await findSectionGid(token, projectGid, sectionName, fetchImpl);
+  const response = await fetchImpl(`${ASANA_API}/sections/${sectionGid}/addTask`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ data: { task: taskGid } }),
+  });
+  if (!response.ok) {
+    throw new Error(`Asana did not move the task to ${sectionName} (${response.status}).`);
   }
-  return field;
 }
 
 function requireNamedField(fields: AsanaCustomField[], name: string): AsanaCustomField {
@@ -487,7 +533,7 @@ async function resolveProjectGid(
   projectGid: string | undefined,
   desk: AsanaDeskConfig,
 ): Promise<string> {
-  const given = projectGid?.trim() || process.env.ASANA_PROJECT_GID?.trim() || "";
+  const given = projectGid?.trim() || "";
   if (given) {
     return given;
   }
@@ -495,7 +541,15 @@ async function resolveProjectGid(
   if (stored) {
     return stored;
   }
-  return findProjectGid(token, desk.projectName || DEFAULT_ASANA_PROJECT_NAME, fetchImpl);
+  const fromEnv = process.env.ASANA_PROJECT_GID?.trim() || "";
+  try {
+    return await findProjectGid(token, desk.projectName || DEFAULT_ASANA_PROJECT_NAME, fetchImpl);
+  } catch (error) {
+    if (fromEnv) {
+      return fromEnv;
+    }
+    throw error;
+  }
 }
 
 async function leadSeEmail(
@@ -569,7 +623,7 @@ async function fetchAsanaTask(
     throw new Error("Set the Asana access token in the back desk.");
   }
   const fields = includeStatus
-    ? `${TASK_FIELDS},custom_fields.gid,custom_fields.enum_value.name,custom_fields.display_value,memberships.project.gid`
+    ? `${TASK_FIELDS},custom_fields.gid,custom_fields.enum_value,custom_fields.enum_value.name,custom_fields.display_value,memberships.project.gid,memberships.section.gid,memberships.section.name`
     : TASK_FIELDS;
   const response = await fetchImpl(
     `${ASANA_API}/tasks/${taskGid}?opt_fields=${encodeURIComponent(fields)}`,

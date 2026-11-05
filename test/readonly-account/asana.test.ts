@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import { asanaDeskPublic, defaultAsanaDesk, saveAsanaDesk, tenantLink } from "@/lib/readonly-account/asana-desk";
 import {
   acceptAsanaTask,
+  describeTaskStatus,
   fieldByName,
   finishPendingAsanaAccounts,
   leadSeFromAsanaTask,
@@ -156,6 +157,8 @@ function asanaFetch(
     failMove?: boolean;
     failUpdate?: boolean;
     inAssigned?: boolean;
+    sectionName?: string;
+    fields?: unknown[];
     sections?: Array<{ gid: string; name: string }>;
     moves?: unknown[];
     updates?: unknown[];
@@ -174,7 +177,7 @@ function asanaFetch(
     urls.push(target);
     const method = init?.method ?? "GET";
     if (target.includes("custom_field_settings")) {
-      return Response.json({ data: FIELD_SETTINGS });
+      return Response.json({ data: options.fields ?? FIELD_SETTINGS });
     }
     if (method === "PUT" && target.includes("/tasks/")) {
       if (options.failUpdate) {
@@ -201,9 +204,14 @@ function asanaFetch(
       return Response.json({ data: sections });
     }
     if (target.includes("memberships.section")) {
+      const section = options.inAssigned
+        ? { gid: "section-assigned", name: options.sectionName ?? "Assigned" }
+        : options.sectionName
+          ? { gid: "section-new", name: options.sectionName }
+          : null;
       return Response.json({
         data: {
-          memberships: options.inAssigned ? [{ section: { gid: "section-assigned" } }] : [],
+          memberships: section ? [{ project: { gid: "project-1" }, section }] : [],
         },
       });
     }
@@ -683,6 +691,74 @@ describe("Asana test-drive requests", () => {
     assert.match(status?.detail ?? "", /Reset code was not issued/);
     assert.equal(updates.length, 0);
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
+  });
+
+  it("uses the board column when no custom field has New request, Evaluation, and Approved", async () => {
+    const updates: unknown[] = [];
+    const moves: unknown[] = [];
+    const urls: string[] = [];
+    const { routes } = rememberedAccounts();
+    const { client } = fakeTenant({ ...READY_ROUTES, ...routes });
+    const columnFields = [
+      {
+        custom_field: {
+          gid: "field-drive",
+          name: "Test Drive Status",
+          resource_subtype: "enum",
+          enum_options: [{ gid: "opt-td", name: "New" }],
+        },
+      },
+      {
+        custom_field: {
+          gid: "field-extension",
+          name: "New or extension",
+          resource_subtype: "enum",
+          enum_options: [
+            { gid: "opt-nr", name: "New request" },
+            { gid: "opt-ex", name: "Extension" },
+          ],
+        },
+      },
+      { custom_field: { gid: "field-account", name: "Sandbox account", resource_subtype: "text" } },
+      { custom_field: { gid: "field-code", name: "Initial password", resource_subtype: "text" } },
+      { custom_field: { gid: "field-link", name: "Tenant link", resource_subtype: "text" } },
+    ];
+    const fetchImpl = asanaFetch([], {
+      updates,
+      moves,
+      urls,
+      fields: columnFields,
+      sections: [
+        { gid: "section-new", name: "New request" },
+        { gid: "section-eval", name: "Evaluation" },
+        { gid: "section-approved", name: "Approved" },
+      ],
+    }) as typeof fetch;
+    const seen = await describeTaskStatus(TASK_GID, {
+      token: "asana-token",
+      projectGid: "project-1",
+      desk: testDesk(),
+      fetchImpl: asanaFetch([], { fields: columnFields, sectionName: "New request" }) as typeof fetch,
+    });
+    assert.equal(seen, "New request");
+    const status = await acceptAsanaTask(TASK_GID, {
+      token: "asana-token",
+      client,
+      store: memoryStore(),
+      projectGid: "project-1",
+      desk: testDesk(),
+      random: () => 0,
+      fetchImpl,
+    });
+    assert.equal(status.done, true);
+    assert.equal(status.email, "maya.chen@testmail.identitysoon.com");
+    assert.ok(urls.some((url) => url.includes("/sections/section-eval/addTask")));
+    assert.ok(urls.some((url) => url.includes("/sections/section-approved/addTask")));
+    assert.equal(moves.length, 2);
+    const fields = (updates[0] as { data: { custom_fields: Record<string, string> } }).data.custom_fields;
+    assert.equal(fields["field-account"], "maya.chen@testmail.identitysoon.com");
+    assert.equal(fields["field-code"], "261856");
+    assert.equal(fields["field-status"], undefined);
   });
 
   it("chooses the status field that contains New request, Evaluation, and Approved", () => {
