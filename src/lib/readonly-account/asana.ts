@@ -85,6 +85,8 @@ export type AsanaCustomField = {
 
 type AsanaTask = {
   name?: string;
+  custom_type?: { gid?: string; name?: string } | null;
+  custom_type_status_option?: { gid?: string; name?: string } | null;
   custom_fields?: AsanaCustomField[];
   memberships?: Array<{ project?: { gid?: string }; section?: { gid?: string; name?: string } }>;
 };
@@ -351,6 +353,10 @@ export async function describeTaskStatus(
   const token = asanaAccessToken(options.token, desk);
   const fetchImpl = options.fetchImpl ?? fetch;
   const task = await fetchAsanaTask(taskGid, token, fetchImpl, true);
+  const taskTypeStatus = task.custom_type_status_option?.name?.trim() ?? "";
+  if (taskTypeStatus) {
+    return taskTypeStatus;
+  }
   const projectGid = await resolveProjectGid(
     token,
     fetchImpl,
@@ -395,6 +401,11 @@ async function setTaskStatus(taskGid: string, statusName: string, options: Asana
   const token = asanaAccessToken(options.token, desk);
   const fetchImpl = options.fetchImpl ?? fetch;
   const projectGid = await resolveProjectGid(token, fetchImpl, options.projectGid, desk);
+  const task = await fetchAsanaTask(taskGid, token, fetchImpl, true);
+  if (task.custom_type_status_option) {
+    await putTaskTypeStatus(taskGid, task, statusName, projectGid, token, fetchImpl);
+    return;
+  }
   const fields = await projectCustomFields(projectGid, token, fetchImpl);
   const status = statusField(fields, desk);
   if (status?.gid) {
@@ -409,6 +420,87 @@ async function setTaskStatus(taskGid: string, statusName: string, options: Asana
   await moveTaskToNamedSection(taskGid, statusName, projectGid, token, fetchImpl);
 }
 
+async function taskTypeStatusOptionGid(
+  task: AsanaTask,
+  statusName: string,
+  projectGid: string,
+  token: string,
+  fetchImpl: typeof fetch,
+): Promise<string> {
+  type StatusOption = { gid?: string; name?: string; enabled?: boolean };
+  type TaskType = { gid?: string; status_options?: StatusOption[] };
+  const optFields = encodeURIComponent(
+    "name,status_options,status_options.gid,status_options.name,status_options.enabled",
+  );
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
+  const wanted = statusName.trim().toLowerCase();
+  const find = (types: TaskType[]) => {
+    for (const type of types) {
+      const option = (type.status_options ?? []).find(
+        (item) =>
+          item.enabled !== false &&
+          item.gid &&
+          item.gid !== "undefined" &&
+          (item.name ?? "").trim().toLowerCase() === wanted,
+      );
+      if (option?.gid) {
+        return option.gid;
+      }
+    }
+    return "";
+  };
+  const listed = await fetchImpl(`${ASANA_API}/custom_types?project=${projectGid}&opt_fields=${optFields}`, {
+    headers,
+  });
+  if (!listed.ok) {
+    throw new Error(`Asana did not return the task types (${listed.status}).`);
+  }
+  const types = ((await listed.json()) as { data?: TaskType[] }).data ?? [];
+  const own = task.custom_type?.gid ? types.filter((type) => type.gid === task.custom_type?.gid) : types;
+  const found = find(own.length > 0 ? own : types);
+  if (found) {
+    return found;
+  }
+  if (task.custom_type?.gid) {
+    const single = await fetchImpl(`${ASANA_API}/custom_types/${task.custom_type.gid}?opt_fields=${optFields}`, {
+      headers,
+    });
+    if (single.ok) {
+      const type = ((await single.json()) as { data?: TaskType }).data;
+      const option = type ? find([type]) : "";
+      if (option) {
+        return option;
+      }
+    }
+  }
+  throw new Error(`Asana status "${statusName}" was not found.`);
+}
+
+async function putTaskTypeStatus(
+  taskGid: string,
+  task: AsanaTask,
+  statusName: string,
+  projectGid: string,
+  token: string,
+  fetchImpl: typeof fetch,
+) {
+  const optionGid = await taskTypeStatusOptionGid(task, statusName, projectGid, token, fetchImpl);
+  const response = await fetchImpl(`${ASANA_API}/tasks/${taskGid}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      data: { resource_subtype: "custom", custom_type_status_option: optionGid },
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Asana did not set the status ${statusName} (${response.status}).`);
+  }
+}
+
 async function writeTaskResult(
   job: AsanaAccountJob,
   options: AsanaCallOptions & { desk: AsanaDeskConfig },
@@ -417,9 +509,12 @@ async function writeTaskResult(
     throw new Error("Set the tenant link field in the back desk.");
   }
   const token = asanaAccessToken(options.token, options.desk);
-  const projectGid = await resolveProjectGid(token, options.fetchImpl ?? fetch, options.projectGid, options.desk);
-  const fields = await projectCustomFields(projectGid, token, options.fetchImpl);
-  const status = statusField(fields, options.desk);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const projectGid = await resolveProjectGid(token, fetchImpl, options.projectGid, options.desk);
+  const fields = await projectCustomFields(projectGid, token, fetchImpl);
+  const task = await fetchAsanaTask(job.asanaTaskGid, token, fetchImpl, true);
+  const taskType = Boolean(task.custom_type_status_option);
+  const status = taskType ? null : statusField(fields, options.desk);
   const account = requireNamedField(fields, options.desk.accountField);
   const code = requireNamedField(fields, options.desk.codeField);
   const link = requireNamedField(fields, options.desk.tenantLinkField);
@@ -431,15 +526,11 @@ async function writeTaskResult(
   if (status?.gid) {
     values[requireGid(status, "status")] = enumOptionGid(status, options.desk.doneStatus);
   }
-  await putCustomFields(job.asanaTaskGid, values, token, options.fetchImpl);
-  if (!status?.gid) {
-    await moveTaskToNamedSection(
-      job.asanaTaskGid,
-      options.desk.doneStatus,
-      projectGid,
-      token,
-      options.fetchImpl ?? fetch,
-    );
+  await putCustomFields(job.asanaTaskGid, values, token, fetchImpl);
+  if (taskType) {
+    await putTaskTypeStatus(job.asanaTaskGid, task, options.desk.doneStatus, projectGid, token, fetchImpl);
+  } else if (!status?.gid) {
+    await moveTaskToNamedSection(job.asanaTaskGid, options.desk.doneStatus, projectGid, token, fetchImpl);
   }
 }
 
@@ -629,7 +720,7 @@ async function fetchAsanaTask(
     throw new Error("Set the Asana access token in the back desk.");
   }
   const fields = includeStatus
-    ? `${TASK_FIELDS},custom_fields.gid,custom_fields.enum_value,custom_fields.enum_value.name,custom_fields.display_value,memberships.project.gid,memberships.section.gid,memberships.section.name`
+    ? `${TASK_FIELDS},custom_type.gid,custom_type.name,custom_type_status_option.gid,custom_type_status_option.name,custom_fields.gid,custom_fields.enum_value,custom_fields.enum_value.name,custom_fields.display_value,memberships.project.gid,memberships.section.gid,memberships.section.name`
     : TASK_FIELDS;
   const response = await fetchImpl(
     `${ASANA_API}/tasks/${taskGid}?opt_fields=${encodeURIComponent(fields)}`,

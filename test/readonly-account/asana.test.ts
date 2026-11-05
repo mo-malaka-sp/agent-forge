@@ -158,6 +158,7 @@ function asanaFetch(
     failUpdate?: boolean;
     inAssigned?: boolean;
     sectionName?: string;
+    taskType?: string;
     fields?: unknown[];
     sections?: Array<{ gid: string; name: string }>;
     moves?: unknown[];
@@ -202,6 +203,32 @@ function asanaFetch(
     }
     if (target.includes("/projects/") && target.includes("/sections")) {
       return Response.json({ data: sections });
+    }
+    if (target.includes("/custom_types")) {
+      return Response.json({
+        data: [
+          {
+            gid: "type-1",
+            status_options: [
+              { gid: "s-new", name: "New request", enabled: true },
+              { gid: "s-eval", name: "Evaluation", enabled: true },
+              { gid: "s-approved", name: "Approved", enabled: true },
+              { gid: "s-old", name: "Approved", enabled: false },
+            ],
+          },
+        ],
+      });
+    }
+    if (method === "GET" && options.taskType && target.includes(`/tasks/${TASK_GID}?`)) {
+      return Response.json({
+        data: {
+          name: "SAF Test Drive Request - Customer004",
+          custom_type: { gid: "type-1", name: "Work request" },
+          custom_type_status_option: { gid: "s-current", name: options.taskType },
+          custom_fields: [],
+          memberships: [{ project: { gid: "project-1" }, section: { gid: "sec", name: "New Requests" } }],
+        },
+      });
     }
     if (target.includes("memberships.section")) {
       const section = options.inAssigned
@@ -759,6 +786,39 @@ describe("Asana test-drive requests", () => {
     assert.equal(fields["field-account"], "maya.chen@testmail.identitysoon.com");
     assert.equal(fields["field-code"], "261856");
     assert.equal(fields["field-status"], undefined);
+  });
+
+  it("reads and sets the task status when the task has a task type", async () => {
+    const updates: unknown[] = [];
+    const { routes } = rememberedAccounts();
+    const { client } = fakeTenant({ ...READY_ROUTES, ...routes });
+    const seen = await describeTaskStatus(TASK_GID, {
+      token: "asana-token",
+      projectGid: "project-1",
+      desk: testDesk(),
+      fetchImpl: asanaFetch([], { taskType: "New request" }) as typeof fetch,
+    });
+    assert.equal(seen, "New request");
+    const status = await acceptAsanaTask(TASK_GID, {
+      token: "asana-token",
+      client,
+      store: memoryStore(),
+      projectGid: "project-1",
+      desk: testDesk(),
+      random: () => 0,
+      fetchImpl: asanaFetch([], { taskType: "New request", updates }) as typeof fetch,
+    });
+    assert.equal(status.done, true);
+    assert.deepEqual(updates[0], {
+      data: { resource_subtype: "custom", custom_type_status_option: "s-eval" },
+    });
+    const fields = (updates[1] as { data: { custom_fields: Record<string, string> } }).data.custom_fields;
+    assert.equal(fields["field-account"], "maya.chen@testmail.identitysoon.com");
+    assert.equal(fields["field-code"], "261856");
+    assert.equal(fields["field-status"], undefined);
+    assert.deepEqual(updates[2], {
+      data: { resource_subtype: "custom", custom_type_status_option: "s-approved" },
+    });
   });
 
   it("chooses the status field that contains New request, Evaluation, and Approved", () => {
