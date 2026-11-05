@@ -433,7 +433,13 @@ async function writeTaskResult(
   }
   await putCustomFields(job.asanaTaskGid, values, token, options.fetchImpl);
   if (!status?.gid) {
-    await moveTaskToNamedSection(job.asanaTaskGid, options.desk.doneStatus, projectGid, token, options.fetchImpl);
+    await moveTaskToNamedSection(
+      job.asanaTaskGid,
+      options.desk.doneStatus,
+      projectGid,
+      token,
+      options.fetchImpl ?? fetch,
+    );
   }
 }
 
