@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
+import fs from "node:fs";
 import { describe, it } from "node:test";
 
+import { asanaDeskPublic, defaultAsanaDesk, saveAsanaDesk, tenantLink } from "@/lib/readonly-account/asana-desk";
 import {
   acceptAsanaTask,
+  fieldByName,
   finishPendingAsanaAccounts,
   leadSeFromAsanaTask,
+  statusField,
   tickAsanaAccounts,
   type AsanaAccountJob,
+  type AsanaCustomField,
 } from "@/lib/readonly-account/asana";
 import { workerAuthorized } from "@/lib/saf-poc/agent-condition";
 import { createSailPointClient, type SailPointSetupConfig } from "@/lib/saf-poc/sailpoint";
@@ -115,19 +120,50 @@ const LEAD_TASK = {
   ],
 };
 
+const FIELD_SETTINGS = [
+  {
+    custom_field: {
+      gid: "field-status",
+      name: "Request status",
+      resource_subtype: "enum",
+      enum_options: [
+        { gid: "opt-new", name: "New request" },
+        { gid: "opt-eval", name: "Evaluation" },
+        { gid: "opt-approved", name: "Approved" },
+        { gid: "opt-other", name: "Needs information" },
+      ],
+    },
+  },
+  { custom_field: { gid: "field-account", name: "Sandbox account", resource_subtype: "text" } },
+  { custom_field: { gid: "field-code", name: "Initial password", resource_subtype: "text" } },
+  { custom_field: { gid: "field-link", name: "Tenant link", resource_subtype: "text" } },
+  { custom_field: { gid: "field-drive", name: "Test Drive Status", resource_subtype: "enum", enum_options: [{ gid: "opt-td", name: "New" }] } },
+];
+
+function testDesk() {
+  return {
+    ...defaultAsanaDesk(),
+    tenant: "beta-25503",
+    tenantLinkField: "Tenant link",
+  };
+}
+
 function asanaFetch(
   stories: unknown[],
   options: {
     task?: Record<string, unknown>;
     users?: Record<string, { email?: string; name?: string }>;
     failMove?: boolean;
+    failUpdate?: boolean;
     inAssigned?: boolean;
     sections?: Array<{ gid: string; name: string }>;
     moves?: unknown[];
+    updates?: unknown[];
     urls?: string[];
   } = {},
 ) {
   const moves = options.moves ?? [];
+  const updates = options.updates ?? [];
   const urls = options.urls ?? [];
   const sections = options.sections ?? [
     { gid: "section-ready", name: "Ready for TES" },
@@ -137,6 +173,16 @@ function asanaFetch(
     const target = String(url);
     urls.push(target);
     const method = init?.method ?? "GET";
+    if (target.includes("custom_field_settings")) {
+      return Response.json({ data: FIELD_SETTINGS });
+    }
+    if (method === "PUT" && target.includes("/tasks/")) {
+      if (options.failUpdate) {
+        return new Response("no", { status: 500 });
+      }
+      updates.push(JSON.parse(String(init?.body)));
+      return Response.json({ data: { gid: TASK_GID } });
+    }
     if (target.includes("/stories")) {
       if (method === "GET") {
         return Response.json({ data: [] });
@@ -203,6 +249,10 @@ const READY_ROUTES = {
   'GET /entitlements/v1?filters=name eq "SAF Admin"': () => [
     { id: "ent-saf", name: "SAF Admin", source: { id: "src-idn", name: "IdentityNow" } },
   ],
+  "POST /v2025/generate-password-reset-token/digit": () => ({
+    digitToken: "261856",
+    requestId: "req-1",
+  }),
   'GET /identities/v1?filters=email eq "luis.stone@example.com"': () => [],
   'GET /identities/v1?filters=alias eq "luis.stone"': () => [],
   "POST /identities/v1/process": () => ({ id: "task-process" }),
@@ -298,10 +348,9 @@ describe("Asana test-drive requests", () => {
     );
   });
 
-  it("creates a random customer for the Lead SE and moves the task to Assigned", async () => {
+  it("creates a testmail account, writes the fields, and sets Approved", async () => {
     const stories: unknown[] = [];
-    const moves: unknown[] = [];
-    const urls: string[] = [];
+    const updates: unknown[] = [];
     const { accounts, routes } = rememberedAccounts();
     const { client, calls } = fakeTenant({ ...READY_ROUTES, ...routes });
     const store = memoryStore();
@@ -310,33 +359,36 @@ describe("Asana test-drive requests", () => {
       client,
       store,
       projectGid: "project-1",
-      fetchImpl: asanaFetch(stories, { moves, urls }) as typeof fetch,
+      desk: testDesk(),
+      fetchImpl: asanaFetch(stories, { updates }) as typeof fetch,
       random: () => 0,
     };
     const first = await acceptAsanaTask(TASK_GID, options);
     assert.equal(first.userId, "maya.chen");
-    assert.equal(first.email, "matt.brands+maya.chen@sailpoint.com");
+    assert.equal(first.email, "maya.chen@testmail.identitysoon.com");
     assert.equal(first.done, true);
-    assert.notEqual(first.userId, "state.farm");
     const created = calls.find((call) => call.method === "POST" && call.path === "/accounts/v1");
-    assert.deepEqual((created?.body as { attributes: Record<string, string> }).attributes, {
-      sourceId: "src-td",
-      givenName: "Maya",
-      familyName: "Chen",
-      "e-mail": "matt.brands+maya.chen@sailpoint.com",
-      type: "TestDrive",
-      status: "active",
-    });
+    assert.equal(
+      (created?.body as { attributes: Record<string, string> }).attributes["e-mail"],
+      "maya.chen@testmail.identitysoon.com",
+    );
     assert.equal(calls.filter((call) => call.path.includes("email-test-mode")).length, 0);
-    assert.ok(urls.some((url) => url.includes("custom_fields.people_value.email")));
-    assert.deepEqual(moves, [{ data: { task: TASK_GID } }]);
+    assert.deepEqual(updates[0], { data: { custom_fields: { "field-status": "opt-eval" } } });
+    assert.deepEqual(
+      (updates[1] as { data: { custom_fields: Record<string, string> } }).data.custom_fields,
+      {
+        "field-account": "maya.chen@testmail.identitysoon.com",
+        "field-code": "261856",
+        "field-link": "https://beta-25503.identitynow-demo.com",
+        "field-status": "opt-approved",
+      },
+    );
+    assert.equal(stories.length, 0);
 
     const second = await acceptAsanaTask(TASK_GID, options);
     assert.equal(second.userId, "maya.chen");
     assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1").length, 1);
-    assert.equal(stories.length, 1);
-    assert.equal(moves.length, 1);
-    assert.match(JSON.stringify(stories[0]), /Username: matt.brands\+maya.chen@sailpoint.com/);
+    assert.equal(updates.length, 2);
     assert.equal(accounts.length, 1);
   });
 
@@ -349,6 +401,7 @@ describe("Asana test-drive requests", () => {
       client,
       store: memoryStore(),
       projectGid: "project-1",
+      desk: testDesk(),
       random: () => 0,
       fetchImpl: asanaFetch(stories, {
         task: {
@@ -360,23 +413,24 @@ describe("Asana test-drive requests", () => {
         users: { "user-matt": { name: "Matt Brands", email: "matt.brands@sailpoint.com" } },
       }) as typeof fetch,
     });
-    assert.equal(status.email, "matt.brands+maya.chen@sailpoint.com");
+    assert.equal(status.email, "maya.chen@testmail.identitysoon.com");
     assert.equal(status.done, true);
   });
 
-  it("does not create an account when the task has no Lead SE", async () => {
-    const { client, calls } = fakeTenant(READY_ROUTES);
-    await assert.rejects(
-      () =>
-        acceptAsanaTask(TASK_GID, {
-          token: "asana-token",
-          client,
-          store: memoryStore(),
-          fetchImpl: asanaFetch([], { task: { name: "State Farm Mutual", custom_fields: [] } }) as typeof fetch,
-        }),
-      /The task needs a Lead SE\./,
-    );
-    assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1").length, 0);
+  it("creates an account when the task has no Lead SE", async () => {
+    const { routes } = rememberedAccounts();
+    const { client, calls } = fakeTenant({ ...READY_ROUTES, ...routes });
+    const status = await acceptAsanaTask(TASK_GID, {
+      token: "asana-token",
+      client,
+      store: memoryStore(),
+      projectGid: "project-1",
+      desk: testDesk(),
+      random: () => 0,
+      fetchImpl: asanaFetch([], { task: { name: "State Farm Mutual", custom_fields: [] } }) as typeof fetch,
+    });
+    assert.equal(status.email, "maya.chen@testmail.identitysoon.com");
+    assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1").length, 1);
   });
 
   it("gives the same Lead SE a second customer with a different name", async () => {
@@ -388,15 +442,16 @@ describe("Asana test-drive requests", () => {
       client,
       store: memoryStore(),
       projectGid: "project-1",
+      desk: testDesk(),
       fetchImpl: asanaFetch(stories) as typeof fetch,
       random: () => 0,
     };
     const first = await acceptAsanaTask(TASK_GID, options);
     const second = await acceptAsanaTask("1234567890124", options);
     assert.equal(first.userId, "maya.chen");
-    assert.equal(first.email, "matt.brands+maya.chen@sailpoint.com");
+    assert.equal(first.email, "maya.chen@testmail.identitysoon.com");
     assert.equal(second.userId, "maya.chen22");
-    assert.equal(second.email, "matt.brands+maya.chen22@sailpoint.com");
+    assert.equal(second.email, "maya.chen22@testmail.identitysoon.com");
   });
 
   it("finishes a waiting account when the tick runs", async () => {
@@ -408,11 +463,12 @@ describe("Asana test-drive requests", () => {
       client,
       store,
       projectGid: "project-1",
+      desk: testDesk(),
       fetchImpl: asanaFetch(stories) as typeof fetch,
     });
     assert.equal(status?.done, true);
     assert.equal(status?.userId, "luis.stone");
-    assert.equal(stories.length, 1);
+    assert.equal(stories.length, 0);
   });
 
   it("leaves the task in Ready for TES until the invitation is sent", async () => {
@@ -429,17 +485,15 @@ describe("Asana test-drive requests", () => {
       client,
       store: memoryStore([waitingJob()]),
       projectGid: "project-1",
+      desk: testDesk(),
       fetchImpl: asanaFetch(stories, { moves }) as typeof fetch,
     });
     assert.equal(status?.done, false);
     assert.equal(moves.length, 0);
-    assert.equal(stories.length, 1);
-    assert.match(JSON.stringify(stories[0]), /Username: luis.stone/);
+    assert.equal(stories.length, 0);
   });
 
-  it("retries the move to Assigned without creating another account", async () => {
-    const stories: unknown[] = [];
-    const moves: unknown[] = [];
+  it("retries the Asana update without creating another account", async () => {
     const { client, calls } = fakeTenant({ ...READY_ROUTES, ...WAITING_ACCOUNT });
     const store = memoryStore([waitingJob()]);
     const first = await tickAsanaAccounts({
@@ -447,21 +501,23 @@ describe("Asana test-drive requests", () => {
       client,
       store,
       projectGid: "project-1",
-      fetchImpl: asanaFetch(stories, { moves, failMove: true }) as typeof fetch,
+      desk: testDesk(),
+      fetchImpl: asanaFetch([], { failUpdate: true }) as typeof fetch,
     });
     assert.equal(first[0]?.done, false);
-    assert.equal(moves.length, 0);
-    assert.match(JSON.stringify(stories), /could not be moved to Assigned/);
+    assert.match(first[0]?.detail ?? "", /did not update the task/);
 
+    const updates: unknown[] = [];
     const second = await tickAsanaAccounts({
       token: "asana-token",
       client,
       store,
       projectGid: "project-1",
-      fetchImpl: asanaFetch(stories, { moves }) as typeof fetch,
+      desk: testDesk(),
+      fetchImpl: asanaFetch([], { updates }) as typeof fetch,
     });
     assert.equal(second[0]?.done, true);
-    assert.deepEqual(moves, [{ data: { task: TASK_GID } }]);
+    assert.equal(updates.length, 1);
     assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1").length, 0);
   });
 
@@ -473,6 +529,7 @@ describe("Asana test-drive requests", () => {
       client,
       store: memoryStore([waitingJob()]),
       projectGid: "project-1",
+      desk: testDesk(),
       fetchImpl: asanaFetch([], { moves, inAssigned: true }) as typeof fetch,
     });
     assert.equal(status?.done, true);
@@ -537,6 +594,7 @@ describe("Asana test-drive requests", () => {
       client,
       store: memoryStore(),
       projectGid: "project-1",
+      desk: testDesk(),
       fetchImpl: asanaFetch(stories) as typeof fetch,
     });
     assert.equal(statuses[0]?.done, true);
@@ -558,6 +616,7 @@ describe("Asana test-drive requests", () => {
       client,
       store: memoryStore(),
       projectGid: "project-1",
+      desk: testDesk(),
       random: () => 0,
       fetchImpl: asanaFetch(stories) as typeof fetch,
     });
@@ -565,18 +624,17 @@ describe("Asana test-drive requests", () => {
     assert.equal(created.length, 1);
     const attributes = (created[0]?.body as { attributes: Record<string, string> }).attributes;
     assert.equal(attributes.sourceId, "src-td");
-    assert.equal(attributes["e-mail"], "matt.brands+maya.chen@sailpoint.com");
+    assert.equal(attributes["e-mail"], "maya.chen@testmail.identitysoon.com");
     assert.equal(attributes.type, "TestDrive");
     assert.equal(attributes.status, "active");
     assert.equal(attributes.groups, undefined);
     assert.equal(status.done, true);
-    assert.match(JSON.stringify(stories[0]), /Username: matt.brands\+maya.chen@sailpoint.com/);
-    assert.match(JSON.stringify(stories[0]), /Password: TestDrive9!/);
+    assert.equal(stories.length, 0);
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
   });
 
-  it("comments no password when set-password is forbidden and still invites", async () => {
-    const stories: unknown[] = [];
+  it("writes the reset code when set-password is forbidden and still invites", async () => {
+    const updates: unknown[] = [];
     const { client, calls } = fakeTenant({
       ...READY_ROUTES,
       ...WAITING_ACCOUNT,
@@ -589,11 +647,62 @@ describe("Asana test-drive requests", () => {
       client,
       store: memoryStore([job]),
       projectGid: "project-1",
-      fetchImpl: asanaFetch(stories) as typeof fetch,
+      desk: testDesk(),
+      fetchImpl: asanaFetch([], { updates }) as typeof fetch,
     });
     assert.equal(status?.done, true);
     assert.match(status?.detail ?? "", /HTTP 403/);
-    assert.doesNotMatch(JSON.stringify(stories[0]), /Password:/);
+    const fields = (updates[0] as { data: { custom_fields: Record<string, string> } }).data.custom_fields;
+    assert.equal(fields["field-code"], "261856");
+    assert.equal(fields["field-account"], "luis.stone@example.com");
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
+  });
+
+  it("leaves the task in Evaluation when the reset code is refused", async () => {
+    const updates: unknown[] = [];
+    const { client, calls } = fakeTenant({
+      ...READY_ROUTES,
+      ...WAITING_ACCOUNT,
+      "POST /v2025/set-password": () => ({ __httpStatus: 403, message: "Forbidden" }),
+      "POST /v2025/generate-password-reset-token/digit": () => ({
+        __httpStatus: 403,
+        message: "Digit token password reset is disabled.",
+      }),
+    });
+    const job = waitingJob();
+    job.user.password = "TestDrive9!";
+    const [status] = await tickAsanaAccounts({
+      token: "asana-token",
+      client,
+      store: memoryStore([job]),
+      projectGid: "project-1",
+      desk: testDesk(),
+      fetchImpl: asanaFetch([], { updates }) as typeof fetch,
+    });
+    assert.equal(status?.done, false);
+    assert.match(status?.detail ?? "", /Reset code was not issued/);
+    assert.equal(updates.length, 0);
+    assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
+  });
+
+  it("chooses the status field that contains New request, Evaluation, and Approved", () => {
+    const fields = FIELD_SETTINGS.map((setting) => setting.custom_field) as AsanaCustomField[];
+    assert.equal(statusField(fields, testDesk())?.gid, "field-status");
+    assert.equal(fieldByName(fields, "Sandbox account")?.gid, "field-account");
+  });
+
+  it("hides the Asana token and SailPoint secret", () => {
+    const file = `${process.cwd()}/data/asana-desk-test-${process.pid}.json`;
+    const saved = saveAsanaDesk(
+      { ...testDesk(), asanaToken: "asana-secret", clientSecret: "sail-secret" },
+      file,
+    );
+    const view = asanaDeskPublic(saved);
+    assert.equal(view.asanaTokenSet, true);
+    assert.equal(view.clientSecretSet, true);
+    assert.equal("asanaToken" in view, false);
+    assert.equal("clientSecret" in view, false);
+    assert.equal(tenantLink(saved), "https://beta-25503.identitynow-demo.com");
+    fs.unlinkSync(file);
   });
 });

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { acceptAsanaTask, commentAsanaOnce } from "@/lib/readonly-account/asana";
+import { asanaAccessToken, loadAsanaDesk } from "@/lib/readonly-account/asana-desk";
+import { acceptAsanaTask, commentAsanaOnce, taskHasTriggerStatus } from "@/lib/readonly-account/asana";
 import {
   appendWebhookLog,
   defaultWebhookStore,
   readStashSecret,
   receiveAsanaWebhook,
-  taskIsInSection,
   writeStashSecret,
 } from "@/lib/readonly-account/asana-webhook";
 
@@ -14,7 +14,8 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   const url = new URL(request.url);
-  const token = process.env.ASANA_ACCESS_TOKEN?.trim() ?? "";
+  const desk = loadAsanaDesk();
+  const token = asanaAccessToken(undefined, desk);
   const store = defaultWebhookStore();
   const result = await receiveAsanaWebhook(
     {
@@ -28,7 +29,13 @@ export async function POST(request: Request) {
       store,
       accept: acceptAsanaTask,
       record: (message) => appendWebhookLog(store, message).then(() => undefined),
-      confirmSection: (taskGid, sectionGid) => taskIsInSection(token, taskGid, sectionGid),
+      confirmStatus: async (taskGid) => {
+        try {
+          return await taskHasTriggerStatus(taskGid, { token, desk });
+        } catch {
+          return false;
+        }
+      },
       reportFailure: (taskGid, message) => commentAsanaOnce(taskGid, `SAF Test Drive\n${message}`, token),
       readSecret: (stashGid) => readStashSecret(token, stashGid),
       writeSecret: (stashGid, secret) => writeStashSecret(token, stashGid, secret),

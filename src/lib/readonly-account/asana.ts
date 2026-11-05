@@ -3,25 +3,27 @@ import path from "node:path";
 
 import { resolveAgentForgeDataDir } from "@/lib/db/store";
 import {
-  ASSIGNED_SECTION_NAME,
+  asanaAccessToken,
+  loadAsanaDesk,
+  sailPointClientForDesk,
+  tenantLink,
+  type AsanaDeskConfig,
+} from "@/lib/readonly-account/asana-desk";
+import {
   DEFAULT_ASANA_PROJECT_NAME,
   defaultWebhookStore,
   findProjectGid,
-  findSectionGid,
-  taskIsInSection,
 } from "@/lib/readonly-account/asana-webhook";
 import {
   accountPassword,
   activateTestAccount,
-  asanaAccountLocation,
+  createTestAccount,
   findAsanaDriveAccounts,
-  openLeadSeAccount,
-  readonlyAccountClient,
   type TenantRefs,
   type TestUser,
 } from "@/lib/readonly-account/tenant";
 
-type SailClient = ReturnType<typeof readonlyAccountClient>;
+type SailClient = ReturnType<typeof sailPointClientForDesk>;
 
 const ASANA_API = "https://app.asana.com/api/1.0";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -48,6 +50,8 @@ export type AsanaAccountJob = {
   commented: boolean;
   detail: string;
   createdAt: string;
+  resetCode?: string;
+  resetCodeError?: string;
 };
 
 export type AsanaAccountStatus = {
@@ -65,13 +69,33 @@ type AsanaPerson = {
   email?: string | null;
 };
 
+type EnumOption = { gid?: string; name?: string };
+
+export type AsanaCustomField = {
+  gid?: string;
+  name?: string;
+  type?: string;
+  resource_subtype?: string;
+  display_value?: string | null;
+  enum_value?: { gid?: string; name?: string } | null;
+  enum_options?: EnumOption[];
+  people_value?: AsanaPerson[] | null;
+};
+
 type AsanaTask = {
   name?: string;
-  custom_fields?: Array<{
-    name?: string;
-    type?: string;
-    people_value?: AsanaPerson[] | null;
-  }>;
+  custom_fields?: AsanaCustomField[];
+  memberships?: Array<{ project?: { gid?: string } }>;
+};
+
+type AsanaCallOptions = {
+  token?: string;
+  fetchImpl?: typeof fetch;
+  store?: JobStore;
+  random?: () => number;
+  client?: SailClient;
+  projectGid?: string;
+  desk?: AsanaDeskConfig;
 };
 
 export type LeadSe = {
@@ -124,76 +148,43 @@ export function fileJobStore(filePath = defaultJobPath()): JobStore {
 
 export async function acceptAsanaTask(
   taskGid: string,
-  options: {
-    token?: string;
-    fetchImpl?: typeof fetch;
-    store?: JobStore;
-    random?: () => number;
-    client?: SailClient;
-    projectGid?: string;
-  } = {},
+  options: AsanaCallOptions = {},
 ): Promise<AsanaAccountStatus> {
   const gid = asanaTaskGid(taskGid);
   const store = options.store ?? fileJobStore();
-  const client = options.client ?? readonlyAccountClient();
+  const desk = options.desk ?? loadAsanaDesk();
+  const client = options.client ?? sailPointClientForDesk(desk);
   const jobs = store.load();
   const existing = jobs.find((job) => job.asanaTaskGid === gid);
   if (existing) {
-    return statusOf(
-      await advanceJob(existing, store, jobs, {
-        token: options.token,
-        fetchImpl: options.fetchImpl,
-        client,
-        projectGid: options.projectGid,
-      }),
-    );
+    return statusOf(await advanceJob(existing, store, jobs, { ...options, client, desk }));
   }
-  const task = await fetchAsanaTask(gid, options.token, options.fetchImpl);
-  const leadEmail = await leadSeEmail(leadSeFromAsanaTask(task), options.token, options.fetchImpl);
-  const opened = await openLeadSeAccount(
-    client,
-    {
-      leadEmail,
-      location: asanaAccountLocation(gid),
-    },
-    options.random,
-  );
+  await setTaskStatus(gid, desk.workingStatus, { ...options, desk });
+  const opened = await createTestAccount(client, options.random ?? Math.random, "");
   const job: AsanaAccountJob = {
     asanaTaskGid: gid,
-    user: opened.result.user,
-    refs: opened.result.refs,
-    sailPointTaskId: opened.result.taskId,
+    user: opened.user,
+    refs: opened.refs,
+    sailPointTaskId: opened.taskId,
     processed: false,
     inviteSent: false,
     inviteError: null,
     attempt: 0,
     commented: false,
-    detail: opened.created ? "Account requested." : "Account already exists for this Asana task.",
+    detail: "Account requested.",
     createdAt: new Date().toISOString(),
   };
   jobs.push(job);
   store.save(jobs);
-  return statusOf(
-    await advanceJob(job, store, jobs, {
-      token: options.token,
-      fetchImpl: options.fetchImpl,
-      client,
-      projectGid: options.projectGid,
-    }),
-  );
+  return statusOf(await advanceJob(job, store, jobs, { ...options, client, desk }));
 }
 
 export async function finishPendingAsanaAccounts(
-  options: {
-    token?: string;
-    fetchImpl?: typeof fetch;
-    store?: JobStore;
-    client?: SailClient;
-    projectGid?: string;
-  } = {},
+  options: AsanaCallOptions = {},
 ): Promise<AsanaAccountStatus[]> {
   const store = options.store ?? fileJobStore();
-  const client = options.client ?? readonlyAccountClient();
+  const desk = options.desk ?? loadAsanaDesk();
+  const client = options.client ?? sailPointClientForDesk(desk);
   const jobs = store.load();
   const discovered = await findAsanaDriveAccounts(client);
   let changed = false;
@@ -220,20 +211,15 @@ export async function finishPendingAsanaAccounts(
   if (changed) {
     store.save(jobs);
   }
-  return tickAsanaAccounts({ ...options, store, client });
+  return tickAsanaAccounts({ ...options, store, client, desk });
 }
 
 export async function tickAsanaAccounts(
-  options: {
-    token?: string;
-    fetchImpl?: typeof fetch;
-    store?: JobStore;
-    client?: SailClient;
-    projectGid?: string;
-  } = {},
+  options: AsanaCallOptions = {},
 ): Promise<AsanaAccountStatus[]> {
   const store = options.store ?? fileJobStore();
-  const client = options.client ?? readonlyAccountClient();
+  const desk = options.desk ?? loadAsanaDesk();
+  const client = options.client ?? sailPointClientForDesk(desk);
   const jobs = store.load();
   const pending = jobs.filter((job) => !job.commented).slice(0, 5);
   const statuses: AsanaAccountStatus[] = [];
@@ -241,12 +227,7 @@ export async function tickAsanaAccounts(
     try {
       statuses.push(
         statusOf(
-          await advanceJob(job, store, jobs, {
-            token: options.token,
-            fetchImpl: options.fetchImpl,
-            client,
-            projectGid: options.projectGid,
-          }),
+          await advanceJob(job, store, jobs, { ...options, client, desk }),
         ),
       );
     } catch (error) {
@@ -262,57 +243,56 @@ async function advanceJob(
   job: AsanaAccountJob,
   store: JobStore,
   jobs: AsanaAccountJob[],
-  options: { token?: string; fetchImpl?: typeof fetch; client: SailClient; projectGid?: string },
+  options: AsanaCallOptions & { client: SailClient; desk: AsanaDeskConfig },
 ): Promise<AsanaAccountJob> {
-  if (!job.commented) {
-    if (!job.user.password) {
-      job.user.password = accountPassword();
-      store.save(jobs);
-    }
-    const result = await activateTestAccount(options.client, {
-      ...job.refs,
-      userId: job.user.id,
-      accountName: job.refs.accountNameIsEmail ? job.user.email : job.user.id,
-      taskId: job.sailPointTaskId,
-      attempt: job.attempt,
-      processed: job.processed,
-      password: job.user.password,
-      sendInvite: true,
-      inviteEmail: job.user.email,
-      inviteSent: job.inviteSent,
-      inviteError: job.inviteError,
-    });
-    job.attempt += 1;
-    job.processed = result.processed;
-    job.inviteSent = result.inviteSent;
-    job.inviteError = result.inviteError;
-    job.detail = result.detail;
+  if (job.commented) {
+    return job;
+  }
+  if (!job.user.password) {
+    job.user.password = accountPassword();
     store.save(jobs);
-    const lines = ["SAF Test Drive", `Username: ${signInName(job)}`];
-    if (result.passwordSet && job.user.password) {
-      lines.push(`Password: ${job.user.password}`);
-    }
-    lines.push(job.detail);
-    await commentAsanaOnce(job.asanaTaskGid, lines.join("\n"), options.token, options.fetchImpl);
-    if (result.done && result.inviteSent) {
-      try {
-        await moveTaskToAssignedSection(job.asanaTaskGid, options);
-        clearPassword(job);
-        store.save(jobs);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "The task could not be moved to Assigned.";
-        await commentAsanaOnce(
-          job.asanaTaskGid,
-          `SAF Test Drive\n${message}`,
-          options.token,
-          options.fetchImpl,
-        );
-      }
-    } else if (result.done) {
-      clearPassword(job);
+  }
+  const result = await activateTestAccount(options.client, {
+    ...job.refs,
+    userId: job.user.id,
+    accountName: job.refs.accountNameIsEmail ? job.user.email : job.user.id,
+    taskId: job.sailPointTaskId,
+    attempt: job.attempt,
+    processed: job.processed,
+    password: job.user.password,
+    sendInvite: true,
+    inviteEmail: job.user.email,
+    inviteSent: job.inviteSent,
+    inviteError: job.inviteError,
+  });
+  job.attempt += 1;
+  job.processed = result.processed;
+  job.inviteSent = result.inviteSent;
+  job.inviteError = result.inviteError;
+  job.detail = result.detail;
+  if (!result.done) {
+    store.save(jobs);
+    return job;
+  }
+  if (!job.resetCode) {
+    try {
+      job.resetCode = await passwordResetCode(options.client, signInName(job));
+      job.resetCodeError = "";
+    } catch (error) {
+      job.resetCodeError =
+        error instanceof Error ? error.message : "SailPoint did not issue a reset code.";
+      job.detail = `Reset code was not issued. ${job.resetCodeError}`;
       store.save(jobs);
+      return job;
     }
   }
+  try {
+    await writeTaskResult(job, options);
+    clearPassword(job);
+  } catch (error) {
+    job.detail = error instanceof Error ? error.message : "Asana did not save the account.";
+  }
+  store.save(jobs);
   return job;
 }
 
@@ -323,40 +303,189 @@ function signInName(job: AsanaAccountJob): string {
 function clearPassword(job: AsanaAccountJob) {
   job.commented = true;
   job.user = { ...job.user, password: "" };
+  job.resetCode = "";
 }
 
-export async function moveTaskToAssignedSection(
+async function passwordResetCode(client: SailClient, userId: string): Promise<string> {
+  const response = await client.request("POST", "/v2025/generate-password-reset-token/digit", {
+    userId,
+    length: 6,
+    durationMinutes: 60,
+  });
+  const code =
+    response && typeof response === "object" && "digitToken" in response
+      ? String((response as { digitToken?: unknown }).digitToken ?? "").trim()
+      : "";
+  if (!code) {
+    throw new Error("SailPoint did not return a reset code.");
+  }
+  return code;
+}
+
+export function statusField(
+  fields: AsanaCustomField[],
+  names: { triggerStatus: string; workingStatus: string; doneStatus: string },
+): AsanaCustomField | null {
+  const wanted = [names.triggerStatus, names.workingStatus, names.doneStatus].map((name) =>
+    name.trim().toLowerCase(),
+  );
+  return (
+    fields.find((field) => {
+      const options = (field.enum_options ?? []).map((option) => (option.name ?? "").trim().toLowerCase());
+      return wanted.every((name) => options.includes(name));
+    }) ?? null
+  );
+}
+
+export function fieldByName(fields: AsanaCustomField[], name: string): AsanaCustomField | null {
+  const wanted = name.trim().toLowerCase();
+  return fields.find((field) => (field.name ?? "").trim().toLowerCase() === wanted) ?? null;
+}
+
+export async function taskHasTriggerStatus(
   taskGid: string,
-  options: { token?: string; fetchImpl?: typeof fetch; projectGid?: string } = {},
-): Promise<void> {
-  const token = options.token?.trim() || process.env.ASANA_ACCESS_TOKEN?.trim() || "";
+  options: AsanaCallOptions = {},
+): Promise<boolean> {
+  const desk = options.desk ?? loadAsanaDesk();
+  const task = await fetchAsanaTask(taskGid, asanaAccessToken(options.token, desk), options.fetchImpl, true);
+  const projectGid = await resolveProjectGid(
+    asanaAccessToken(options.token, desk),
+    options.fetchImpl ?? fetch,
+    options.projectGid || task.memberships?.find((membership) => membership.project?.gid)?.project?.gid,
+    desk,
+  );
+  const fields = await projectCustomFields(projectGid, asanaAccessToken(options.token, desk), options.fetchImpl);
+  const status = statusField(fields, desk);
+  if (!status?.gid) {
+    return false;
+  }
+  const value = (task.custom_fields ?? []).find((field) => field.gid === status.gid);
+  const name = value?.enum_value?.name || value?.display_value || "";
+  return name.trim().toLowerCase() === desk.triggerStatus.trim().toLowerCase();
+}
+
+async function setTaskStatus(taskGid: string, statusName: string, options: AsanaCallOptions) {
+  const desk = options.desk ?? loadAsanaDesk();
+  const token = asanaAccessToken(options.token, desk);
+  const projectGid = await resolveProjectGid(token, options.fetchImpl ?? fetch, options.projectGid, desk);
+  const fields = await projectCustomFields(projectGid, token, options.fetchImpl);
+  const status = requireStatusField(fields, desk);
+  await putCustomFields(
+    taskGid,
+    { [requireGid(status, "status")]: enumOptionGid(status, statusName) },
+    token,
+    options.fetchImpl,
+  );
+}
+
+async function writeTaskResult(
+  job: AsanaAccountJob,
+  options: AsanaCallOptions & { desk: AsanaDeskConfig },
+) {
+  if (!options.desk.tenantLinkField) {
+    throw new Error("Set the tenant link field in the back desk.");
+  }
+  const token = asanaAccessToken(options.token, options.desk);
+  const projectGid = await resolveProjectGid(token, options.fetchImpl ?? fetch, options.projectGid, options.desk);
+  const fields = await projectCustomFields(projectGid, token, options.fetchImpl);
+  const status = requireStatusField(fields, options.desk);
+  const account = requireNamedField(fields, options.desk.accountField);
+  const code = requireNamedField(fields, options.desk.codeField);
+  const link = requireNamedField(fields, options.desk.tenantLinkField);
+  await putCustomFields(
+    job.asanaTaskGid,
+    {
+      [requireGid(account, options.desk.accountField)]: job.user.email,
+      [requireGid(code, options.desk.codeField)]: job.resetCode ?? "",
+      [requireGid(link, options.desk.tenantLinkField)]: tenantLink(options.desk),
+      [requireGid(status, "status")]: enumOptionGid(status, options.desk.doneStatus),
+    },
+    token,
+    options.fetchImpl,
+  );
+}
+
+function requireStatusField(fields: AsanaCustomField[], desk: AsanaDeskConfig): AsanaCustomField {
+  const field = statusField(fields, desk);
+  if (!field?.gid) {
+    throw new Error("Asana status field with New request, Evaluation, and Approved was not found.");
+  }
+  return field;
+}
+
+function requireNamedField(fields: AsanaCustomField[], name: string): AsanaCustomField {
+  const field = fieldByName(fields, name);
+  if (!field?.gid) {
+    throw new Error(`Asana field "${name}" was not found.`);
+  }
+  return field;
+}
+
+function requireGid(field: AsanaCustomField, label: string): string {
+  if (!field.gid) {
+    throw new Error(`Asana field "${label}" was not found.`);
+  }
+  return field.gid;
+}
+
+function enumOptionGid(field: AsanaCustomField, name: string): string {
+  const option = (field.enum_options ?? []).find(
+    (item) => (item.name ?? "").trim().toLowerCase() === name.trim().toLowerCase(),
+  );
+  if (!option?.gid) {
+    throw new Error(`Asana status "${name}" was not found.`);
+  }
+  return option.gid;
+}
+
+async function projectCustomFields(
+  projectGid: string,
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AsanaCustomField[]> {
+  const response = await fetchImpl(
+    `${ASANA_API}/projects/${projectGid}/custom_field_settings?opt_fields=${encodeURIComponent(
+      "custom_field.gid,custom_field.name,custom_field.resource_subtype,custom_field.enum_options.gid,custom_field.enum_options.name",
+    )}&limit=100`,
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+  );
+  if (!response.ok) {
+    throw new Error(`Asana did not return project fields (${response.status}).`);
+  }
+  const body = (await response.json()) as {
+    data?: Array<{ custom_field?: AsanaCustomField }>;
+  };
+  return (body.data ?? []).flatMap((setting) => (setting.custom_field ? [setting.custom_field] : []));
+}
+
+async function putCustomFields(
+  taskGid: string,
+  values: Record<string, string>,
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+) {
   if (!token) {
-    throw new Error("Set ASANA_ACCESS_TOKEN to the Asana personal access token.");
+    throw new Error("Set the Asana access token in the back desk.");
   }
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const projectGid = await resolveProjectGid(token, fetchImpl, options.projectGid);
-  const assignedGid = await findSectionGid(token, projectGid, ASSIGNED_SECTION_NAME, fetchImpl);
-  if (await taskIsInSection(token, taskGid, assignedGid, fetchImpl)) {
-    return;
-  }
-  const response = await fetchImpl(`${ASANA_API}/sections/${assignedGid}/addTask`, {
-    method: "POST",
+  const response = await fetchImpl(`${ASANA_API}/tasks/${taskGid}`, {
+    method: "PUT",
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ data: { task: taskGid } }),
+    body: JSON.stringify({ data: { custom_fields: values } }),
   });
   if (!response.ok) {
-    throw new Error(`The task could not be moved to Assigned (${response.status}).`);
+    throw new Error(`Asana did not update the task (${response.status}).`);
   }
 }
 
 async function resolveProjectGid(
   token: string,
   fetchImpl: typeof fetch,
-  projectGid?: string,
+  projectGid: string | undefined,
+  desk: AsanaDeskConfig,
 ): Promise<string> {
   const given = projectGid?.trim() || process.env.ASANA_PROJECT_GID?.trim() || "";
   if (given) {
@@ -366,26 +495,27 @@ async function resolveProjectGid(
   if (stored) {
     return stored;
   }
-  return findProjectGid(token, DEFAULT_ASANA_PROJECT_NAME, fetchImpl);
+  return findProjectGid(token, desk.projectName || DEFAULT_ASANA_PROJECT_NAME, fetchImpl);
 }
 
 async function leadSeEmail(
   lead: LeadSe,
-  token = process.env.ASANA_ACCESS_TOKEN?.trim() ?? "",
+  token = "",
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
+  const asanaToken = asanaAccessToken(token);
   if (EMAIL.test(lead.email)) {
     return lead.email;
   }
   if (!lead.gid) {
     throw new Error("The task needs a Lead SE.");
   }
-  if (!token) {
-    throw new Error("Set ASANA_ACCESS_TOKEN to the Asana personal access token.");
+  if (!asanaToken) {
+    throw new Error("Set the Asana access token in the back desk.");
   }
   const response = await fetchImpl(
     `${ASANA_API}/users/${lead.gid}?opt_fields=${encodeURIComponent("email,name")}`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+    { headers: { Authorization: `Bearer ${asanaToken}`, Accept: "application/json" } },
   );
   if (!response.ok) {
     throw new Error(`Asana did not return the Lead SE (${response.status}).`);
@@ -430,16 +560,20 @@ async function invitationAlreadySent(
 
 async function fetchAsanaTask(
   taskGid: string,
-  token = process.env.ASANA_ACCESS_TOKEN?.trim() ?? "",
+  token = "",
   fetchImpl: typeof fetch = fetch,
+  includeStatus = false,
 ): Promise<AsanaTask> {
-  if (!token) {
-    throw new Error("Set ASANA_ACCESS_TOKEN to the Asana personal access token.");
+  const asanaToken = asanaAccessToken(token);
+  if (!asanaToken) {
+    throw new Error("Set the Asana access token in the back desk.");
   }
-  const fields = TASK_FIELDS;
+  const fields = includeStatus
+    ? `${TASK_FIELDS},custom_fields.gid,custom_fields.enum_value.name,custom_fields.display_value,memberships.project.gid`
+    : TASK_FIELDS;
   const response = await fetchImpl(
     `${ASANA_API}/tasks/${taskGid}?opt_fields=${encodeURIComponent(fields)}`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+    { headers: { Authorization: `Bearer ${asanaToken}`, Accept: "application/json" } },
   );
   if (!response.ok) {
     throw new Error(`Asana did not return the task (${response.status}).`);
@@ -451,15 +585,16 @@ async function fetchAsanaTask(
 export async function commentAsanaOnce(
   taskGid: string,
   text: string,
-  token = process.env.ASANA_ACCESS_TOKEN?.trim() ?? "",
+  token = "",
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
-  if (!token) {
-    throw new Error("Set ASANA_ACCESS_TOKEN to the Asana personal access token.");
+  const asanaToken = asanaAccessToken(token);
+  if (!asanaToken) {
+    throw new Error("Set the Asana access token in the back desk.");
   }
   const listed = await fetchImpl(
     `${ASANA_API}/tasks/${taskGid}/stories?opt_fields=text&limit=20`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+    { headers: { Authorization: `Bearer ${asanaToken}`, Accept: "application/json" } },
   );
   if (listed.ok) {
     const body = (await listed.json()) as { data?: Array<{ text?: string }> };
@@ -470,7 +605,7 @@ export async function commentAsanaOnce(
   const response = await fetchImpl(`${ASANA_API}/tasks/${taskGid}/stories`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${asanaToken}`,
       Accept: "application/json",
       "Content-Type": "application/json",
     },

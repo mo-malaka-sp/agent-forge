@@ -128,6 +128,28 @@ export function taskGidsFromEvents(events: unknown): string[] {
   return [...gids];
 }
 
+export function taskGidsForStatusEvents(events: unknown): string[] {
+  if (!Array.isArray(events)) {
+    return [];
+  }
+  const gids = new Set<string>();
+  for (const event of events) {
+    if (!event || typeof event !== "object") {
+      continue;
+    }
+    const record = event as AsanaEvent;
+    const gid = record.resource?.gid ?? "";
+    if (
+      (record.action === "added" || record.action === "changed") &&
+      record.resource?.resource_type === "task" &&
+      TASK_GID.test(gid)
+    ) {
+      gids.add(gid);
+    }
+  }
+  return [...gids];
+}
+
 export function taskGidsMovedToSection(events: unknown, sectionGid: string): string[] {
   if (!Array.isArray(events) || !sectionGid) {
     return [];
@@ -172,6 +194,7 @@ export async function receiveAsanaWebhook(
   options: {
     store: WebhookStore;
     accept?: (taskGid: string) => Promise<unknown>;
+    confirmStatus?: (taskGid: string) => Promise<boolean>;
     confirmSection?: (taskGid: string, sectionGid: string) => Promise<boolean>;
     reportFailure?: (taskGid: string, message: string) => Promise<void>;
     record?: (message: string) => Promise<void>;
@@ -222,6 +245,28 @@ export async function receiveAsanaWebhook(
   if (events.length === 0) {
     await options.record?.("Heartbeat received.");
     return { status: 200, headers: {}, body: { ok: true, accepted: [] } };
+  }
+  if (options.confirmStatus) {
+    const accepted: string[] = [];
+    for (const taskGid of taskGidsForStatusEvents(events)) {
+      try {
+        if (!(await options.confirmStatus(taskGid))) {
+          continue;
+        }
+        await options.accept?.(taskGid);
+        accepted.push(taskGid);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Account creation failed.";
+        await options.reportFailure?.(taskGid, message);
+        await options.record?.(`Task ${taskGid} failed. ${message}`);
+      }
+    }
+    await options.record?.(
+      accepted.length > 0
+        ? `Delivery accepted ${accepted.join(", ")}.`
+        : `Delivery received ${events.length} event(s). No task in New request was accepted.`,
+    );
+    return { status: 200, headers: {}, body: { ok: true, accepted } };
   }
   if (!readySection) {
     return { status: 500, headers: {}, body: { error: "The Ready for TES webhook is not registered." } };
@@ -366,6 +411,67 @@ export async function findSectionGid(
     throw new Error(`Asana section ${sectionName} was not found.`);
   }
   return match.gid;
+}
+
+export async function registerProjectWebhook(options: {
+  token?: string;
+  targetUrl: string;
+  fetchImpl?: typeof fetch;
+  store: WebhookStore;
+  projectName: string;
+  projectGid?: string;
+}): Promise<{
+  projectName: string;
+  projectGid: string;
+  webhookGid: string;
+  targetUrl: string;
+}> {
+  const token = options.token?.trim() || process.env.ASANA_ACCESS_TOKEN?.trim() || "";
+  if (!token) {
+    throw new Error("Set the Asana access token in the back desk.");
+  }
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const projectGid =
+    options.projectGid?.trim() || (await findProjectGid(token, options.projectName, fetchImpl));
+  const project = oneRecord(
+    await asana(token, `/projects/${projectGid}?opt_fields=name,workspace,workspace.gid`, fetchImpl),
+  );
+  const workspaceGid = project.workspace?.gid ?? "";
+  if (!workspaceGid) {
+    throw new Error("Asana did not return the project workspace.");
+  }
+  const hooks = await listRecords(token, `/webhooks?workspace=${workspaceGid}&limit=100`, fetchImpl);
+  const stashGid = stashGidFromHooks(hooks) || (await createStashTask(token, workspaceGid, fetchImpl));
+  const target = new URL(options.targetUrl);
+  target.searchParams.set("stash", stashGid);
+  const targetUrl = target.toString();
+  await options.store.update({ projectGid });
+  for (const hook of hooks) {
+    if (hook.gid && hook.target?.includes("/api/readonly-account/asana/webhook")) {
+      await asana(token, `/webhooks/${hook.gid}`, fetchImpl, { method: "DELETE" });
+    }
+  }
+  const created = oneRecord(
+    await asana(token, "/webhooks", fetchImpl, {
+      method: "POST",
+      body: JSON.stringify({ data: { resource: projectGid, target: targetUrl } }),
+    }),
+  );
+  const webhookGid = created.gid ?? "";
+  if (!webhookGid) {
+    throw new Error("Asana did not return a webhook id.");
+  }
+  const secret = await readStashSecret(token, stashGid, fetchImpl);
+  if (!secret || secret === STASH_PENDING) {
+    throw new Error("Asana did not complete the webhook handshake.");
+  }
+  await options.store.update({ webhookGid, secret, projectGid, sectionGid: "" });
+  return {
+    projectName: project.name || options.projectName,
+    projectGid,
+    webhookGid,
+    targetUrl,
+  };
 }
 
 function webhookTarget(baseUrl: string, sectionGid: string, stashGid: string): string {

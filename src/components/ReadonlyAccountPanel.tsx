@@ -36,16 +36,56 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return payload;
 }
 
+function DeskField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder = "",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
+  return (
+    <label className="block space-y-1 text-xs">
+      <span className="text-zinc-500">{label}</span>
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+      />
+    </label>
+  );
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function ReadonlyAccountPanel() {
   const [busy, setBusy] = useState<"setup" | "create" | "asana" | null>(null);
-  const [asanaConnection, setAsanaConnection] = useState<{
-    projectName: string;
-    sectionName: string;
-  } | null>(null);
+  const [desk, setDesk] = useState({
+    asanaToken: "",
+    asanaTokenSet: false,
+    tenant: "",
+    clientId: "",
+    clientSecret: "",
+    clientSecretSet: false,
+    projectName: "Test Drive Requests - Testing",
+    triggerStatus: "New request",
+    workingStatus: "Evaluation",
+    doneStatus: "Approved",
+    accountField: "Sandbox account",
+    codeField: "Initial password",
+    tenantLinkField: "",
+    tenantLinkTemplate: "https://{tenant}.identitynow-demo.com",
+  });
+  const [deskSaved, setDeskSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [setup, setSetup] = useState<SetupResult | null>(null);
   const [created, setCreated] = useState<CreateResult | null>(null);
@@ -81,6 +121,17 @@ export function ReadonlyAccountPanel() {
         // SailPoint may still be creating the identity.
       }
     }
+    void fetch("/api/readonly-account/asana/desk")
+      .then(async (response) => {
+        if (!response.ok || cancelled) {
+          return;
+        }
+        const body = (await response.json()) as { desk?: typeof desk };
+        if (body.desk) {
+          setDesk((current) => ({ ...current, ...body.desk, asanaToken: "", clientSecret: "" }));
+        }
+      })
+      .catch(() => undefined);
     void refreshAsana();
     const timer = setInterval(() => void refreshAsana(), POLL_INTERVAL_MS);
     return () => {
@@ -89,17 +140,34 @@ export function ReadonlyAccountPanel() {
     };
   }, []);
 
-  async function runAsanaConnect() {
+  async function saveDesk() {
     setBusy("asana");
     setError(null);
+    setDeskSaved(null);
     try {
-      setAsanaConnection(
-        await post<{ projectName: string; sectionName: string }>(
-          "/api/readonly-account/asana/webhook/register",
-        ),
+      const saved = await post<{
+        desk: { asanaTokenSet: boolean; clientSecretSet: boolean };
+        webhook?: { projectName: string };
+        webhookError?: string;
+      }>("/api/readonly-account/asana/desk", {
+        ...desk,
+        asanaToken: desk.asanaToken,
+        clientSecret: desk.clientSecret,
+      });
+      setDesk((current) => ({
+        ...current,
+        asanaToken: "",
+        clientSecret: "",
+        asanaTokenSet: saved.desk.asanaTokenSet,
+        clientSecretSet: saved.desk.clientSecretSet,
+      }));
+      setDeskSaved(
+        saved.webhookError
+          ? `Saved. Webhook was not registered. ${saved.webhookError}`
+          : `Watching ${saved.webhook?.projectName ?? desk.projectName}. A New request starts account creation.`,
       );
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Asana connection failed.");
+      setError(caught instanceof Error ? caught.message : "Back desk save failed.");
     } finally {
       setBusy(null);
     }
@@ -290,31 +358,95 @@ export function ReadonlyAccountPanel() {
 
       <section className="space-y-3 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
         <div className="space-y-1">
-          <h2 className="text-sm font-medium">3. Connect Asana</h2>
+          <h2 className="text-sm font-medium">3. Back desk</h2>
           <p className="text-xs text-zinc-600 dark:text-zinc-400">
-            Watches POC Gateway - Request Management. When a task moves into Ready for TES,
-            AgentForge creates the account and comments the username on the task.
+            When a task status is {desk.triggerStatus}, AgentForge sets it to {desk.workingStatus},
+            creates a @testmail.identitysoon.com account, writes the account, reset code, and tenant
+            link, then sets the status to {desk.doneStatus}.
           </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <DeskField
+            label="Asana access token"
+            type="password"
+            value={desk.asanaToken}
+            placeholder={desk.asanaTokenSet ? "Saved. Enter a new token to replace it." : ""}
+            onChange={(asanaToken) => setDesk({ ...desk, asanaToken })}
+          />
+          <DeskField
+            label="SailPoint tenant"
+            value={desk.tenant}
+            placeholder="beta-25503"
+            onChange={(tenant) => setDesk({ ...desk, tenant })}
+          />
+          <DeskField
+            label="SailPoint client id"
+            value={desk.clientId}
+            onChange={(clientId) => setDesk({ ...desk, clientId })}
+          />
+          <DeskField
+            label="SailPoint client secret"
+            type="password"
+            value={desk.clientSecret}
+            placeholder={desk.clientSecretSet ? "Saved. Enter a new secret to replace it." : ""}
+            onChange={(clientSecret) => setDesk({ ...desk, clientSecret })}
+          />
+          <DeskField
+            label="Asana project"
+            value={desk.projectName}
+            onChange={(projectName) => setDesk({ ...desk, projectName })}
+          />
+          <DeskField
+            label="Tenant link field"
+            value={desk.tenantLinkField}
+            placeholder="Custom field that receives the tenant URL"
+            onChange={(tenantLinkField) => setDesk({ ...desk, tenantLinkField })}
+          />
+          <DeskField
+            label="Trigger status"
+            value={desk.triggerStatus}
+            onChange={(triggerStatus) => setDesk({ ...desk, triggerStatus })}
+          />
+          <DeskField
+            label="Working status"
+            value={desk.workingStatus}
+            onChange={(workingStatus) => setDesk({ ...desk, workingStatus })}
+          />
+          <DeskField
+            label="Done status"
+            value={desk.doneStatus}
+            onChange={(doneStatus) => setDesk({ ...desk, doneStatus })}
+          />
+          <DeskField
+            label="Account field"
+            value={desk.accountField}
+            onChange={(accountField) => setDesk({ ...desk, accountField })}
+          />
+          <DeskField
+            label="Code field"
+            value={desk.codeField}
+            onChange={(codeField) => setDesk({ ...desk, codeField })}
+          />
+          <DeskField
+            label="Tenant link"
+            value={desk.tenantLinkTemplate}
+            onChange={(tenantLinkTemplate) => setDesk({ ...desk, tenantLinkTemplate })}
+          />
         </div>
         <button
           type="button"
           disabled={busy !== null}
-          onClick={() => void runAsanaConnect()}
+          onClick={() => void saveDesk()}
           className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium disabled:opacity-50 dark:border-zinc-700"
         >
-          {busy === "asana" ? "Connecting…" : "Connect Asana"}
+          {busy === "asana" ? "Saving…" : "Save and connect"}
         </button>
-        {asanaConnection ? (
-          <p className="text-xs text-emerald-700 dark:text-emerald-300">
-            Watching {asanaConnection.sectionName} in {asanaConnection.projectName}. Move a task
-            into that section.
-          </p>
-        ) : null}
+        {deskSaved ? <p className="text-xs text-emerald-700 dark:text-emerald-300">{deskSaved}</p> : null}
         <div className="space-y-1">
           <h3 className="text-xs font-medium">Webhook log</h3>
           {webhookLog.length === 0 ? (
             <p className="text-xs text-zinc-500">
-              No webhook deliveries yet. This list updates when a task moves into Ready for TES.
+              No webhook deliveries yet. This list updates when a task status becomes New request.
             </p>
           ) : (
             <ul className="max-h-48 space-y-1 overflow-auto text-xs">
