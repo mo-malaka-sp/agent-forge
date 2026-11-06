@@ -28,13 +28,13 @@ const deskSchema = z.object({
 });
 
 export async function GET() {
-  return safJson({ desk: asanaDeskPublic(loadAsanaDesk()) });
+  return safJson({ desk: asanaDeskPublic(await loadAsanaDesk()) });
 }
 
 export async function POST(request: Request) {
   try {
     const input = deskSchema.parse(await request.json());
-    const saved = saveAsanaDesk(input);
+    const saved = await saveAsanaDesk(input);
     const targetUrl = `${resolveBaseUrl(request.headers)}/api/readonly-account/asana/webhook`;
     try {
       const webhook = await registerProjectWebhook({

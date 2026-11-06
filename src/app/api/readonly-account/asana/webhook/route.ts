@@ -20,7 +20,7 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   const url = new URL(request.url);
-  const desk = loadAsanaDesk();
+  const desk = await loadAsanaDesk();
   const token = asanaAccessToken(undefined, desk);
   const store = defaultWebhookStore();
   const result = await receiveAsanaWebhook(

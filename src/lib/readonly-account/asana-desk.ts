@@ -5,6 +5,7 @@ import { resolveAgentForgeDataDir } from "@/lib/db/store";
 import { readonlyAccountClient } from "@/lib/readonly-account/tenant";
 import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import type { SailPointSetupConfig } from "@/lib/saf-poc/sailpoint";
+import { getSafPocStore, type SafPocStore } from "@/lib/saf-poc/storage";
 
 export type AsanaDeskConfig = {
   asanaToken: string;
@@ -93,7 +94,27 @@ export function sailPointEndpoint(value: string): { tenant: string; apiBase: str
   };
 }
 
-export function loadAsanaDesk(filePath = deskPath()): AsanaDeskConfig {
+const DESK_KEY = "READONLY_ACCOUNT#asana-desk";
+
+export async function loadAsanaDesk(
+  filePath = deskPath(),
+  store?: SafPocStore | null,
+): Promise<AsanaDeskConfig> {
+  const shared = resolveDeskStore(filePath, store);
+  if (shared) {
+    try {
+      const stored = await shared.get<Partial<AsanaDeskConfig>>(DESK_KEY);
+      if (stored) {
+        return normalizeDesk({ ...defaultAsanaDesk(), ...stored });
+      }
+    } catch {
+      // A shared-store miss falls back to this server's file.
+    }
+  }
+  return readDeskFile(filePath);
+}
+
+function readDeskFile(filePath: string): AsanaDeskConfig {
   const defaults = defaultAsanaDesk();
   if (!fs.existsSync(filePath)) {
     return defaults;
@@ -117,11 +138,12 @@ export function missingDeskFields(config: AsanaDeskConfig): string[] {
   return checks.filter(([, value]) => !value.trim()).map(([label]) => label);
 }
 
-export function saveAsanaDesk(
+export async function saveAsanaDesk(
   input: Partial<AsanaDeskConfig>,
   filePath = deskPath(),
-): AsanaDeskConfig {
-  const current = loadAsanaDesk(filePath);
+  store?: SafPocStore | null,
+): Promise<AsanaDeskConfig> {
+  const current = await loadAsanaDesk(filePath, store);
   const next = normalizeDesk({
     ...current,
     ...input,
@@ -132,17 +154,40 @@ export function saveAsanaDesk(
   if (missing.length > 0) {
     throw new Error(`Enter ${missing.join(", ")} before connecting.`);
   }
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(next, null, 2));
+  const shared = resolveDeskStore(filePath, store);
+  if (shared) {
+    await shared.put(DESK_KEY, next);
+  }
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(next, null, 2));
+  } catch (error) {
+    if (!shared) {
+      throw error;
+    }
+  }
   return next;
 }
 
-export function asanaAccessToken(override?: string, config = loadAsanaDesk()): string {
-  return override?.trim() || config.asanaToken || process.env.ASANA_ACCESS_TOKEN?.trim() || "";
+function resolveDeskStore(filePath: string, store?: SafPocStore | null): SafPocStore | null {
+  if (store === null) {
+    return null;
+  }
+  if (store) {
+    return store;
+  }
+  if (filePath !== deskPath() || !process.env.SAF_POC_TABLE_NAME?.trim()) {
+    return null;
+  }
+  return getSafPocStore();
 }
 
-export function sailPointClientForDesk(config = loadAsanaDesk()) {
-  if (config.clientId && config.clientSecret && config.tenant) {
+export function asanaAccessToken(override?: string, config?: AsanaDeskConfig): string {
+  return override?.trim() || config?.asanaToken || process.env.ASANA_ACCESS_TOKEN?.trim() || "";
+}
+
+export function sailPointClientForDesk(config?: AsanaDeskConfig) {
+  if (config?.clientId && config.clientSecret && config.tenant) {
     return readonlyAccountClient(sailPointConfig(config));
   }
   return readonlyAccountClient();

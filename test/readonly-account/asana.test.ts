@@ -3,7 +3,8 @@ import { generateKeyPairSync } from "node:crypto";
 import fs from "node:fs";
 import { describe, it } from "node:test";
 
-import { asanaDeskPublic, defaultAsanaDesk, saveAsanaDesk, tenantLink } from "@/lib/readonly-account/asana-desk";
+import { asanaDeskPublic, defaultAsanaDesk, loadAsanaDesk, saveAsanaDesk, tenantLink } from "@/lib/readonly-account/asana-desk";
+import { createFileStore } from "@/lib/saf-poc/storage";
 import {
   acceptAsanaTask,
   describeTaskStatus,
@@ -898,9 +899,9 @@ INITIAL_PASSWORD: 261856
     assert.equal(fieldByName(fields, "Sandbox account")?.gid, "field-account");
   });
 
-  it("hides the Asana token and SailPoint secret", () => {
+  it("hides the Asana token and SailPoint secret", async () => {
     const file = `${process.cwd()}/data/asana-desk-test-${process.pid}.json`;
-    const saved = saveAsanaDesk(
+    const saved = await saveAsanaDesk(
       { ...testDesk(), clientId: "desk-client", asanaToken: "asana-secret", clientSecret: "sail-secret" },
       file,
     );
@@ -913,9 +914,9 @@ INITIAL_PASSWORD: 261856
     fs.unlinkSync(file);
   });
 
-  it("refuses to save the back desk when the tenant link field is blank", () => {
+  it("refuses to save the back desk when the tenant link field is blank", async () => {
     const file = `${process.cwd()}/data/asana-desk-missing-${process.pid}.json`;
-    assert.throws(
+    await assert.rejects(
       () =>
         saveAsanaDesk(
           {
@@ -930,6 +931,25 @@ INITIAL_PASSWORD: 261856
       /Tenant link field/,
     );
     assert.equal(fs.existsSync(file), false);
+  });
+
+  it("reads a saved back desk from the shared store when this server has no file", async () => {
+    const local = `${process.cwd()}/data/asana-desk-local-${process.pid}.json`;
+    const sharedFile = `${process.cwd()}/data/asana-desk-shared-${process.pid}.json`;
+    const shared = createFileStore(sharedFile);
+    const saved = await saveAsanaDesk(
+      { ...testDesk(), asanaToken: "asana-secret", clientSecret: "sail-secret" },
+      local,
+      shared,
+    );
+    fs.unlinkSync(local);
+    const loaded = await loadAsanaDesk(local, shared);
+    assert.equal(loaded.asanaToken, saved.asanaToken);
+    assert.equal(loaded.clientSecret, saved.clientSecret);
+    assert.equal(loaded.tenant, "beta-25503");
+    assert.equal(loaded.tenantLinkField, "Tenant link");
+    assert.equal(fs.existsSync(local), false);
+    fs.unlinkSync(sharedFile);
   });
 
   it("appends the account to the existing task description", async () => {

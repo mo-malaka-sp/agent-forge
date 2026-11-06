@@ -157,9 +157,8 @@ export function fileJobStore(filePath = defaultJobPath()): JobStore {
   };
 }
 
-// A server whose back desk file is missing or incomplete loads blank defaults.
-// That is a configuration gap on this server, not a problem with the task, so
-// nothing is written to the task and no account work starts here.
+// A missing or incomplete desk is a gap in the saved configuration, not a problem
+// with the task, so nothing is written to the task and no account work starts.
 function deskGap(desk: AsanaDeskConfig): string | null {
   const missing = missingDeskFields(desk);
   return missing.length > 0 ? missing.join(", ") : null;
@@ -173,7 +172,7 @@ function notReady(gid: string, missing: string): AsanaAccountStatus {
     email: "",
     done: false,
     failed: false,
-    detail: `The back desk on this server is missing ${missing}. The task was left unchanged; save the back desk here to process it.`,
+    detail: `No saved back desk was found (${missing}). The task was left unchanged. Save and connect again.`,
   };
 }
 
@@ -213,7 +212,7 @@ export async function acceptAsanaTask(
 
 async function acceptLocked(gid: string, options: AsanaCallOptions): Promise<AsanaAccountStatus> {
   const store = options.store ?? fileJobStore();
-  const desk = options.desk ?? loadAsanaDesk();
+  const desk = options.desk ?? await loadAsanaDesk();
   const client = options.client ?? sailPointClientForDesk(desk);
   const gap = deskGap(desk);
   if (gap) {
@@ -260,7 +259,7 @@ export async function resumeAsanaTask(
 
 async function resumeLocked(gid: string, options: AsanaCallOptions): Promise<AsanaAccountStatus | null> {
   const store = options.store ?? fileJobStore();
-  const desk = options.desk ?? loadAsanaDesk();
+  const desk = options.desk ?? await loadAsanaDesk();
   const gap = deskGap(desk);
   if (gap) {
     return notReady(gid, gap);
@@ -285,7 +284,7 @@ export async function finishPendingAsanaAccounts(
   options: AsanaCallOptions = {},
 ): Promise<AsanaAccountStatus[]> {
   const store = options.store ?? fileJobStore();
-  const desk = options.desk ?? loadAsanaDesk();
+  const desk = options.desk ?? await loadAsanaDesk();
   if (deskGap(desk)) {
     return [];
   }
@@ -356,7 +355,7 @@ export async function tickAsanaAccounts(
   options: AsanaCallOptions = {},
 ): Promise<AsanaAccountStatus[]> {
   const store = options.store ?? fileJobStore();
-  const desk = options.desk ?? loadAsanaDesk();
+  const desk = options.desk ?? await loadAsanaDesk();
   if (deskGap(desk)) {
     return [];
   }
@@ -488,7 +487,7 @@ async function failTask(
 }
 
 export async function declineAsanaTask(taskGid: string, options: AsanaCallOptions = {}): Promise<void> {
-  const desk = options.desk ?? loadAsanaDesk();
+  const desk = options.desk ?? await loadAsanaDesk();
   await setTaskStatus(taskGid, desk.declinedStatus, { ...options, desk });
 }
 
@@ -542,7 +541,7 @@ export async function describeTaskStatus(
   taskGid: string,
   options: AsanaCallOptions = {},
 ): Promise<string> {
-  const desk = options.desk ?? loadAsanaDesk();
+  const desk = options.desk ?? await loadAsanaDesk();
   const token = asanaAccessToken(options.token, desk);
   const fetchImpl = options.fetchImpl ?? fetch;
   const task = await fetchAsanaTask(taskGid, token, fetchImpl, true);
@@ -569,7 +568,7 @@ export async function taskHasTriggerStatus(
   taskGid: string,
   options: AsanaCallOptions = {},
 ): Promise<boolean> {
-  const desk = options.desk ?? loadAsanaDesk();
+  const desk = options.desk ?? await loadAsanaDesk();
   const name = await describeTaskStatus(taskGid, options);
   return name.toLowerCase() === desk.triggerStatus.trim().toLowerCase();
 }
@@ -590,7 +589,7 @@ function sectionName(task: AsanaTask, projectGid: string, desk: AsanaDeskConfig)
 }
 
 async function setTaskStatus(taskGid: string, statusName: string, options: AsanaCallOptions) {
-  const desk = options.desk ?? loadAsanaDesk();
+  const desk = options.desk ?? await loadAsanaDesk();
   const token = asanaAccessToken(options.token, desk);
   const fetchImpl = options.fetchImpl ?? fetch;
   const projectGid = await resolveProjectGid(token, fetchImpl, options.projectGid, desk);
