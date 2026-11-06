@@ -883,7 +883,7 @@ describe("Asana test-drive requests", () => {
   it("hides the Asana token and SailPoint secret", () => {
     const file = `${process.cwd()}/data/asana-desk-test-${process.pid}.json`;
     const saved = saveAsanaDesk(
-      { ...testDesk(), asanaToken: "asana-secret", clientSecret: "sail-secret" },
+      { ...testDesk(), clientId: "desk-client", asanaToken: "asana-secret", clientSecret: "sail-secret" },
       file,
     );
     const view = asanaDeskPublic(saved);
@@ -893,5 +893,62 @@ describe("Asana test-drive requests", () => {
     assert.equal("clientSecret" in view, false);
     assert.equal(tenantLink(saved), "https://beta-25503.identitynow-demo.com");
     fs.unlinkSync(file);
+  });
+
+  it("refuses to save the back desk when the tenant link field is blank", () => {
+    const file = `${process.cwd()}/data/asana-desk-missing-${process.pid}.json`;
+    assert.throws(
+      () =>
+        saveAsanaDesk(
+          {
+            ...testDesk(),
+            clientId: "desk-client",
+            tenantLinkField: "",
+            asanaToken: "asana-secret",
+            clientSecret: "sail-secret",
+          },
+          file,
+        ),
+      /Tenant link field/,
+    );
+    assert.equal(fs.existsSync(file), false);
+  });
+
+  it("does not create an account when the tenant link field is blank", async () => {
+    const stories: unknown[] = [];
+    const { client, calls } = fakeTenant(READY_ROUTES);
+    const status = await acceptAsanaTask(TASK_GID, {
+      token: "asana-token",
+      client,
+      store: memoryStore(),
+      projectGid: "project-1",
+      desk: { ...testDesk(), tenantLinkField: "" },
+      fetchImpl: asanaFetch(stories) as typeof fetch,
+    });
+    assert.equal(status.done, false);
+    assert.equal(status.failed, false);
+    assert.match(status.detail, /Tenant link field/);
+    assert.match(JSON.stringify(stories[0]), /Tenant link field/);
+    assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1").length, 0);
+  });
+
+  it("starts a new account when a declined task returns to New request", async () => {
+    const { routes } = rememberedAccounts();
+    const { client, calls } = fakeTenant({ ...READY_ROUTES, ...routes });
+    const failed = waitingJob();
+    failed.failed = true;
+    failed.commented = true;
+    const status = await acceptAsanaTask(TASK_GID, {
+      token: "asana-token",
+      client,
+      store: memoryStore([failed]),
+      projectGid: "project-1",
+      desk: testDesk(),
+      random: () => 0,
+      fetchImpl: asanaFetch([]) as typeof fetch,
+    });
+    assert.equal(status.failed, false);
+    assert.equal(status.email, "maya.chen@testmail.identitysoon.com");
+    assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1").length, 1);
   });
 });

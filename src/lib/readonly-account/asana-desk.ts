@@ -106,6 +106,17 @@ export function loadAsanaDesk(filePath = deskPath()): AsanaDeskConfig {
   }
 }
 
+export function missingDeskFields(config: AsanaDeskConfig): string[] {
+  const checks: Array<[string, string]> = [
+    ["Asana access token", config.asanaToken],
+    ["SailPoint tenant", config.tenant],
+    ["SailPoint client id", config.clientId],
+    ["SailPoint client secret", config.clientSecret],
+    ["Tenant link field", config.tenantLinkField],
+  ];
+  return checks.filter(([, value]) => !value.trim()).map(([label]) => label);
+}
+
 export function saveAsanaDesk(
   input: Partial<AsanaDeskConfig>,
   filePath = deskPath(),
@@ -117,6 +128,10 @@ export function saveAsanaDesk(
     asanaToken: input.asanaToken?.trim() || current.asanaToken,
     clientSecret: input.clientSecret?.trim() || current.clientSecret,
   });
+  const missing = missingDeskFields(next);
+  if (missing.length > 0) {
+    throw new Error(`Enter ${missing.join(", ")} before connecting.`);
+  }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(next, null, 2));
   return next;

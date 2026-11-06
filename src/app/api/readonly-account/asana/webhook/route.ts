@@ -38,10 +38,7 @@ export async function POST(request: Request) {
         if (status.failed) {
           await appendWebhookLog(store, `Task ${taskGid} was declined. ${status.detail}`);
         } else if (!status.done) {
-          await appendWebhookLog(
-            store,
-            `Task ${taskGid} stayed in ${desk.workingStatus}. ${status.detail}`,
-          );
+          await appendWebhookLog(store, `Task ${taskGid} was not finished. ${status.detail}`);
         }
         return status;
       },

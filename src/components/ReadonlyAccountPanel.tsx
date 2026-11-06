@@ -141,7 +141,42 @@ export function ReadonlyAccountPanel() {
     };
   }, []);
 
+  function missingDeskInputs(): string[] {
+    const missing: string[] = [];
+    const requireText = (value: string, label: string) => {
+      if (!value.trim()) {
+        missing.push(label);
+      }
+    };
+    if (!desk.asanaToken.trim() && !desk.asanaTokenSet) {
+      missing.push("Asana access token");
+    }
+    requireText(desk.tenant, "SailPoint tenant");
+    requireText(desk.clientId, "SailPoint client id");
+    if (!desk.clientSecret.trim() && !desk.clientSecretSet) {
+      missing.push("SailPoint client secret");
+    }
+    requireText(desk.projectName, "Asana project");
+    requireText(desk.tenantLinkField, "Tenant link field");
+    requireText(desk.triggerStatus, "Trigger status");
+    requireText(desk.workingStatus, "Working status");
+    requireText(desk.doneStatus, "Done status");
+    requireText(desk.declinedStatus, "Error status");
+    requireText(desk.accountField, "Account field");
+    requireText(desk.codeField, "Code field");
+    if (!desk.tenantLinkTemplate.includes("{tenant}")) {
+      missing.push("Tenant link");
+    }
+    return missing;
+  }
+
   async function saveDesk() {
+    const missing = missingDeskInputs();
+    if (missing.length > 0) {
+      setDeskSaved(null);
+      setError(`Enter ${missing.join(", ")} before connecting.`);
+      return;
+    }
     setBusy("asana");
     setError(null);
     setDeskSaved(null);
@@ -401,7 +436,7 @@ export function ReadonlyAccountPanel() {
           <DeskField
             label="Tenant link field"
             value={desk.tenantLinkField}
-            placeholder="Custom field that receives the tenant URL"
+            placeholder="Required. Custom field that receives the tenant URL"
             onChange={(tenantLinkField) => setDesk({ ...desk, tenantLinkField })}
           />
           <DeskField

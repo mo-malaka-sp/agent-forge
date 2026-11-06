@@ -165,8 +165,29 @@ export async function acceptAsanaTask(
   const client = options.client ?? sailPointClientForDesk(desk);
   const jobs = store.load();
   const existing = jobs.find((job) => job.asanaTaskGid === gid);
-  if (existing) {
+  if (existing?.failed) {
+    jobs.splice(jobs.indexOf(existing), 1);
+    store.save(jobs);
+  } else if (existing) {
     return statusOf(await advanceJob(existing, store, jobs, { ...options, client, desk }));
+  }
+  if (!desk.tenantLinkField.trim()) {
+    const message = "Enter Tenant link field before connecting.";
+    await commentAsanaOnce(
+      gid,
+      `SAF Test Drive\n${message}`,
+      asanaAccessToken(options.token, desk),
+      options.fetchImpl,
+    );
+    return {
+      accepted: false,
+      asanaTaskGid: gid,
+      userId: "",
+      email: "",
+      done: false,
+      failed: false,
+      detail: message,
+    };
   }
   const opened = await createTestAccount(client, options.random ?? Math.random, "");
   const job: AsanaAccountJob = {
