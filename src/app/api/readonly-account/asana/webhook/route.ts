@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { asanaAccessToken, loadAsanaDesk } from "@/lib/readonly-account/asana-desk";
-import { acceptAsanaTask, commentAsanaOnce, describeTaskStatus } from "@/lib/readonly-account/asana";
+import {
+  acceptAsanaTask,
+  commentAsanaOnce,
+  declineAsanaTask,
+  describeTaskStatus,
+  resumeAsanaTask,
+} from "@/lib/readonly-account/asana";
 import {
   appendWebhookLog,
   defaultWebhookStore,
@@ -27,12 +33,37 @@ export async function POST(request: Request) {
     },
     {
       store,
-      accept: acceptAsanaTask,
+      accept: async (taskGid) => {
+        const status = await acceptAsanaTask(taskGid, { token, desk });
+        if (status.failed) {
+          await appendWebhookLog(store, `Task ${taskGid} was declined. ${status.detail}`);
+        } else if (!status.done) {
+          await appendWebhookLog(
+            store,
+            `Task ${taskGid} stayed in ${desk.workingStatus}. ${status.detail}`,
+          );
+        }
+        return status;
+      },
       record: (message) => appendWebhookLog(store, message).then(() => undefined),
       confirmStatus: async (taskGid) => {
         try {
           const status = await describeTaskStatus(taskGid, { token, desk });
-          if (status.toLowerCase() === desk.triggerStatus.trim().toLowerCase()) {
+          const normalized = status.toLowerCase();
+          if (normalized === desk.triggerStatus.trim().toLowerCase()) {
+            return true;
+          }
+          if (normalized === desk.workingStatus.trim().toLowerCase()) {
+            const resumed = await resumeAsanaTask(taskGid, { token, desk });
+            if (!resumed) {
+              return `Task ${taskGid} is in "${status}". No account was saved to finish.`;
+            }
+            if (resumed.failed) {
+              return `Task ${taskGid} was declined. ${resumed.detail}`;
+            }
+            if (!resumed.done) {
+              return `Task ${taskGid} is in "${status}". ${resumed.detail}`;
+            }
             return true;
           }
           return `Task ${taskGid} is in "${status || "blank"}".`;
@@ -41,7 +72,14 @@ export async function POST(request: Request) {
           return `Task ${taskGid} was not read. ${message}`;
         }
       },
-      reportFailure: (taskGid, message) => commentAsanaOnce(taskGid, `SAF Test Drive\n${message}`, token),
+      reportFailure: async (taskGid, message) => {
+        await commentAsanaOnce(taskGid, `SAF Test Drive\n${message}`, token);
+        try {
+          await declineAsanaTask(taskGid, { token, desk });
+        } catch {
+          // The comment already records the error when the status update fails.
+        }
+      },
       readSecret: (stashGid) => readStashSecret(token, stashGid),
       writeSecret: (stashGid, secret) => writeStashSecret(token, stashGid, secret),
     },

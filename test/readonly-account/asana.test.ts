@@ -10,6 +10,7 @@ import {
   fieldByName,
   finishPendingAsanaAccounts,
   leadSeFromAsanaTask,
+  resumeAsanaTask,
   statusField,
   tickAsanaAccounts,
   type AsanaAccountJob,
@@ -130,7 +131,8 @@ const FIELD_SETTINGS = [
       enum_options: [
         { gid: "opt-new", name: "New request" },
         { gid: "opt-eval", name: "Evaluation" },
-        { gid: "opt-approved", name: "Approved" },
+        { gid: "opt-implemented", name: "Implemented" },
+        { gid: "opt-declined", name: "Declined" },
         { gid: "opt-other", name: "Needs information" },
       ],
     },
@@ -138,7 +140,17 @@ const FIELD_SETTINGS = [
   { custom_field: { gid: "field-account", name: "Sandbox account", resource_subtype: "text" } },
   { custom_field: { gid: "field-code", name: "Initial password", resource_subtype: "text" } },
   { custom_field: { gid: "field-link", name: "Tenant link", resource_subtype: "text" } },
-  { custom_field: { gid: "field-drive", name: "Test Drive Status", resource_subtype: "enum", enum_options: [{ gid: "opt-td", name: "New" }] } },
+  {
+    custom_field: {
+      gid: "field-drive",
+      name: "Test Drive Status",
+      resource_subtype: "enum",
+      enum_options: [
+        { gid: "opt-td", name: "New" },
+        { gid: "opt-done", name: "Done" },
+      ],
+    },
+  },
 ];
 
 function testDesk() {
@@ -159,6 +171,7 @@ function asanaFetch(
     inAssigned?: boolean;
     sectionName?: string;
     taskType?: string;
+    accountEmail?: string;
     fields?: unknown[];
     sections?: Array<{ gid: string; name: string }>;
     moves?: unknown[];
@@ -204,6 +217,9 @@ function asanaFetch(
     if (target.includes("/projects/") && target.includes("/sections")) {
       return Response.json({ data: sections });
     }
+    if (target.includes("/projects/") && target.includes("/tasks?")) {
+      return Response.json({ data: [] });
+    }
     if (target.includes("/custom_types")) {
       return Response.json({
         data: [
@@ -212,6 +228,8 @@ function asanaFetch(
             status_options: [
               { gid: "s-new", name: "New request", enabled: true },
               { gid: "s-eval", name: "Evaluation", enabled: true },
+              { gid: "s-implemented", name: "Implemented", enabled: true },
+              { gid: "s-declined", name: "Declined", enabled: true },
               { gid: "s-approved", name: "Approved", enabled: true },
               { gid: "s-old", name: "Approved", enabled: false },
             ],
@@ -225,7 +243,9 @@ function asanaFetch(
           name: "SAF Test Drive Request - Customer004",
           custom_type: { gid: "type-1", name: "Work request" },
           custom_type_status_option: { gid: "s-current", name: options.taskType },
-          custom_fields: [],
+          custom_fields: options.accountEmail
+            ? [{ gid: "field-account", display_value: options.accountEmail, text_value: options.accountEmail }]
+            : [],
           memberships: [{ project: { gid: "project-1" }, section: { gid: "sec", name: "New Requests" } }],
         },
       });
@@ -408,14 +428,18 @@ describe("Asana test-drive requests", () => {
       "maya.chen@testmail.identitysoon.com",
     );
     assert.equal(calls.filter((call) => call.path.includes("email-test-mode")).length, 0);
-    assert.deepEqual(updates[0], { data: { custom_fields: { "field-status": "opt-eval" } } });
+    assert.deepEqual(updates[0], {
+      data: { custom_fields: { "field-account": "maya.chen@testmail.identitysoon.com" } },
+    });
+    assert.deepEqual(updates[1], { data: { custom_fields: { "field-status": "opt-eval" } } });
     assert.deepEqual(
-      (updates[1] as { data: { custom_fields: Record<string, string> } }).data.custom_fields,
+      (updates[2] as { data: { custom_fields: Record<string, string> } }).data.custom_fields,
       {
         "field-account": "maya.chen@testmail.identitysoon.com",
         "field-code": "261856",
         "field-link": "https://beta-25503.identitynow-demo.com",
-        "field-status": "opt-approved",
+        "field-drive": "opt-done",
+        "field-status": "opt-implemented",
       },
     );
     assert.equal(stories.length, 0);
@@ -423,7 +447,7 @@ describe("Asana test-drive requests", () => {
     const second = await acceptAsanaTask(TASK_GID, options);
     assert.equal(second.userId, "maya.chen");
     assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1").length, 1);
-    assert.equal(updates.length, 2);
+    assert.equal(updates.length, 3);
     assert.equal(accounts.length, 1);
   });
 
@@ -528,31 +552,22 @@ describe("Asana test-drive requests", () => {
     assert.equal(stories.length, 0);
   });
 
-  it("retries the Asana update without creating another account", async () => {
+  it("declines the task when Asana rejects the update and does not create another account", async () => {
+    const stories: unknown[] = [];
     const { client, calls } = fakeTenant({ ...READY_ROUTES, ...WAITING_ACCOUNT });
     const store = memoryStore([waitingJob()]);
-    const first = await tickAsanaAccounts({
+    const [status] = await tickAsanaAccounts({
       token: "asana-token",
       client,
       store,
       projectGid: "project-1",
       desk: testDesk(),
-      fetchImpl: asanaFetch([], { failUpdate: true }) as typeof fetch,
+      fetchImpl: asanaFetch(stories, { failUpdate: true }) as typeof fetch,
     });
-    assert.equal(first[0]?.done, false);
-    assert.match(first[0]?.detail ?? "", /did not update the task/);
-
-    const updates: unknown[] = [];
-    const second = await tickAsanaAccounts({
-      token: "asana-token",
-      client,
-      store,
-      projectGid: "project-1",
-      desk: testDesk(),
-      fetchImpl: asanaFetch([], { updates }) as typeof fetch,
-    });
-    assert.equal(second[0]?.done, true);
-    assert.equal(updates.length, 1);
+    assert.equal(status?.done, true);
+    assert.equal(status?.failed, true);
+    assert.match(status?.detail ?? "", /did not update the task/);
+    assert.match(JSON.stringify(stories[0]), /did not update the task/);
     assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1").length, 0);
   });
 
@@ -690,11 +705,14 @@ describe("Asana test-drive requests", () => {
     const fields = (updates[0] as { data: { custom_fields: Record<string, string> } }).data.custom_fields;
     assert.equal(fields["field-code"], "261856");
     assert.equal(fields["field-account"], "luis.stone@example.com");
+    assert.equal(fields["field-drive"], "opt-done");
+    assert.equal(fields["field-status"], "opt-implemented");
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
   });
 
-  it("leaves the task in Evaluation when the reset code is refused", async () => {
+  it("declines the task and comments when the reset code is refused", async () => {
     const updates: unknown[] = [];
+    const stories: unknown[] = [];
     const { client, calls } = fakeTenant({
       ...READY_ROUTES,
       ...WAITING_ACCOUNT,
@@ -712,11 +730,12 @@ describe("Asana test-drive requests", () => {
       store: memoryStore([job]),
       projectGid: "project-1",
       desk: testDesk(),
-      fetchImpl: asanaFetch([], { updates }) as typeof fetch,
+      fetchImpl: asanaFetch(stories, { updates }) as typeof fetch,
     });
-    assert.equal(status?.done, false);
+    assert.equal(status?.failed, true);
     assert.match(status?.detail ?? "", /Reset code was not issued/);
-    assert.equal(updates.length, 0);
+    assert.match(JSON.stringify(stories[0]), /Reset code was not issued/);
+    assert.deepEqual(updates.at(-1), { data: { custom_fields: { "field-status": "opt-declined" } } });
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
   });
 
@@ -732,7 +751,10 @@ describe("Asana test-drive requests", () => {
           gid: "field-drive",
           name: "Test Drive Status",
           resource_subtype: "enum",
-          enum_options: [{ gid: "opt-td", name: "New" }],
+          enum_options: [
+            { gid: "opt-td", name: "New" },
+            { gid: "opt-done", name: "Done" },
+          ],
         },
       },
       {
@@ -759,6 +781,8 @@ describe("Asana test-drive requests", () => {
         { gid: "section-new", name: "New request" },
         { gid: "section-eval", name: "Evaluation" },
         { gid: "section-approved", name: "Approved" },
+        { gid: "section-implemented", name: "Implemented" },
+        { gid: "section-declined", name: "Declined" },
       ],
     }) as typeof fetch;
     const seen = await describeTaskStatus(TASK_GID, {
@@ -780,12 +804,15 @@ describe("Asana test-drive requests", () => {
     assert.equal(status.done, true);
     assert.equal(status.email, "maya.chen@testmail.identitysoon.com");
     assert.ok(urls.some((url) => url.includes("/sections/section-eval/addTask")));
-    assert.ok(urls.some((url) => url.includes("/sections/section-approved/addTask")));
+    assert.ok(urls.some((url) => url.includes("/sections/section-implemented/addTask")));
     assert.equal(moves.length, 2);
-    const fields = (updates[0] as { data: { custom_fields: Record<string, string> } }).data.custom_fields;
-    assert.equal(fields["field-account"], "maya.chen@testmail.identitysoon.com");
-    assert.equal(fields["field-code"], "261856");
-    assert.equal(fields["field-status"], undefined);
+    const saved = updates.find((update) => {
+      const fields = (update as { data?: { custom_fields?: Record<string, string> } }).data?.custom_fields;
+      return Boolean(fields?.["field-code"]);
+    }) as { data: { custom_fields: Record<string, string> } };
+    assert.equal(saved.data.custom_fields["field-account"], "maya.chen@testmail.identitysoon.com");
+    assert.equal(saved.data.custom_fields["field-code"], "261856");
+    assert.equal(saved.data.custom_fields["field-status"], undefined);
   });
 
   it("reads and sets the task status when the task has a task type", async () => {
@@ -810,15 +837,41 @@ describe("Asana test-drive requests", () => {
     });
     assert.equal(status.done, true);
     assert.deepEqual(updates[0], {
+      data: { custom_fields: { "field-account": "maya.chen@testmail.identitysoon.com" } },
+    });
+    assert.deepEqual(updates[1], {
       data: { resource_subtype: "custom", custom_type_status_option: "s-eval" },
     });
-    const fields = (updates[1] as { data: { custom_fields: Record<string, string> } }).data.custom_fields;
+    const fields = (updates[2] as { data: { custom_fields: Record<string, string> } }).data.custom_fields;
     assert.equal(fields["field-account"], "maya.chen@testmail.identitysoon.com");
     assert.equal(fields["field-code"], "261856");
     assert.equal(fields["field-status"], undefined);
-    assert.deepEqual(updates[2], {
-      data: { resource_subtype: "custom", custom_type_status_option: "s-approved" },
+    assert.deepEqual(updates[3], {
+      data: { resource_subtype: "custom", custom_type_status_option: "s-implemented" },
     });
+    assert.equal(fields["field-drive"], "opt-done");
+  });
+
+  it("finishes an Evaluation task from the saved account email when this server has no job", async () => {
+    const email = "maya.chen@testmail.identitysoon.com";
+    const { accounts, routes } = rememberedAccounts();
+    accounts.push({
+      id: "acct-1",
+      nativeIdentity: email,
+      identityId: "ident-1",
+      attributes: { "e-mail": email, givenName: "Maya", familyName: "Chen" },
+    });
+    const { client } = fakeTenant({ ...READY_ROUTES, ...routes });
+    const status = await resumeAsanaTask(TASK_GID, {
+      token: "asana-token",
+      client,
+      store: memoryStore(),
+      projectGid: "project-1",
+      desk: testDesk(),
+      fetchImpl: asanaFetch([], { taskType: "Evaluation", accountEmail: email }) as typeof fetch,
+    });
+    assert.equal(status?.done, true);
+    assert.equal(status?.email, email);
   });
 
   it("chooses the status field that contains New request, Evaluation, and Approved", () => {

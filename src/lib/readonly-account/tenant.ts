@@ -644,6 +644,36 @@ export async function pickUniqueUser(
   );
 }
 
+export async function findTestAccountByEmail(client: Client, email: string): Promise<CreateResult | null> {
+  const refs = await resolveRefs(client);
+  const accounts = await list(
+    client,
+    filtered("/accounts/v1", `sourceId eq ${quoted(refs.sourceId)} and nativeIdentity eq ${quoted(email)}`),
+  );
+  const account = accounts.find((candidate) => accountIsUser(candidate, email));
+  if (!account) {
+    return null;
+  }
+  const attributes = record(account.attributes);
+  const id = text(account.nativeIdentity) || text(attributes["e-mail"]) || email;
+  const givenName = text(attributes.givenName);
+  const familyName = text(attributes.familyName);
+  return {
+    user: {
+      id,
+      name: `${givenName} ${familyName}`.trim() || id,
+      givenName,
+      familyName,
+      email: text(attributes["e-mail"]) || email,
+      password: "",
+    },
+    attempts: 0,
+    taskId: null,
+    refs,
+    emailRedirect: null,
+  };
+}
+
 async function resolveRefs(client: Client): Promise<TenantRefs> {
   const chosen = await chooseAccountSource(client);
   const sourceId = text(chosen.source.id);

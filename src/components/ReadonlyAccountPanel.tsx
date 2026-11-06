@@ -79,7 +79,8 @@ export function ReadonlyAccountPanel() {
     projectName: "Test Drive Requests - Testing",
     triggerStatus: "New request",
     workingStatus: "Evaluation",
-    doneStatus: "Approved",
+    doneStatus: "Implemented",
+    declinedStatus: "Declined",
     accountField: "Sandbox account",
     codeField: "Initial password",
     tenantLinkField: "",
@@ -361,8 +362,9 @@ export function ReadonlyAccountPanel() {
           <h2 className="text-sm font-medium">3. Back desk</h2>
           <p className="text-xs text-zinc-600 dark:text-zinc-400">
             When a task status is {desk.triggerStatus}, AgentForge sets it to {desk.workingStatus},
-            creates a @testmail.identitysoon.com account, writes the account, reset code, and tenant
-            link, then sets the status to {desk.doneStatus}.
+            creates a @testmail.identitysoon.com account, and writes the account, reset code, and tenant
+            link. Success sets the status to {desk.doneStatus} and Test Drive Status to Done. An error
+            sets the status to {desk.declinedStatus} and posts the error on the task.
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -416,6 +418,11 @@ export function ReadonlyAccountPanel() {
             label="Done status"
             value={desk.doneStatus}
             onChange={(doneStatus) => setDesk({ ...desk, doneStatus })}
+          />
+          <DeskField
+            label="Error status"
+            value={desk.declinedStatus}
+            onChange={(declinedStatus) => setDesk({ ...desk, declinedStatus })}
           />
           <DeskField
             label="Account field"

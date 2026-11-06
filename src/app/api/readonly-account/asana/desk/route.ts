@@ -20,6 +20,7 @@ const deskSchema = z.object({
   triggerStatus: z.string().optional(),
   workingStatus: z.string().optional(),
   doneStatus: z.string().optional(),
+  declinedStatus: z.string().optional(),
   accountField: z.string().optional(),
   codeField: z.string().optional(),
   tenantLinkField: z.string().optional(),

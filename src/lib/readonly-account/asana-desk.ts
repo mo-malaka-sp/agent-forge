@@ -15,6 +15,7 @@ export type AsanaDeskConfig = {
   triggerStatus: string;
   workingStatus: string;
   doneStatus: string;
+  declinedStatus: string;
   accountField: string;
   codeField: string;
   tenantLinkField: string;
@@ -30,6 +31,7 @@ export type AsanaDeskPublic = {
   triggerStatus: string;
   workingStatus: string;
   doneStatus: string;
+  declinedStatus: string;
   accountField: string;
   codeField: string;
   tenantLinkField: string;
@@ -45,7 +47,8 @@ export function defaultAsanaDesk(): AsanaDeskConfig {
     projectName: "Test Drive Requests - Testing",
     triggerStatus: "New request",
     workingStatus: "Evaluation",
-    doneStatus: "Approved",
+    doneStatus: "Implemented",
+    declinedStatus: "Declined",
     accountField: "Sandbox account",
     codeField: "Initial password",
     tenantLinkField: "",
@@ -63,6 +66,7 @@ export function asanaDeskPublic(config: AsanaDeskConfig): AsanaDeskPublic {
     triggerStatus: config.triggerStatus,
     workingStatus: config.workingStatus,
     doneStatus: config.doneStatus,
+    declinedStatus: config.declinedStatus,
     accountField: config.accountField,
     codeField: config.codeField,
     tenantLinkField: config.tenantLinkField,
@@ -157,7 +161,11 @@ function normalizeDesk(config: AsanaDeskConfig): AsanaDeskConfig {
     projectName: text(config.projectName, defaults.projectName),
     triggerStatus: text(config.triggerStatus, defaults.triggerStatus),
     workingStatus: text(config.workingStatus, defaults.workingStatus),
-    doneStatus: text(config.doneStatus, defaults.doneStatus),
+    doneStatus:
+      text(config.doneStatus, defaults.doneStatus).toLowerCase() === "approved"
+        ? defaults.doneStatus
+        : text(config.doneStatus, defaults.doneStatus),
+    declinedStatus: text(config.declinedStatus, defaults.declinedStatus),
     accountField: text(config.accountField, defaults.accountField),
     codeField: text(config.codeField, defaults.codeField),
     tenantLinkField: config.tenantLinkField?.trim() ?? "",

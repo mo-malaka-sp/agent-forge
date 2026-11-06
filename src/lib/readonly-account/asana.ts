@@ -20,6 +20,7 @@ import {
   activateTestAccount,
   createTestAccount,
   findAsanaDriveAccounts,
+  findTestAccountByEmail,
   type TenantRefs,
   type TestUser,
 } from "@/lib/readonly-account/tenant";
@@ -30,6 +31,8 @@ const ASANA_API = "https://app.asana.com/api/1.0";
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const TASK_GID = /^[0-9]{5,20}$/;
 const LEAD_SE_FIELD = /^lead se$/i;
+const DRIVE_STATUS_FIELD = "Test Drive Status";
+const DRIVE_STATUS_DONE = "Done";
 const TASK_FIELDS = [
   "name",
   "custom_fields.name",
@@ -53,6 +56,7 @@ export type AsanaAccountJob = {
   createdAt: string;
   resetCode?: string;
   resetCodeError?: string;
+  failed?: boolean;
 };
 
 export type AsanaAccountStatus = {
@@ -61,6 +65,7 @@ export type AsanaAccountStatus = {
   userId: string;
   email: string;
   done: boolean;
+  failed?: boolean;
   detail: string;
 };
 
@@ -78,6 +83,7 @@ export type AsanaCustomField = {
   type?: string;
   resource_subtype?: string;
   display_value?: string | null;
+  text_value?: string | null;
   enum_value?: { gid?: string; name?: string } | null;
   enum_options?: EnumOption[];
   people_value?: AsanaPerson[] | null;
@@ -162,7 +168,6 @@ export async function acceptAsanaTask(
   if (existing) {
     return statusOf(await advanceJob(existing, store, jobs, { ...options, client, desk }));
   }
-  await setTaskStatus(gid, desk.workingStatus, { ...options, desk });
   const opened = await createTestAccount(client, options.random ?? Math.random, "");
   const job: AsanaAccountJob = {
     asanaTaskGid: gid,
@@ -179,6 +184,38 @@ export async function acceptAsanaTask(
   };
   jobs.push(job);
   store.save(jobs);
+  try {
+    await writeAccountField(job, { ...options, desk });
+  } catch (error) {
+    job.detail = error instanceof Error ? error.message : "Asana did not save the account.";
+    store.save(jobs);
+  }
+  await setTaskStatus(gid, desk.workingStatus, { ...options, desk });
+  return statusOf(await advanceJob(job, store, jobs, { ...options, client, desk }));
+}
+
+export async function resumeAsanaTask(
+  taskGid: string,
+  options: AsanaCallOptions = {},
+): Promise<AsanaAccountStatus | null> {
+  const gid = asanaTaskGid(taskGid);
+  const store = options.store ?? fileJobStore();
+  const desk = options.desk ?? loadAsanaDesk();
+  const client = options.client ?? sailPointClientForDesk(desk);
+  const jobs = store.load();
+  let job = jobs.find((item) => item.asanaTaskGid === gid);
+  if (!job) {
+    const recovered = await recoverJob(gid, { ...options, client, desk });
+    if (!recovered) {
+      return null;
+    }
+    job = recovered;
+    jobs.push(job);
+    store.save(jobs);
+  }
+  if (job.commented) {
+    return statusOf(job);
+  }
   return statusOf(await advanceJob(job, store, jobs, { ...options, client, desk }));
 }
 
@@ -214,7 +251,41 @@ export async function finishPendingAsanaAccounts(
   if (changed) {
     store.save(jobs);
   }
+  await resumeWorkingTasks({ ...options, store, client, desk });
   return tickAsanaAccounts({ ...options, store, client, desk });
+}
+
+async function resumeWorkingTasks(
+  options: AsanaCallOptions & { store: JobStore; client: SailClient; desk: AsanaDeskConfig },
+) {
+  const token = asanaAccessToken(options.token, options.desk);
+  if (!token) {
+    return;
+  }
+  const fetchImpl = options.fetchImpl ?? fetch;
+  try {
+    const projectGid = await resolveProjectGid(token, fetchImpl, options.projectGid, options.desk);
+    const wanted = options.desk.workingStatus.trim().toLowerCase();
+    const response = await fetchImpl(
+      `${ASANA_API}/projects/${projectGid}/tasks?opt_fields=${encodeURIComponent("name,custom_type_status_option.name")}&limit=100`,
+      { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
+    );
+    if (!response.ok) {
+      return;
+    }
+    const tasks =
+      ((await response.json()) as { data?: Array<{ gid?: string; custom_type_status_option?: { name?: string } }> })
+        .data ?? [];
+    for (const task of tasks) {
+      const name = task.custom_type_status_option?.name?.trim().toLowerCase() ?? "";
+      if (!task.gid || name !== wanted) {
+        continue;
+      }
+      await resumeAsanaTask(task.gid, options);
+    }
+  } catch {
+    // The local job list is still finished when the project task list cannot be read.
+  }
 }
 
 export async function tickAsanaAccounts(
@@ -234,8 +305,8 @@ export async function tickAsanaAccounts(
         ),
       );
     } catch (error) {
-      job.detail = error instanceof Error ? error.message : "Account activation failed.";
-      store.save(jobs);
+      const message = error instanceof Error ? error.message : "Account activation failed.";
+      await failTask(job, store, jobs, message, { ...options, desk });
       statuses.push(statusOf(job));
     }
   }
@@ -282,10 +353,9 @@ async function advanceJob(
       job.resetCode = await passwordResetCode(options.client, signInName(job));
       job.resetCodeError = "";
     } catch (error) {
-      job.resetCodeError =
-        error instanceof Error ? error.message : "SailPoint did not issue a reset code.";
-      job.detail = `Reset code was not issued. ${job.resetCodeError}`;
-      store.save(jobs);
+      const reason = error instanceof Error ? error.message : "SailPoint did not issue a reset code.";
+      job.resetCodeError = reason;
+      await failTask(job, store, jobs, `Reset code was not issued. ${reason}`, options);
       return job;
     }
   }
@@ -293,10 +363,45 @@ async function advanceJob(
     await writeTaskResult(job, options);
     clearPassword(job);
   } catch (error) {
-    job.detail = error instanceof Error ? error.message : "Asana did not save the account.";
+    const message = error instanceof Error ? error.message : "Asana did not save the account.";
+    await failTask(job, store, jobs, message, options);
+    return job;
   }
   store.save(jobs);
   return job;
+}
+
+async function failTask(
+  job: AsanaAccountJob,
+  store: JobStore,
+  jobs: AsanaAccountJob[],
+  message: string,
+  options: AsanaCallOptions & { desk: AsanaDeskConfig },
+) {
+  job.failed = true;
+  job.commented = true;
+  job.detail = message;
+  job.user = { ...job.user, password: "" };
+  store.save(jobs);
+  const token = asanaAccessToken(options.token, options.desk);
+  try {
+    await commentAsanaOnce(job.asanaTaskGid, `SAF Test Drive\n${message}`, token, options.fetchImpl);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Asana did not save the comment.";
+    job.detail = `${message} ${reason}`;
+  }
+  try {
+    await setTaskStatus(job.asanaTaskGid, options.desk.declinedStatus, options);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Asana did not set Declined.";
+    job.detail = `${job.detail} ${reason}`;
+  }
+  store.save(jobs);
+}
+
+export async function declineAsanaTask(taskGid: string, options: AsanaCallOptions = {}): Promise<void> {
+  const desk = options.desk ?? loadAsanaDesk();
+  await setTaskStatus(taskGid, desk.declinedStatus, { ...options, desk });
 }
 
 function signInName(job: AsanaAccountJob): string {
@@ -501,6 +606,62 @@ async function putTaskTypeStatus(
   }
 }
 
+async function writeAccountField(
+  job: AsanaAccountJob,
+  options: AsanaCallOptions & { desk: AsanaDeskConfig },
+) {
+  const token = asanaAccessToken(options.token, options.desk);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const projectGid = await resolveProjectGid(token, fetchImpl, options.projectGid, options.desk);
+  const fields = await projectCustomFields(projectGid, token, fetchImpl);
+  const account = requireNamedField(fields, options.desk.accountField);
+  await putCustomFields(
+    job.asanaTaskGid,
+    { [requireGid(account, options.desk.accountField)]: job.user.email },
+    token,
+    fetchImpl,
+  );
+}
+
+async function recoverJob(
+  taskGid: string,
+  options: AsanaCallOptions & { client: SailClient; desk: AsanaDeskConfig },
+): Promise<AsanaAccountJob | null> {
+  const token = asanaAccessToken(options.token, options.desk);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const task = await fetchAsanaTask(taskGid, token, fetchImpl, true);
+  const projectGid = await resolveProjectGid(
+    token,
+    fetchImpl,
+    options.projectGid || task.memberships?.find((membership) => membership.project?.gid)?.project?.gid,
+    options.desk,
+  );
+  const fields = await projectCustomFields(projectGid, token, fetchImpl);
+  const accountField = fieldByName(fields, options.desk.accountField);
+  const value = (task.custom_fields ?? []).find((field) => field.gid === accountField?.gid);
+  const email = (value?.text_value || value?.display_value || "").trim();
+  if (!EMAIL.test(email)) {
+    return null;
+  }
+  const found = await findTestAccountByEmail(options.client, email);
+  if (!found) {
+    return null;
+  }
+  return {
+    asanaTaskGid: taskGid,
+    user: found.user,
+    refs: found.refs,
+    sailPointTaskId: null,
+    processed: false,
+    inviteSent: false,
+    inviteError: null,
+    attempt: 0,
+    commented: false,
+    detail: "Account already exists for this Asana task.",
+    createdAt: new Date().toISOString(),
+  };
+}
+
 async function writeTaskResult(
   job: AsanaAccountJob,
   options: AsanaCallOptions & { desk: AsanaDeskConfig },
@@ -518,10 +679,12 @@ async function writeTaskResult(
   const account = requireNamedField(fields, options.desk.accountField);
   const code = requireNamedField(fields, options.desk.codeField);
   const link = requireNamedField(fields, options.desk.tenantLinkField);
+  const drive = requireNamedField(fields, DRIVE_STATUS_FIELD);
   const values: Record<string, string> = {
     [requireGid(account, options.desk.accountField)]: job.user.email,
     [requireGid(code, options.desk.codeField)]: job.resetCode ?? "",
     [requireGid(link, options.desk.tenantLinkField)]: tenantLink(options.desk),
+    [requireGid(drive, DRIVE_STATUS_FIELD)]: enumOptionGid(drive, DRIVE_STATUS_DONE),
   };
   if (status?.gid) {
     values[requireGid(status, "status")] = enumOptionGid(status, options.desk.doneStatus);
@@ -686,6 +849,7 @@ function statusOf(job: AsanaAccountJob): AsanaAccountStatus {
     userId: job.user.id,
     email: job.user.email,
     done: job.commented,
+    failed: job.failed === true,
     detail: job.detail,
   };
 }
@@ -720,7 +884,7 @@ async function fetchAsanaTask(
     throw new Error("Set the Asana access token in the back desk.");
   }
   const fields = includeStatus
-    ? `${TASK_FIELDS},custom_type.gid,custom_type.name,custom_type_status_option.gid,custom_type_status_option.name,custom_fields.gid,custom_fields.enum_value,custom_fields.enum_value.name,custom_fields.display_value,memberships.project.gid,memberships.section.gid,memberships.section.name`
+    ? `${TASK_FIELDS},custom_type.gid,custom_type.name,custom_type_status_option.gid,custom_type_status_option.name,custom_fields.gid,custom_fields.enum_value,custom_fields.enum_value.name,custom_fields.display_value,custom_fields.text_value,memberships.project.gid,memberships.section.gid,memberships.section.name`
     : TASK_FIELDS;
   const response = await fetchImpl(
     `${ASANA_API}/tasks/${taskGid}?opt_fields=${encodeURIComponent(fields)}`,
