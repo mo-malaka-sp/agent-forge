@@ -450,9 +450,9 @@ describe("Asana test-drive requests", () => {
         "field-code": "261856",
         "field-link": "https://beta-25503.identitynow-demo.com",
         "field-drive": "opt-done",
-        "field-status": "opt-implemented",
       },
     );
+    assert.deepEqual(updates[3], { data: { custom_fields: { "field-status": "opt-implemented" } } });
     assert.equal(
       (updates[2] as { data: { notes?: string } }).data.notes,
       `--- FULFILLMENT DETAILS ---
@@ -466,7 +466,7 @@ INITIAL_PASSWORD: 261856
     const second = await acceptAsanaTask(TASK_GID, options);
     assert.equal(second.userId, "maya.chen");
     assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1").length, 1);
-    assert.equal(updates.length, 3);
+    assert.equal(updates.length, 4);
     assert.equal(accounts.length, 1);
   });
 
@@ -725,7 +725,8 @@ INITIAL_PASSWORD: 261856
     assert.equal(fields["field-code"], "261856");
     assert.equal(fields["field-account"], "luis.stone@example.com");
     assert.equal(fields["field-drive"], "opt-done");
-    assert.equal(fields["field-status"], "opt-implemented");
+    assert.equal(fields["field-status"], undefined);
+    assert.deepEqual(updates[1], { data: { custom_fields: { "field-status": "opt-implemented" } } });
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
   });
 

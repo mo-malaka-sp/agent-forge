@@ -774,18 +774,24 @@ async function writeTaskResult(
     [requireGid(link, options.desk.tenantLinkField)]: linkValue,
     [requireGid(drive, DRIVE_STATUS_FIELD)]: enumOptionGid(drive, DRIVE_STATUS_DONE),
   };
-  if (status?.gid) {
-    values[requireGid(status, "status")] = enumOptionGid(status, options.desk.doneStatus);
-  }
   const notes = appendFulfillmentNotes(task.notes ?? "", {
     tenantLink: linkValue,
     sandboxAccount: job.user.email,
     initialPassword: job.resetCode ?? "",
   });
+  // Fields and the description are written first. The status changes only after
+  // this update succeeds, so a task is never Implemented without its notes.
   await putCustomFields(job.asanaTaskGid, values, token, fetchImpl, notes);
   if (taskType) {
     await putTaskTypeStatus(job.asanaTaskGid, task, options.desk.doneStatus, projectGid, token, fetchImpl);
-  } else if (!status?.gid) {
+  } else if (status?.gid) {
+    await putCustomFields(
+      job.asanaTaskGid,
+      { [requireGid(status, "status")]: enumOptionGid(status, options.desk.doneStatus) },
+      token,
+      fetchImpl,
+    );
+  } else {
     await moveTaskToNamedSection(job.asanaTaskGid, options.desk.doneStatus, projectGid, token, fetchImpl);
   }
 }
