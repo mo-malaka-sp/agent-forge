@@ -92,6 +92,7 @@ export type AsanaCustomField = {
 
 type AsanaTask = {
   name?: string;
+  notes?: string;
   custom_type?: { gid?: string; name?: string } | null;
   custom_type_status_option?: { gid?: string; name?: string } | null;
   custom_fields?: AsanaCustomField[];
@@ -767,16 +768,22 @@ async function writeTaskResult(
   const code = requireNamedField(fields, options.desk.codeField);
   const link = requireNamedField(fields, options.desk.tenantLinkField);
   const drive = requireNamedField(fields, DRIVE_STATUS_FIELD);
+  const linkValue = tenantLink(options.desk);
   const values: Record<string, string> = {
     [requireGid(account, options.desk.accountField)]: job.user.email,
     [requireGid(code, options.desk.codeField)]: job.resetCode ?? "",
-    [requireGid(link, options.desk.tenantLinkField)]: tenantLink(options.desk),
+    [requireGid(link, options.desk.tenantLinkField)]: linkValue,
     [requireGid(drive, DRIVE_STATUS_FIELD)]: enumOptionGid(drive, DRIVE_STATUS_DONE),
   };
   if (status?.gid) {
     values[requireGid(status, "status")] = enumOptionGid(status, options.desk.doneStatus);
   }
-  await putCustomFields(job.asanaTaskGid, values, token, fetchImpl);
+  const notes = appendFulfillmentNotes(task.notes ?? "", {
+    tenantLink: linkValue,
+    sandboxAccount: job.user.email,
+    initialPassword: job.resetCode ?? "",
+  });
+  await putCustomFields(job.asanaTaskGid, values, token, fetchImpl, notes);
   if (taskType) {
     await putTaskTypeStatus(job.asanaTaskGid, task, options.desk.doneStatus, projectGid, token, fetchImpl);
   } else if (!status?.gid) {
@@ -851,14 +858,35 @@ async function projectCustomFields(
   return (body.data ?? []).flatMap((setting) => (setting.custom_field ? [setting.custom_field] : []));
 }
 
+const FULFILLMENT_MARKER = "--- FULFILLMENT DETAILS ---";
+
+function appendFulfillmentNotes(
+  existingNotes: string,
+  details: { tenantLink: string; sandboxAccount: string; initialPassword: string },
+): string {
+  const markerAt = existingNotes.indexOf(FULFILLMENT_MARKER);
+  const kept = (markerAt >= 0 ? existingNotes.slice(0, markerAt) : existingNotes).replace(/\s+$/, "");
+  const credentialBlock = `${FULFILLMENT_MARKER}
+TENANT_LINK: ${details.tenantLink}
+SANDBOX_ACCOUNT: ${details.sandboxAccount}
+INITIAL_PASSWORD: ${details.initialPassword}
+`;
+  return kept ? `${kept}\n${credentialBlock}` : credentialBlock;
+}
+
 async function putCustomFields(
   taskGid: string,
   values: Record<string, string>,
   token: string,
   fetchImpl: typeof fetch = fetch,
+  notes?: string,
 ) {
   if (!token) {
     throw new Error("Set the Asana access token in the back desk.");
+  }
+  const data: { custom_fields: Record<string, string>; notes?: string } = { custom_fields: values };
+  if (notes !== undefined) {
+    data.notes = notes;
   }
   const response = await fetchImpl(`${ASANA_API}/tasks/${taskGid}`, {
     method: "PUT",
@@ -867,7 +895,7 @@ async function putCustomFields(
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ data: { custom_fields: values } }),
+    body: JSON.stringify({ data }),
   });
   if (!response.ok) {
     throw new Error(`Asana did not update the task (${response.status}).`);
@@ -971,7 +999,7 @@ async function fetchAsanaTask(
     throw new Error("Set the Asana access token in the back desk.");
   }
   const fields = includeStatus
-    ? `${TASK_FIELDS},custom_type.gid,custom_type.name,custom_type_status_option.gid,custom_type_status_option.name,custom_fields.gid,custom_fields.enum_value,custom_fields.enum_value.name,custom_fields.display_value,custom_fields.text_value,memberships.project.gid,memberships.section.gid,memberships.section.name`
+    ? `${TASK_FIELDS},notes,custom_type.gid,custom_type.name,custom_type_status_option.gid,custom_type_status_option.name,custom_fields.gid,custom_fields.enum_value,custom_fields.enum_value.name,custom_fields.display_value,custom_fields.text_value,memberships.project.gid,memberships.section.gid,memberships.section.name`
     : TASK_FIELDS;
   const response = await fetchImpl(
     `${ASANA_API}/tasks/${taskGid}?opt_fields=${encodeURIComponent(fields)}`,

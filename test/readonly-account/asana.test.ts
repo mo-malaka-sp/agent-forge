@@ -175,6 +175,7 @@ function asanaFetch(
     sectionName?: string;
     taskType?: string;
     accountEmail?: string;
+    notes?: string;
     fields?: unknown[];
     sections?: Array<{ gid: string; name: string }>;
     moves?: unknown[];
@@ -249,6 +250,7 @@ function asanaFetch(
           custom_fields: options.accountEmail
             ? [{ gid: "field-account", display_value: options.accountEmail, text_value: options.accountEmail }]
             : [],
+          notes: options.notes,
           memberships: [{ project: { gid: "project-1" }, section: { gid: "sec", name: "New Requests" } }],
         },
       });
@@ -261,6 +263,7 @@ function asanaFetch(
           : null;
       return Response.json({
         data: {
+          notes: options.notes,
           memberships: section ? [{ project: { gid: "project-1" }, section }] : [],
         },
       });
@@ -273,7 +276,11 @@ function asanaFetch(
       }
       return Response.json({ data: user });
     }
-    return Response.json({ data: options.task ?? LEAD_TASK });
+    const task = { ...(options.task ?? LEAD_TASK) };
+    if (options.notes !== undefined) {
+      task.notes = options.notes;
+    }
+    return Response.json({ data: task });
   };
   return fetchImpl;
 }
@@ -444,6 +451,14 @@ describe("Asana test-drive requests", () => {
         "field-drive": "opt-done",
         "field-status": "opt-implemented",
       },
+    );
+    assert.equal(
+      (updates[2] as { data: { notes?: string } }).data.notes,
+      `--- FULFILLMENT DETAILS ---
+TENANT_LINK: https://beta-25503.identitynow-demo.com
+SANDBOX_ACCOUNT: maya.chen@testmail.identitysoon.com
+INITIAL_PASSWORD: 261856
+`,
     );
     assert.equal(stories.length, 0);
 
@@ -915,6 +930,73 @@ describe("Asana test-drive requests", () => {
       /Tenant link field/,
     );
     assert.equal(fs.existsSync(file), false);
+  });
+
+  it("appends the account to the existing task description", async () => {
+    const updates: unknown[] = [];
+    const { routes } = rememberedAccounts();
+    const { client } = fakeTenant({ ...READY_ROUTES, ...routes });
+    const existing = "sailpoint.enterprise.slack.com/archives/C0\nSlack User ID: U0AUACHKTDF";
+    await acceptAsanaTask(TASK_GID, {
+      token: "asana-token",
+      client,
+      store: memoryStore(),
+      projectGid: "project-1",
+      desk: testDesk(),
+      random: () => 0,
+      fetchImpl: asanaFetch([], { updates, notes: existing }) as typeof fetch,
+    });
+    const saved = updates.find((update) => {
+      const notes = (update as { data?: { notes?: string } }).data?.notes ?? "";
+      return notes.includes("FULFILLMENT DETAILS");
+    }) as { data: { notes: string } };
+    assert.equal(
+      saved.data.notes,
+      `${existing}
+--- FULFILLMENT DETAILS ---
+TENANT_LINK: https://beta-25503.identitynow-demo.com
+SANDBOX_ACCOUNT: maya.chen@testmail.identitysoon.com
+INITIAL_PASSWORD: 261856
+`,
+    );
+    assert.equal(saved.data.notes.split("--- FULFILLMENT DETAILS ---").length, 2);
+  });
+
+  it("replaces an existing fulfillment block instead of appending a second one", async () => {
+    const updates: unknown[] = [];
+    const { client } = fakeTenant({
+      ...READY_ROUTES,
+      ...WAITING_ACCOUNT,
+      "POST /v2025/set-password": () => ({ __httpStatus: 403, message: "Forbidden" }),
+    });
+    const job = waitingJob();
+    job.user.password = "TestDrive9!";
+    const existing = `Slack User ID: U0AUACHKTDF
+--- FULFILLMENT DETAILS ---
+TENANT_LINK: https://old.example
+SANDBOX_ACCOUNT: old@testmail.identitysoon.com
+INITIAL_PASSWORD: 000000
+`;
+    const [status] = await tickAsanaAccounts({
+      token: "asana-token",
+      client,
+      store: memoryStore([job]),
+      projectGid: "project-1",
+      desk: testDesk(),
+      fetchImpl: asanaFetch([], { updates, notes: existing }) as typeof fetch,
+    });
+    assert.equal(status?.done, true);
+    const notes = (updates[0] as { data: { notes: string } }).data.notes;
+    assert.equal(
+      notes,
+      `Slack User ID: U0AUACHKTDF
+--- FULFILLMENT DETAILS ---
+TENANT_LINK: https://beta-25503.identitynow-demo.com
+SANDBOX_ACCOUNT: luis.stone@example.com
+INITIAL_PASSWORD: 261856
+`,
+    );
+    assert.equal(notes.split("--- FULFILLMENT DETAILS ---").length, 2);
   });
 
   it("does not create an account or comment when the tenant link field is blank", async () => {
