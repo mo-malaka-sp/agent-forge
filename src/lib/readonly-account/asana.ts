@@ -5,6 +5,7 @@ import { resolveAgentForgeDataDir } from "@/lib/db/store";
 import {
   asanaAccessToken,
   loadAsanaDesk,
+  missingDeskFields,
   sailPointClientForDesk,
   tenantLink,
   type AsanaDeskConfig,
@@ -155,39 +156,73 @@ export function fileJobStore(filePath = defaultJobPath()): JobStore {
   };
 }
 
+// A server whose back desk file is missing or incomplete loads blank defaults.
+// That is a configuration gap on this server, not a problem with the task, so
+// nothing is written to the task and no account work starts here.
+function deskGap(desk: AsanaDeskConfig): string | null {
+  const missing = missingDeskFields(desk);
+  return missing.length > 0 ? missing.join(", ") : null;
+}
+
+function notReady(gid: string, missing: string): AsanaAccountStatus {
+  return {
+    accepted: false,
+    asanaTaskGid: gid,
+    userId: "",
+    email: "",
+    done: false,
+    failed: false,
+    detail: `The back desk on this server is missing ${missing}. The task was left unchanged; save the back desk here to process it.`,
+  };
+}
+
+const taskLocks = new Map<string, Promise<unknown>>();
+
+async function withTaskLock<T>(taskGid: string, run: () => Promise<T>): Promise<T> {
+  const previous = taskLocks.get(taskGid) ?? Promise.resolve();
+  const next = previous.then(run, run);
+  taskLocks.set(taskGid, next);
+  try {
+    return await next;
+  } finally {
+    if (taskLocks.get(taskGid) === next) {
+      taskLocks.delete(taskGid);
+    }
+  }
+}
+
+function persistJob(store: JobStore, job: AsanaAccountJob) {
+  const jobs = store.load();
+  const index = jobs.findIndex((item) => item.asanaTaskGid === job.asanaTaskGid);
+  if (index >= 0) {
+    jobs[index] = job;
+  } else {
+    jobs.push(job);
+  }
+  store.save(jobs);
+}
+
 export async function acceptAsanaTask(
   taskGid: string,
   options: AsanaCallOptions = {},
 ): Promise<AsanaAccountStatus> {
   const gid = asanaTaskGid(taskGid);
+  return withTaskLock(gid, () => acceptLocked(gid, options));
+}
+
+async function acceptLocked(gid: string, options: AsanaCallOptions): Promise<AsanaAccountStatus> {
   const store = options.store ?? fileJobStore();
   const desk = options.desk ?? loadAsanaDesk();
   const client = options.client ?? sailPointClientForDesk(desk);
-  const jobs = store.load();
-  const existing = jobs.find((job) => job.asanaTaskGid === gid);
-  if (existing?.failed) {
-    jobs.splice(jobs.indexOf(existing), 1);
-    store.save(jobs);
-  } else if (existing) {
-    return statusOf(await advanceJob(existing, store, jobs, { ...options, client, desk }));
+  const gap = deskGap(desk);
+  if (gap) {
+    return notReady(gid, gap);
   }
-  if (!desk.tenantLinkField.trim()) {
-    const message = "Enter Tenant link field before connecting.";
-    await commentAsanaOnce(
-      gid,
-      `SAF Test Drive\n${message}`,
-      asanaAccessToken(options.token, desk),
-      options.fetchImpl,
-    );
-    return {
-      accepted: false,
-      asanaTaskGid: gid,
-      userId: "",
-      email: "",
-      done: false,
-      failed: false,
-      detail: message,
-    };
+  const existing = store.load().find((job) => job.asanaTaskGid === gid);
+  if (existing?.failed) {
+    store.save(store.load().filter((job) => job.asanaTaskGid !== gid));
+  } else if (existing) {
+    return statusOf(await advanceJob(existing, store, { ...options, client, desk }));
   }
   const opened = await createTestAccount(client, options.random ?? Math.random, "");
   const job: AsanaAccountJob = {
@@ -203,16 +238,15 @@ export async function acceptAsanaTask(
     detail: "Account requested.",
     createdAt: new Date().toISOString(),
   };
-  jobs.push(job);
-  store.save(jobs);
+  persistJob(store, job);
   try {
     await writeAccountField(job, { ...options, desk });
   } catch (error) {
     job.detail = error instanceof Error ? error.message : "Asana did not save the account.";
-    store.save(jobs);
+    persistJob(store, job);
   }
   await setTaskStatus(gid, desk.workingStatus, { ...options, desk });
-  return statusOf(await advanceJob(job, store, jobs, { ...options, client, desk }));
+  return statusOf(await advanceJob(job, store, { ...options, client, desk }));
 }
 
 export async function resumeAsanaTask(
@@ -220,24 +254,30 @@ export async function resumeAsanaTask(
   options: AsanaCallOptions = {},
 ): Promise<AsanaAccountStatus | null> {
   const gid = asanaTaskGid(taskGid);
+  return withTaskLock(gid, () => resumeLocked(gid, options));
+}
+
+async function resumeLocked(gid: string, options: AsanaCallOptions): Promise<AsanaAccountStatus | null> {
   const store = options.store ?? fileJobStore();
   const desk = options.desk ?? loadAsanaDesk();
+  const gap = deskGap(desk);
+  if (gap) {
+    return notReady(gid, gap);
+  }
   const client = options.client ?? sailPointClientForDesk(desk);
-  const jobs = store.load();
-  let job = jobs.find((item) => item.asanaTaskGid === gid);
+  let job = store.load().find((item) => item.asanaTaskGid === gid);
   if (!job) {
     const recovered = await recoverJob(gid, { ...options, client, desk });
     if (!recovered) {
       return null;
     }
     job = recovered;
-    jobs.push(job);
-    store.save(jobs);
+    persistJob(store, job);
   }
   if (job.commented) {
     return statusOf(job);
   }
-  return statusOf(await advanceJob(job, store, jobs, { ...options, client, desk }));
+  return statusOf(await advanceJob(job, store, { ...options, client, desk }));
 }
 
 export async function finishPendingAsanaAccounts(
@@ -245,32 +285,34 @@ export async function finishPendingAsanaAccounts(
 ): Promise<AsanaAccountStatus[]> {
   const store = options.store ?? fileJobStore();
   const desk = options.desk ?? loadAsanaDesk();
+  if (deskGap(desk)) {
+    return [];
+  }
   const client = options.client ?? sailPointClientForDesk(desk);
-  const jobs = store.load();
   const discovered = await findAsanaDriveAccounts(client);
-  let changed = false;
   for (const account of discovered) {
-    if (jobs.some((job) => job.asanaTaskGid === account.taskGid)) {
+    if (store.load().some((job) => job.asanaTaskGid === account.taskGid)) {
       continue;
     }
     const sent = await invitationAlreadySent(account.taskGid, options.token, options.fetchImpl);
-    jobs.push({
-      asanaTaskGid: account.taskGid,
-      user: account.user,
-      refs: account.refs,
-      sailPointTaskId: null,
-      processed: false,
-      inviteSent: sent,
-      inviteError: null,
-      attempt: 0,
-      commented: false,
-      detail: sent ? "Invitation already sent." : "Account already exists for this Asana task.",
-      createdAt: new Date().toISOString(),
+    await withTaskLock(account.taskGid, async () => {
+      if (store.load().some((job) => job.asanaTaskGid === account.taskGid)) {
+        return;
+      }
+      persistJob(store, {
+        asanaTaskGid: account.taskGid,
+        user: account.user,
+        refs: account.refs,
+        sailPointTaskId: null,
+        processed: false,
+        inviteSent: sent,
+        inviteError: null,
+        attempt: 0,
+        commented: false,
+        detail: sent ? "Invitation already sent." : "Account already exists for this Asana task.",
+        createdAt: new Date().toISOString(),
+      });
     });
-    changed = true;
-  }
-  if (changed) {
-    store.save(jobs);
   }
   await resumeWorkingTasks({ ...options, store, client, desk });
   return tickAsanaAccounts({ ...options, store, client, desk });
@@ -314,21 +356,29 @@ export async function tickAsanaAccounts(
 ): Promise<AsanaAccountStatus[]> {
   const store = options.store ?? fileJobStore();
   const desk = options.desk ?? loadAsanaDesk();
+  if (deskGap(desk)) {
+    return [];
+  }
   const client = options.client ?? sailPointClientForDesk(desk);
-  const jobs = store.load();
-  const pending = jobs.filter((job) => !job.commented).slice(0, 5);
+  const pending = store.load().filter((job) => !job.commented).slice(0, 5);
   const statuses: AsanaAccountStatus[] = [];
-  for (const job of pending) {
-    try {
-      statuses.push(
-        statusOf(
-          await advanceJob(job, store, jobs, { ...options, client, desk }),
-        ),
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Account activation failed.";
-      await failTask(job, store, jobs, message, { ...options, desk });
-      statuses.push(statusOf(job));
+  for (const queued of pending) {
+    const gid = queued.asanaTaskGid;
+    const status = await withTaskLock(gid, async () => {
+      const job = store.load().find((item) => item.asanaTaskGid === gid);
+      if (!job) {
+        return null;
+      }
+      try {
+        return statusOf(await advanceJob(job, store, { ...options, client, desk }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Account activation failed.";
+        await failTask(job, store, message, { ...options, desk });
+        return statusOf(job);
+      }
+    });
+    if (status) {
+      statuses.push(status);
     }
   }
   return statuses;
@@ -337,7 +387,6 @@ export async function tickAsanaAccounts(
 async function advanceJob(
   job: AsanaAccountJob,
   store: JobStore,
-  jobs: AsanaAccountJob[],
   options: AsanaCallOptions & { client: SailClient; desk: AsanaDeskConfig },
 ): Promise<AsanaAccountJob> {
   if (job.commented) {
@@ -345,7 +394,7 @@ async function advanceJob(
   }
   if (!job.user.password) {
     job.user.password = accountPassword();
-    store.save(jobs);
+    persistJob(store, job);
   }
   const result = await activateTestAccount(options.client, {
     ...job.refs,
@@ -366,17 +415,18 @@ async function advanceJob(
   job.inviteError = result.inviteError;
   job.detail = result.detail;
   if (!result.done) {
-    store.save(jobs);
+    persistJob(store, job);
     return job;
   }
   if (!job.resetCode) {
     try {
       job.resetCode = await passwordResetCode(options.client, signInName(job));
       job.resetCodeError = "";
+      persistJob(store, job);
     } catch (error) {
       const reason = error instanceof Error ? error.message : "SailPoint did not issue a reset code.";
       job.resetCodeError = reason;
-      await failTask(job, store, jobs, `Reset code was not issued. ${reason}`, options);
+      await failTask(job, store, `Reset code was not issued. ${reason}`, options);
       return job;
     }
   }
@@ -385,25 +435,41 @@ async function advanceJob(
     clearPassword(job);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Asana did not save the account.";
-    await failTask(job, store, jobs, message, options);
+    await failTask(job, store, message, options);
     return job;
   }
-  store.save(jobs);
+  persistJob(store, job);
   return job;
 }
 
 async function failTask(
   job: AsanaAccountJob,
   store: JobStore,
-  jobs: AsanaAccountJob[],
   message: string,
   options: AsanaCallOptions & { desk: AsanaDeskConfig },
 ) {
+  try {
+    const current = await describeTaskStatus(job.asanaTaskGid, {
+      token: options.token,
+      fetchImpl: options.fetchImpl,
+      projectGid: options.projectGid,
+      desk: options.desk,
+    });
+    if (current.trim().toLowerCase() === options.desk.doneStatus.trim().toLowerCase()) {
+      clearPassword(job);
+      job.failed = false;
+      job.detail = `The task is already ${options.desk.doneStatus}.`;
+      persistJob(store, job);
+      return;
+    }
+  } catch {
+    // An unreadable status must not stop the failure from being recorded on the task.
+  }
   job.failed = true;
   job.commented = true;
   job.detail = message;
   job.user = { ...job.user, password: "" };
-  store.save(jobs);
+  persistJob(store, job);
   const token = asanaAccessToken(options.token, options.desk);
   try {
     await commentAsanaOnce(job.asanaTaskGid, `SAF Test Drive\n${message}`, token, options.fetchImpl);
@@ -417,7 +483,7 @@ async function failTask(
     const reason = error instanceof Error ? error.message : "Asana did not set Declined.";
     job.detail = `${job.detail} ${reason}`;
   }
-  store.save(jobs);
+  persistJob(store, job);
 }
 
 export async function declineAsanaTask(taskGid: string, options: AsanaCallOptions = {}): Promise<void> {

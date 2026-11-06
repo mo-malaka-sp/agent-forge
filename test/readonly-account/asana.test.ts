@@ -156,7 +156,10 @@ const FIELD_SETTINGS = [
 function testDesk() {
   return {
     ...defaultAsanaDesk(),
+    asanaToken: "asana-token",
     tenant: "beta-25503",
+    clientId: "desk-client",
+    clientSecret: "desk-secret",
     tenantLinkField: "Tenant link",
   };
 }
@@ -914,7 +917,7 @@ describe("Asana test-drive requests", () => {
     assert.equal(fs.existsSync(file), false);
   });
 
-  it("does not create an account when the tenant link field is blank", async () => {
+  it("does not create an account or comment when the tenant link field is blank", async () => {
     const stories: unknown[] = [];
     const { client, calls } = fakeTenant(READY_ROUTES);
     const status = await acceptAsanaTask(TASK_GID, {
@@ -928,8 +931,102 @@ describe("Asana test-drive requests", () => {
     assert.equal(status.done, false);
     assert.equal(status.failed, false);
     assert.match(status.detail, /Tenant link field/);
-    assert.match(JSON.stringify(stories[0]), /Tenant link field/);
+    assert.equal(stories.length, 0);
     assert.equal(calls.filter((call) => call.method === "POST" && call.path === "/accounts/v1").length, 0);
+  });
+
+  it("leaves a task alone on a server whose back desk is incomplete", async () => {
+    const updates: unknown[] = [];
+    const stories: unknown[] = [];
+    const { client, calls } = fakeTenant({ ...READY_ROUTES, ...WAITING_ACCOUNT });
+    const job = waitingJob();
+    job.user.password = "TestDrive9!";
+    const store = memoryStore([job]);
+    const options = {
+      token: "asana-token",
+      client,
+      store,
+      projectGid: "project-1",
+      desk: { ...testDesk(), tenantLinkField: "" },
+      fetchImpl: asanaFetch(stories, { updates }) as typeof fetch,
+    };
+    const resumed = await resumeAsanaTask(TASK_GID, options);
+    const ticked = await tickAsanaAccounts(options);
+    assert.equal(resumed?.failed, false);
+    assert.equal(resumed?.done, false);
+    assert.match(resumed?.detail ?? "", /Tenant link field/);
+    assert.deepEqual(ticked, []);
+    assert.equal(stories.length, 0);
+    assert.equal(updates.length, 0);
+    assert.equal(calls.filter((call) => call.path.includes("generate-password-reset-token")).length, 0);
+    assert.equal(store.load()[0]?.failed, undefined);
+    assert.equal(store.load()[0]?.resetCode, undefined);
+  });
+
+  it("does not decline a finished task when two runs advance it at the same time", async () => {
+    const updates: unknown[] = [];
+    let codes = 0;
+    const { client } = fakeTenant({
+      ...READY_ROUTES,
+      ...WAITING_ACCOUNT,
+      "POST /v2025/set-password": () => ({ __httpStatus: 403, message: "Forbidden" }),
+      "POST /v2025/generate-password-reset-token/digit": () => {
+        codes += 1;
+        return codes === 1
+          ? { digitToken: "261856", requestId: "req-1" }
+          : { __httpStatus: 409, message: "A reset code already exists." };
+      },
+    });
+    const job = waitingJob();
+    job.user.password = "TestDrive9!";
+    const store = memoryStore([job]);
+    const options = {
+      token: "asana-token",
+      client,
+      store,
+      projectGid: "project-1",
+      desk: testDesk(),
+      fetchImpl: asanaFetch([], { updates }) as typeof fetch,
+    };
+    const [first, second] = await Promise.all([tickAsanaAccounts(options), tickAsanaAccounts(options)]);
+    assert.equal(codes, 1);
+    assert.equal(first[0]?.failed, false);
+    assert.equal(second[0]?.failed, false);
+    assert.equal(second[0]?.done, true);
+    assert.equal(store.load()[0]?.failed, undefined);
+    assert.equal(store.load()[0]?.commented, true);
+    assert.equal(
+      updates.some((update) => JSON.stringify(update).includes("opt-declined")),
+      false,
+    );
+  });
+
+  it("does not decline a task that is already Implemented", async () => {
+    const updates: unknown[] = [];
+    const stories: unknown[] = [];
+    const { client } = fakeTenant({
+      ...READY_ROUTES,
+      ...WAITING_ACCOUNT,
+      "POST /v2025/set-password": () => ({ __httpStatus: 403, message: "Forbidden" }),
+      "POST /v2025/generate-password-reset-token/digit": () => ({
+        __httpStatus: 409,
+        message: "A reset code already exists.",
+      }),
+    });
+    const job = waitingJob();
+    job.user.password = "TestDrive9!";
+    const [status] = await tickAsanaAccounts({
+      token: "asana-token",
+      client,
+      store: memoryStore([job]),
+      projectGid: "project-1",
+      desk: testDesk(),
+      fetchImpl: asanaFetch(stories, { updates, taskType: "Implemented" }) as typeof fetch,
+    });
+    assert.equal(status?.failed, false);
+    assert.equal(status?.done, true);
+    assert.equal(stories.length, 0);
+    assert.equal(updates.length, 0);
   });
 
   it("starts a new account when a declined task returns to New request", async () => {
