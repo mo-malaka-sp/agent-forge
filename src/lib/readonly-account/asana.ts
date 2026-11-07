@@ -107,6 +107,7 @@ type AsanaCallOptions = {
   client?: SailClient;
   projectGid?: string;
   desk?: AsanaDeskConfig;
+  discoveryIntervalMs?: number;
 };
 
 export type LeadSe = {
@@ -280,6 +281,33 @@ async function resumeLocked(gid: string, options: AsanaCallOptions): Promise<Asa
   return statusOf(await advanceJob(job, store, { ...options, client, desk }));
 }
 
+// The page calls finish every few seconds. Looking up every account in the tenant
+// on each call floods the tenant's firewall, so the lookup runs only now and then.
+// Tasks already tracked are finished on every call without touching SailPoint.
+const DISCOVERY_INTERVAL_MS = 5 * 60 * 1000;
+let lastDiscoveryAt = 0;
+
+export function resetAsanaDiscovery() {
+  lastDiscoveryAt = 0;
+}
+
+async function discoverAccounts(
+  client: SailClient,
+  intervalMs: number,
+): Promise<Awaited<ReturnType<typeof findAsanaDriveAccounts>>> {
+  const now = Date.now();
+  if (now - lastDiscoveryAt < intervalMs) {
+    return [];
+  }
+  lastDiscoveryAt = now;
+  try {
+    return await findAsanaDriveAccounts(client);
+  } catch {
+    // A blocked lookup must not stop tracked tasks from finishing.
+    return [];
+  }
+}
+
 export async function finishPendingAsanaAccounts(
   options: AsanaCallOptions = {},
 ): Promise<AsanaAccountStatus[]> {
@@ -289,7 +317,7 @@ export async function finishPendingAsanaAccounts(
     return [];
   }
   const client = options.client ?? sailPointClientForDesk(desk);
-  const discovered = await findAsanaDriveAccounts(client);
+  const discovered = await discoverAccounts(client, options.discoveryIntervalMs ?? DISCOVERY_INTERVAL_MS);
   for (const account of discovered) {
     if (store.load().some((job) => job.asanaTaskGid === account.taskGid)) {
       continue;

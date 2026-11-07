@@ -23,11 +23,39 @@ const RISK_EMAIL_BODY = [
   "<p>SailPoint correlated the event and started this workflow.</p>",
 ].join("");
 
+const HTML_BODY = /<(!doctype html|html|head|title)\b/i;
+
+// A tenant behind Cloudflare can answer with a full HTML block page. That page is
+// unreadable in an Asana comment, so it is replaced with a one-line explanation.
+export function summarizeSailPointBody(body: string): string {
+  const text = body.trim();
+  if (!HTML_BODY.test(text)) {
+    return text;
+  }
+  const title = (text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? "").replace(/\s+/g, " ").trim();
+  const quoted = title ? ` ("${title}")` : "";
+  if (/cloudflare/i.test(text)) {
+    // Cloudflare block pages name the rule that fired (error code) and a Ray ID that
+    // identifies the request in Cloudflare's logs. Both are needed to find the cause.
+    const code =
+      text.match(/cf-error-code[^>]*>\s*(\d{3,4})/i)?.[1] ?? text.match(/\bError\s+(\d{4})\b/)?.[1] ?? "";
+    const ray = text.match(/Ray ID:?\s*(?:<[^>]*>\s*)*([0-9a-f]{10,20}(?:-[A-Z]{3})?)/i)?.[1] ?? "";
+    const details = [code ? `error ${code}` : "", ray ? `Ray ID ${ray}` : ""].filter(Boolean).join(", ");
+    return `Cloudflare blocked the request${quoted}${details ? ` (${details})` : ""}. This is a network block in front of the tenant, not a SailPoint permission error.`;
+  }
+  return `The tenant answered with a web page instead of an API response${quoted}.`;
+}
+
 export class SailPointApiError extends Error {
   readonly status: number;
 
-  constructor(status: number, responseBody: string) {
-    super(`SailPoint API returned HTTP ${status}. ${responseBody}`.slice(0, 500));
+  constructor(status: number, responseBody: string, request?: string) {
+    super(
+      `SailPoint API returned HTTP ${status}${request ? ` for ${request}` : ""}. ${summarizeSailPointBody(responseBody)}`.slice(
+        0,
+        500,
+      ),
+    );
     this.name = "SailPointApiError";
     this.status = status;
   }
@@ -309,7 +337,7 @@ export function buildWorkflowTestInput(
 }
 
 async function readError(response: Response): Promise<string> {
-  return (await response.text()).slice(0, 500);
+  return (await response.text()).slice(0, 2000);
 }
 
 export function createSailPointClient(
@@ -347,7 +375,7 @@ export function createSailPointClient(
       body: params.toString(),
     });
     if (!response.ok) {
-      throw new SailPointApiError(response.status, await readError(response));
+      throw new SailPointApiError(response.status, await readError(response), "POST /oauth/token");
     }
     const body = (await response.json()) as { access_token?: string };
     if (!body.access_token) {
@@ -380,7 +408,11 @@ export function createSailPointClient(
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     if (!response.ok) {
-      throw new SailPointApiError(response.status, await readError(response));
+      throw new SailPointApiError(
+        response.status,
+        await readError(response),
+        `${method} ${requestPath.split("?")[0]}`,
+      );
     }
     if (response.status === 204) {
       return null;

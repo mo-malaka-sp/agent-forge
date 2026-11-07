@@ -11,6 +11,7 @@ import {
   fieldByName,
   finishPendingAsanaAccounts,
   leadSeFromAsanaTask,
+  resetAsanaDiscovery,
   resumeAsanaTask,
   statusField,
   tickAsanaAccounts,
@@ -18,7 +19,7 @@ import {
   type AsanaCustomField,
 } from "@/lib/readonly-account/asana";
 import { workerAuthorized } from "@/lib/saf-poc/agent-condition";
-import { createSailPointClient, type SailPointSetupConfig } from "@/lib/saf-poc/sailpoint";
+import { createSailPointClient, SailPointApiError, type SailPointSetupConfig } from "@/lib/saf-poc/sailpoint";
 
 const TASK_GID = "1234567890123";
 
@@ -664,6 +665,7 @@ INITIAL_PASSWORD: 261856
       store: memoryStore(),
       projectGid: "project-1",
       desk: testDesk(),
+      discoveryIntervalMs: 0,
       fetchImpl: asanaFetch(stories) as typeof fetch,
     });
     assert.equal(statuses[0]?.done, true);
@@ -1018,6 +1020,43 @@ INITIAL_PASSWORD: 261856
 `,
     );
     assert.equal(notes.split("--- FULFILLMENT DETAILS ---").length, 2);
+  });
+
+  it("looks up every tenant account only now and then, not on each poll", async () => {
+    resetAsanaDiscovery();
+    const { client, calls } = fakeTenant(READY_ROUTES);
+    const options = {
+      token: "asana-token",
+      client,
+      store: memoryStore(),
+      projectGid: "project-1",
+      desk: testDesk(),
+      fetchImpl: asanaFetch([]) as typeof fetch,
+    };
+    await finishPendingAsanaAccounts(options);
+    const afterFirst = calls.length;
+    assert.ok(afterFirst > 0);
+    await finishPendingAsanaAccounts(options);
+    await finishPendingAsanaAccounts(options);
+    assert.equal(calls.length, afterFirst);
+    resetAsanaDiscovery();
+  });
+
+  it("explains a Cloudflare block instead of pasting its web page", () => {
+    const page = `<!DOCTYPE html>
+<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->
+<head>
+<title>Attention Required! | Cloudflare</title>
+<meta charset="UTF-8" />
+<h1><span data-translate="error">Error</span> <span class="cf-error-code">1020</span></h1>
+<div class="cf-footer-item">Ray ID: <code>8d1f2a3b4c5d6e7f</code></div>`;
+    const error = new SailPointApiError(403, page, "POST /accounts/v1");
+    assert.match(error.message, /HTTP 403 for POST \/accounts\/v1/);
+    assert.match(error.message, /Cloudflare blocked the request \("Attention Required! \| Cloudflare"\) \(error 1020, Ray ID 8d1f2a3b4c5d6e7f\)/);
+    assert.equal(error.message.includes("<!DOCTYPE"), false);
+    assert.equal(error.message.includes("<html"), false);
+    const plain = new SailPointApiError(403, '{"message":"no valid identityId"}');
+    assert.match(plain.message, /no valid identityId/);
   });
 
   it("does not create an account or comment when the tenant link field is blank", async () => {
