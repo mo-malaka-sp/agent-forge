@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import {
   asanaDeskPublic,
+  defaultAsanaDesk,
+  deskStorage,
   loadAsanaDesk,
   saveAsanaDesk,
 } from "@/lib/readonly-account/asana-desk";
@@ -28,7 +30,13 @@ const deskSchema = z.object({
 });
 
 export async function GET() {
-  return safJson({ desk: asanaDeskPublic(await loadAsanaDesk()) });
+  const storage = deskStorage();
+  try {
+    return safJson({ desk: asanaDeskPublic(await loadAsanaDesk()), storage });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The back desk could not be read.";
+    return safJson({ desk: asanaDeskPublic(defaultAsanaDesk()), storage, storageError: message }, 503);
+  }
 }
 
 export async function POST(request: Request) {
@@ -43,10 +51,10 @@ export async function POST(request: Request) {
         targetUrl,
         store: defaultWebhookStore(),
       });
-      return safJson({ desk: asanaDeskPublic(saved), webhook });
+      return safJson({ desk: asanaDeskPublic(saved), webhook, storage: deskStorage() });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Asana webhook registration failed.";
-      return safJson({ desk: asanaDeskPublic(saved), webhookError: message });
+      return safJson({ desk: asanaDeskPublic(saved), webhookError: message, storage: deskStorage() });
     }
   } catch (error) {
     return safError(error);

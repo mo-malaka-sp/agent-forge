@@ -20,7 +20,13 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   const url = new URL(request.url);
-  const desk = await loadAsanaDesk();
+  let desk: Awaited<ReturnType<typeof loadAsanaDesk>>;
+  try {
+    desk = await loadAsanaDesk();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The back desk could not be read.";
+    return NextResponse.json({ error: message }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
   const token = asanaAccessToken(undefined, desk);
   const store = defaultWebhookStore();
   const result = await receiveAsanaWebhook(

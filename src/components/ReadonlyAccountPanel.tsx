@@ -12,6 +12,7 @@ import type {
 const POLL_INTERVAL_MS = 4000;
 
 type WebhookLogEntry = { at: string; message: string };
+type DeskStorage = { storage: "dynamodb" | "local"; storedAt: string };
 const MAX_POLLS = 30;
 
 const STATUS_STYLES: Record<StepStatus, string> = {
@@ -87,6 +88,8 @@ export function ReadonlyAccountPanel() {
     tenantLinkTemplate: "https://{tenant}.identitynow-demo.com",
   });
   const [deskSaved, setDeskSaved] = useState<string | null>(null);
+  const [deskStorage, setDeskStorage] = useState<DeskStorage | null>(null);
+  const [deskStorageError, setDeskStorageError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [setup, setSetup] = useState<SetupResult | null>(null);
   const [created, setCreated] = useState<CreateResult | null>(null);
@@ -124,13 +127,19 @@ export function ReadonlyAccountPanel() {
     }
     void fetch("/api/readonly-account/asana/desk")
       .then(async (response) => {
-        if (!response.ok || cancelled) {
+        if (cancelled) {
           return;
         }
-        const body = (await response.json()) as { desk?: typeof desk };
-        if (body.desk) {
+        const body = (await response.json()) as {
+          desk?: typeof desk;
+          storage?: DeskStorage;
+          storageError?: string;
+        };
+        if (body.desk && response.ok) {
           setDesk((current) => ({ ...current, ...body.desk, asanaToken: "", clientSecret: "" }));
         }
+        setDeskStorage(body.storage ?? null);
+        setDeskStorageError(body.storageError ?? null);
       })
       .catch(() => undefined);
     void refreshAsana();
@@ -185,6 +194,7 @@ export function ReadonlyAccountPanel() {
         desk: { asanaTokenSet: boolean; clientSecretSet: boolean };
         webhook?: { projectName: string };
         webhookError?: string;
+        storage?: DeskStorage;
       }>("/api/readonly-account/asana/desk", {
         ...desk,
         asanaToken: desk.asanaToken,
@@ -197,6 +207,8 @@ export function ReadonlyAccountPanel() {
         asanaTokenSet: saved.desk.asanaTokenSet,
         clientSecretSet: saved.desk.clientSecretSet,
       }));
+      setDeskStorage(saved.storage ?? null);
+      setDeskStorageError(null);
       setDeskSaved(
         saved.webhookError
           ? `Saved. Webhook was not registered. ${saved.webhookError}`
@@ -484,6 +496,22 @@ export function ReadonlyAccountPanel() {
           {busy === "asana" ? "Saving…" : "Save and connect"}
         </button>
         {deskSaved ? <p className="text-xs text-emerald-700 dark:text-emerald-300">{deskSaved}</p> : null}
+        {deskStorageError ? (
+          <p className="text-xs text-red-700 dark:text-red-300">
+            The saved back desk could not be read: {deskStorageError}
+          </p>
+        ) : null}
+        {deskStorage?.storage === "dynamodb" ? (
+          <p className="text-xs text-zinc-500">
+            Saved to DynamoDB table {deskStorage.storedAt}. The desk survives deploys.
+          </p>
+        ) : null}
+        {deskStorage?.storage === "local" ? (
+          <p className="text-xs text-amber-700 dark:text-amber-300">
+            This server keeps the desk in a local file, which a deploy erases. Set SAF_POC_TABLE_NAME in Amplify and
+            redeploy.
+          </p>
+        ) : null}
         <div className="space-y-1">
           <h3 className="text-xs font-medium">Webhook log</h3>
           {webhookLog.length === 0 ? (

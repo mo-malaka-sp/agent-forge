@@ -96,19 +96,35 @@ export function sailPointEndpoint(value: string): { tenant: string; apiBase: str
 
 const DESK_KEY = "READONLY_ACCOUNT#asana-desk";
 
+// Amplify SSR runs on Lambda, which sets AWS_EXECUTION_ENV. A developer shell may
+// export AWS_REGION, so that variable is not used to detect a deployed server.
+function isDeployedRuntime(): boolean {
+  return Boolean(process.env.AWS_EXECUTION_ENV?.trim());
+}
+
+export type DeskStorage = {
+  storage: "dynamodb" | "local";
+  storedAt: string;
+};
+
+export function deskStorage(): DeskStorage {
+  if (resolveDeskStore(deskPath())) {
+    return { storage: "dynamodb", storedAt: process.env.SAF_POC_TABLE_NAME?.trim() ?? "" };
+  }
+  return { storage: "local", storedAt: "" };
+}
+
+// A read error from the shared table is thrown, not hidden. A blank desk on a
+// deployed server would look like a missing setup and send tasks to Declined.
 export async function loadAsanaDesk(
   filePath = deskPath(),
   store?: SafPocStore | null,
 ): Promise<AsanaDeskConfig> {
   const shared = resolveDeskStore(filePath, store);
   if (shared) {
-    try {
-      const stored = await shared.get<Partial<AsanaDeskConfig>>(DESK_KEY);
-      if (stored) {
-        return normalizeDesk({ ...defaultAsanaDesk(), ...stored });
-      }
-    } catch {
-      // A shared-store miss falls back to this server's file.
+    const stored = await shared.get<Partial<AsanaDeskConfig>>(DESK_KEY);
+    if (stored) {
+      return normalizeDesk({ ...defaultAsanaDesk(), ...stored });
     }
   }
   return readDeskFile(filePath);
@@ -155,6 +171,11 @@ export async function saveAsanaDesk(
     throw new Error(`Enter ${missing.join(", ")} before connecting.`);
   }
   const shared = resolveDeskStore(filePath, store);
+  if (!shared && isDeployedRuntime()) {
+    throw new Error(
+      "Set SAF_POC_TABLE_NAME in Amplify and redeploy so the back desk is kept. A file on this server is erased on every deploy.",
+    );
+  }
   if (shared) {
     await shared.put(DESK_KEY, next);
   }

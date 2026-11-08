@@ -3,8 +3,15 @@ import { generateKeyPairSync } from "node:crypto";
 import fs from "node:fs";
 import { describe, it } from "node:test";
 
-import { asanaDeskPublic, defaultAsanaDesk, loadAsanaDesk, saveAsanaDesk, tenantLink } from "@/lib/readonly-account/asana-desk";
-import { createFileStore } from "@/lib/saf-poc/storage";
+import {
+  asanaDeskPublic,
+  defaultAsanaDesk,
+  deskStorage,
+  loadAsanaDesk,
+  saveAsanaDesk,
+  tenantLink,
+} from "@/lib/readonly-account/asana-desk";
+import { createFileStore, type SafPocStore } from "@/lib/saf-poc/storage";
 import {
   acceptAsanaTask,
   describeTaskStatus,
@@ -154,6 +161,14 @@ const FIELD_SETTINGS = [
     },
   },
 ];
+
+function restoreEnv(name: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
 
 function testDesk() {
   return {
@@ -934,6 +949,53 @@ INITIAL_PASSWORD: 261856
       /Tenant link field/,
     );
     assert.equal(fs.existsSync(file), false);
+  });
+
+  it("refuses to save the back desk on a deployed server without the table", async () => {
+    const file = `${process.cwd()}/data/asana-desk-deployed-${process.pid}.json`;
+    const savedRuntime = process.env.AWS_EXECUTION_ENV;
+    const savedTable = process.env.SAF_POC_TABLE_NAME;
+    process.env.AWS_EXECUTION_ENV = "AWS_Lambda_nodejs20.x";
+    delete process.env.SAF_POC_TABLE_NAME;
+    try {
+      await assert.rejects(
+        () =>
+          saveAsanaDesk({
+            ...testDesk(),
+            asanaToken: "asana-secret",
+            clientSecret: "sail-secret",
+          }, file),
+        /SAF_POC_TABLE_NAME/,
+      );
+      assert.equal(fs.existsSync(file), false);
+      assert.deepEqual(deskStorage(), { storage: "local", storedAt: "" });
+    } finally {
+      restoreEnv("AWS_EXECUTION_ENV", savedRuntime);
+      restoreEnv("SAF_POC_TABLE_NAME", savedTable);
+    }
+  });
+
+  it("surfaces a DynamoDB read error instead of returning a blank desk", async () => {
+    const file = `${process.cwd()}/data/asana-desk-read-error-${process.pid}.json`;
+    const failing: SafPocStore = {
+      get: async () => {
+        throw new Error("AccessDeniedException: not authorized to perform dynamodb:GetItem");
+      },
+      put: async () => undefined,
+      delete: async () => undefined,
+      list: async () => [],
+    };
+    await assert.rejects(() => loadAsanaDesk(file, failing), /AccessDeniedException/);
+  });
+
+  it("reports local storage when no table is configured", () => {
+    const savedTable = process.env.SAF_POC_TABLE_NAME;
+    delete process.env.SAF_POC_TABLE_NAME;
+    try {
+      assert.deepEqual(deskStorage(), { storage: "local", storedAt: "" });
+    } finally {
+      restoreEnv("SAF_POC_TABLE_NAME", savedTable);
+    }
   });
 
   it("reads a saved back desk from the shared store when this server has no file", async () => {
