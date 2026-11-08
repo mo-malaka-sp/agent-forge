@@ -477,6 +477,7 @@ STATUS: APPROVED
 TENANT_LINK: https://beta-25503.identitynow-demo.com
 SANDBOX_ACCOUNT: maya.chen@testmail.identitysoon.com
 INITIAL_PASSWORD: 261856
+--- END FULFILLMENT DETAILS ---
 `,
     );
     assert.equal(stories.length, 0);
@@ -784,10 +785,11 @@ INITIAL_PASSWORD: 261856`;
     ) as { data: { notes: string } };
     assert.equal(
       notesUpdate.data.notes,
-      `${existing}
+      `Slack User ID: U0AUACHKTDF
 --- FULFILLMENT DETAILS ---
 STATUS: DECLINED
 REASON: Reset code was not issued. SailPoint API returned HTTP 403 for POST /v2025/generate-password-reset-token/digit. {"__httpStatus":403,"message":"Digit token password reset is disabled."}
+--- END FULFILLMENT DETAILS ---
 `,
     );
     assert.ok(updates.indexOf(notesUpdate) < updates.length - 1);
@@ -814,11 +816,38 @@ REASON: SailPoint is down.
 --- FULFILLMENT DETAILS ---
 STATUS: DECLINED
 REASON: SailPoint API returned HTTP 503 for POST /accounts/v1. Tenant unavailable.
+--- END FULFILLMENT DETAILS ---
 `,
     );
     assert.equal(
       (updates[0] as { data: { notes: string } }).data.notes.split("--- FULFILLMENT DETAILS ---").length,
       2,
+    );
+  });
+
+  it("keeps text written after the end marker and moves the block to the bottom", async () => {
+    const updates: unknown[] = [];
+    const existing = `Slack User ID: U0AUACHKTDF
+--- FULFILLMENT DETAILS ---
+STATUS: DECLINED
+REASON: SailPoint is down.
+--- END FULFILLMENT DETAILS ---
+Retried by the team.`;
+    await writeTaskErrorNotes(TASK_GID, "Tenant unavailable.", {
+      token: "asana-token",
+      projectGid: "project-1",
+      desk: testDesk(),
+      fetchImpl: asanaFetch([], { updates, notes: existing }) as typeof fetch,
+    });
+    assert.equal(
+      (updates[0] as { data: { notes: string } }).data.notes,
+      `Slack User ID: U0AUACHKTDF
+Retried by the team.
+--- FULFILLMENT DETAILS ---
+STATUS: DECLINED
+REASON: Tenant unavailable.
+--- END FULFILLMENT DETAILS ---
+`,
     );
   });
 
@@ -1089,6 +1118,7 @@ STATUS: APPROVED
 TENANT_LINK: https://beta-25503.identitynow-demo.com
 SANDBOX_ACCOUNT: maya.chen@testmail.identitysoon.com
 INITIAL_PASSWORD: 261856
+--- END FULFILLMENT DETAILS ---
 `,
     );
     assert.equal(saved.data.notes.split("--- FULFILLMENT DETAILS ---").length, 2);
@@ -1127,6 +1157,7 @@ STATUS: APPROVED
 TENANT_LINK: https://beta-25503.identitynow-demo.com
 SANDBOX_ACCOUNT: luis.stone@example.com
 INITIAL_PASSWORD: 261856
+--- END FULFILLMENT DETAILS ---
 `,
     );
     assert.equal(notes.split("--- FULFILLMENT DETAILS ---").length, 2);

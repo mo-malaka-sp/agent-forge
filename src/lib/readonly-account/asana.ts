@@ -898,20 +898,28 @@ async function projectCustomFields(
 }
 
 const FULFILLMENT_MARKER = "--- FULFILLMENT DETAILS ---";
+const FULFILLMENT_END_MARKER = "--- END FULFILLMENT DETAILS ---";
+
+// Power Automate parses the notes, so a task must only ever hold one fulfillment block.
+// Blocks written before the end marker existed run to the end of the notes.
+function replaceFulfillmentBlock(existingNotes: string, lines: string[]): string {
+  const block = `${FULFILLMENT_MARKER}\n${lines.join("\n")}\n${FULFILLMENT_END_MARKER}\n`;
+  const start = existingNotes.indexOf(FULFILLMENT_MARKER);
+  let kept = existingNotes.replace(/\s+$/, "");
+  if (start >= 0) {
+    const end = existingNotes.indexOf(FULFILLMENT_END_MARKER, start);
+    const before = existingNotes.slice(0, start).replace(/\s+$/, "");
+    const after = end >= 0
+      ? existingNotes.slice(end + FULFILLMENT_END_MARKER.length).replace(/^\s+|\s+$/g, "")
+      : "";
+    kept = [before, after].filter(Boolean).join("\n");
+  }
+  return kept ? `${kept}\n${block}` : block;
+}
 
 function appendFulfillmentError(existingNotes: string, reason: string): string {
   const reasonLine = reason.replace(/\s+/g, " ").trim();
-  const block = `${FULFILLMENT_MARKER}
-STATUS: DECLINED
-REASON: ${reasonLine}
-`;
-  // Earlier blocks were written as "STATUS: Declined", so the match ignores case.
-  const errorBlock = new RegExp(
-    `(?:\\n|^)${FULFILLMENT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\nSTATUS: Declined\\nREASON:[^\\n]*\\n?`,
-    "i",
-  );
-  const kept = existingNotes.replace(errorBlock, "").replace(/\s+$/, "");
-  return kept ? `${kept}\n${block}` : block;
+  return replaceFulfillmentBlock(existingNotes, ["STATUS: DECLINED", `REASON: ${reasonLine}`]);
 }
 
 export async function writeTaskErrorNotes(
@@ -953,15 +961,12 @@ function appendFulfillmentNotes(
   existingNotes: string,
   details: { tenantLink: string; sandboxAccount: string; initialPassword: string },
 ): string {
-  const markerAt = existingNotes.indexOf(FULFILLMENT_MARKER);
-  const kept = (markerAt >= 0 ? existingNotes.slice(0, markerAt) : existingNotes).replace(/\s+$/, "");
-  const credentialBlock = `${FULFILLMENT_MARKER}
-STATUS: APPROVED
-TENANT_LINK: ${details.tenantLink}
-SANDBOX_ACCOUNT: ${details.sandboxAccount}
-INITIAL_PASSWORD: ${details.initialPassword}
-`;
-  return kept ? `${kept}\n${credentialBlock}` : credentialBlock;
+  return replaceFulfillmentBlock(existingNotes, [
+    "STATUS: APPROVED",
+    `TENANT_LINK: ${details.tenantLink}`,
+    `SANDBOX_ACCOUNT: ${details.sandboxAccount}`,
+    `INITIAL_PASSWORD: ${details.initialPassword}`,
+  ]);
 }
 
 async function putCustomFields(
