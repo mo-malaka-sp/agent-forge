@@ -786,7 +786,7 @@ INITIAL_PASSWORD: 261856`;
       notesUpdate.data.notes,
       `${existing}
 --- FULFILLMENT DETAILS ---
-STATUS: Declined
+STATUS: DECLINED
 REASON: Reset code was not issued. SailPoint API returned HTTP 403 for POST /v2025/generate-password-reset-token/digit. {"__httpStatus":403,"message":"Digit token password reset is disabled."}
 `,
     );
@@ -799,7 +799,7 @@ REASON: Reset code was not issued. SailPoint API returned HTTP 403 for POST /v20
     const updates: unknown[] = [];
     const existing = `Slack User ID: U0AUACHKTDF
 --- FULFILLMENT DETAILS ---
-STATUS: Declined
+STATUS: DECLINED
 REASON: SailPoint is down.
 `;
     await writeTaskErrorNotes(TASK_GID, "SailPoint API returned HTTP 503 for POST /accounts/v1. Tenant unavailable.", {
@@ -812,7 +812,7 @@ REASON: SailPoint is down.
       (updates[0] as { data: { notes: string } }).data.notes,
       `Slack User ID: U0AUACHKTDF
 --- FULFILLMENT DETAILS ---
-STATUS: Declined
+STATUS: DECLINED
 REASON: SailPoint API returned HTTP 503 for POST /accounts/v1. Tenant unavailable.
 `,
     );

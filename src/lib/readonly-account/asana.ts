@@ -902,11 +902,13 @@ const FULFILLMENT_MARKER = "--- FULFILLMENT DETAILS ---";
 function appendFulfillmentError(existingNotes: string, reason: string): string {
   const reasonLine = reason.replace(/\s+/g, " ").trim();
   const block = `${FULFILLMENT_MARKER}
-STATUS: Declined
+STATUS: DECLINED
 REASON: ${reasonLine}
 `;
+  // Earlier blocks were written as "STATUS: Declined", so the match ignores case.
   const errorBlock = new RegExp(
     `(?:\\n|^)${FULFILLMENT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\nSTATUS: Declined\\nREASON:[^\\n]*\\n?`,
+    "i",
   );
   const kept = existingNotes.replace(errorBlock, "").replace(/\s+$/, "");
   return kept ? `${kept}\n${block}` : block;
