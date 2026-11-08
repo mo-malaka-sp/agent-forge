@@ -22,6 +22,7 @@ import {
   resumeAsanaTask,
   statusField,
   tickAsanaAccounts,
+  writeTaskErrorNotes,
   type AsanaAccountJob,
   type AsanaCustomField,
 } from "@/lib/readonly-account/asana";
@@ -472,6 +473,7 @@ describe("Asana test-drive requests", () => {
     assert.equal(
       (updates[2] as { data: { notes?: string } }).data.notes,
       `--- FULFILLMENT DETAILS ---
+STATUS: APPROVED
 TENANT_LINK: https://beta-25503.identitynow-demo.com
 SANDBOX_ACCOUNT: maya.chen@testmail.identitysoon.com
 INITIAL_PASSWORD: 261856
@@ -761,19 +763,63 @@ INITIAL_PASSWORD: 261856
     });
     const job = waitingJob();
     job.user.password = "TestDrive9!";
+    const existing = `Slack User ID: U0AUACHKTDF
+--- FULFILLMENT DETAILS ---
+TENANT_LINK: https://beta-25503.identitynow-demo.com
+SANDBOX_ACCOUNT: luis.stone@example.com
+INITIAL_PASSWORD: 261856`;
     const [status] = await tickAsanaAccounts({
       token: "asana-token",
       client,
       store: memoryStore([job]),
       projectGid: "project-1",
       desk: testDesk(),
-      fetchImpl: asanaFetch(stories, { updates }) as typeof fetch,
+      fetchImpl: asanaFetch(stories, { updates, notes: existing }) as typeof fetch,
     });
     assert.equal(status?.failed, true);
     assert.match(status?.detail ?? "", /Reset code was not issued/);
     assert.match(JSON.stringify(stories[0]), /Reset code was not issued/);
+    const notesUpdate = updates.find((update) =>
+      Boolean((update as { data?: { notes?: string } }).data?.notes),
+    ) as { data: { notes: string } };
+    assert.equal(
+      notesUpdate.data.notes,
+      `${existing}
+--- FULFILLMENT DETAILS ---
+STATUS: Declined
+REASON: Reset code was not issued. SailPoint API returned HTTP 403 for POST /v2025/generate-password-reset-token/digit. {"__httpStatus":403,"message":"Digit token password reset is disabled."}
+`,
+    );
+    assert.ok(updates.indexOf(notesUpdate) < updates.length - 1);
     assert.deepEqual(updates.at(-1), { data: { custom_fields: { "field-status": "opt-declined" } } });
     assert.ok(calls.some((call) => call.path === "/beta/identities/invite"));
+  });
+
+  it("replaces an earlier error block instead of adding a second one", async () => {
+    const updates: unknown[] = [];
+    const existing = `Slack User ID: U0AUACHKTDF
+--- FULFILLMENT DETAILS ---
+STATUS: Declined
+REASON: SailPoint is down.
+`;
+    await writeTaskErrorNotes(TASK_GID, "SailPoint API returned HTTP 503 for POST /accounts/v1. Tenant unavailable.", {
+      token: "asana-token",
+      projectGid: "project-1",
+      desk: testDesk(),
+      fetchImpl: asanaFetch([], { updates, notes: existing }) as typeof fetch,
+    });
+    assert.equal(
+      (updates[0] as { data: { notes: string } }).data.notes,
+      `Slack User ID: U0AUACHKTDF
+--- FULFILLMENT DETAILS ---
+STATUS: Declined
+REASON: SailPoint API returned HTTP 503 for POST /accounts/v1. Tenant unavailable.
+`,
+    );
+    assert.equal(
+      (updates[0] as { data: { notes: string } }).data.notes.split("--- FULFILLMENT DETAILS ---").length,
+      2,
+    );
   });
 
   it("uses the board column when no custom field has New request, Evaluation, and Approved", async () => {
@@ -1039,6 +1085,7 @@ INITIAL_PASSWORD: 261856
       saved.data.notes,
       `${existing}
 --- FULFILLMENT DETAILS ---
+STATUS: APPROVED
 TENANT_LINK: https://beta-25503.identitynow-demo.com
 SANDBOX_ACCOUNT: maya.chen@testmail.identitysoon.com
 INITIAL_PASSWORD: 261856
@@ -1076,6 +1123,7 @@ INITIAL_PASSWORD: 000000
       notes,
       `Slack User ID: U0AUACHKTDF
 --- FULFILLMENT DETAILS ---
+STATUS: APPROVED
 TENANT_LINK: https://beta-25503.identitynow-demo.com
 SANDBOX_ACCOUNT: luis.stone@example.com
 INITIAL_PASSWORD: 261856

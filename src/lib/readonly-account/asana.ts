@@ -500,6 +500,12 @@ async function failTask(
   persistJob(store, job);
   const token = asanaAccessToken(options.token, options.desk);
   try {
+    await writeTaskErrorNotes(job.asanaTaskGid, message, options);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Asana did not save the error in the description.";
+    job.detail = `${message} ${reason}`;
+  }
+  try {
     await commentAsanaOnce(job.asanaTaskGid, `SAF Test Drive\n${message}`, token, options.fetchImpl);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "Asana did not save the comment.";
@@ -893,6 +899,54 @@ async function projectCustomFields(
 
 const FULFILLMENT_MARKER = "--- FULFILLMENT DETAILS ---";
 
+function appendFulfillmentError(existingNotes: string, reason: string): string {
+  const reasonLine = reason.replace(/\s+/g, " ").trim();
+  const block = `${FULFILLMENT_MARKER}
+STATUS: Declined
+REASON: ${reasonLine}
+`;
+  const errorBlock = new RegExp(
+    `(?:\\n|^)${FULFILLMENT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\nSTATUS: Declined\\nREASON:[^\\n]*\\n?`,
+  );
+  const kept = existingNotes.replace(errorBlock, "").replace(/\s+$/, "");
+  return kept ? `${kept}\n${block}` : block;
+}
+
+export async function writeTaskErrorNotes(
+  taskGid: string,
+  reason: string,
+  options: AsanaCallOptions = {},
+): Promise<void> {
+  const desk = options.desk ?? await loadAsanaDesk();
+  const token = asanaAccessToken(options.token, desk);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const task = await fetchAsanaTask(taskGid, token, fetchImpl, true);
+  await putTaskNotes(taskGid, appendFulfillmentError(task.notes ?? "", reason), token, fetchImpl);
+}
+
+async function putTaskNotes(
+  taskGid: string,
+  notes: string,
+  token: string,
+  fetchImpl: typeof fetch,
+) {
+  if (!token) {
+    throw new Error("Set the Asana access token in the back desk.");
+  }
+  const response = await fetchImpl(`${ASANA_API}/tasks/${taskGid}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ data: { notes } }),
+  });
+  if (!response.ok) {
+    throw new Error(`Asana did not update the task description (${response.status}).`);
+  }
+}
+
 function appendFulfillmentNotes(
   existingNotes: string,
   details: { tenantLink: string; sandboxAccount: string; initialPassword: string },
@@ -900,6 +954,7 @@ function appendFulfillmentNotes(
   const markerAt = existingNotes.indexOf(FULFILLMENT_MARKER);
   const kept = (markerAt >= 0 ? existingNotes.slice(0, markerAt) : existingNotes).replace(/\s+$/, "");
   const credentialBlock = `${FULFILLMENT_MARKER}
+STATUS: APPROVED
 TENANT_LINK: ${details.tenantLink}
 SANDBOX_ACCOUNT: ${details.sandboxAccount}
 INITIAL_PASSWORD: ${details.initialPassword}

@@ -7,6 +7,7 @@ import {
   declineAsanaTask,
   describeTaskStatus,
   resumeAsanaTask,
+  writeTaskErrorNotes,
 } from "@/lib/readonly-account/asana";
 import {
   appendWebhookLog,
@@ -76,6 +77,11 @@ export async function POST(request: Request) {
         }
       },
       reportFailure: async (taskGid, message) => {
+        try {
+          await writeTaskErrorNotes(taskGid, message, { token, desk });
+        } catch {
+          // The comment still records the error when the description update fails.
+        }
         await commentAsanaOnce(taskGid, `SAF Test Drive\n${message}`, token);
         try {
           await declineAsanaTask(taskGid, { token, desk });
