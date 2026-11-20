@@ -43,6 +43,7 @@ function memoryStore(): SafPocStore {
 
 function asanaTask(options: {
   status?: string;
+  taskTypeStatus?: string;
   section?: string;
   customer?: string;
   threadTs?: string;
@@ -78,6 +79,7 @@ function asanaTask(options: {
   }
   return {
     name: options.name ?? "State Farm request",
+    custom_type_status_option: options.taskTypeStatus ? { name: options.taskTypeStatus } : null,
     projects: [{ gid: projectGid }],
     memberships: [{ project: { gid: projectGid }, section: { name: options.section ?? "Ready for TES" } }],
     custom_fields: fields,
@@ -142,6 +144,20 @@ describe("Asana Slack status sync", () => {
     assert.deepEqual(taskGidsForSignedDelivery(200, ""), []);
     assert.deepEqual(taskGidsForSignedDelivery(200, "not-json"), []);
     assert.deepEqual(taskGidsForSignedDelivery(200, JSON.stringify({ events: [] })), []);
+    // A story event names the task as its parent, so the task is included.
+    assert.deepEqual(taskGidsForSignedDelivery(200, body), [TASK, "1234567890127"]);
+  });
+
+  it("names the task when Asana sends a custom field change with the task as parent", () => {
+    const body = JSON.stringify({
+      events: [
+        {
+          action: "changed",
+          resource: { gid: "1200000000000555", resource_type: "custom_field" },
+          parent: { gid: TASK, resource_type: "task" },
+        },
+      ],
+    });
     assert.deepEqual(taskGidsForSignedDelivery(200, body), [TASK]);
   });
 
@@ -183,6 +199,19 @@ describe("Asana Slack status sync", () => {
     }
   });
 
+  it("uses the custom task type status for a POC Request task", async () => {
+    const seen = capture(asanaTask({ taskTypeStatus: "Implemented / Live", status: "Ready for TES" }));
+    await syncAsanaSlackStatus([TASK], syncOptions(seen.fetchImpl));
+    assert.equal(seen.slack.length, 1);
+    assert.match(seen.slack[0]?.text ?? "", /Implemented \/ Live/);
+  });
+
+  it("does not post an upstream custom task type status", async () => {
+    const seen = capture(asanaTask({ taskTypeStatus: "Pending GVP Approval", section: "Completed" }));
+    await syncAsanaSlackStatus([TASK], syncOptions(seen.fetchImpl));
+    assert.deepEqual(seen.slack, []);
+  });
+
   it("uses the section name when POC Status is empty", async () => {
     const seen = capture(asanaTask({ omitStatus: true, section: "Implemented / Live" }));
     await syncAsanaSlackStatus([TASK], syncOptions(seen.fetchImpl));
@@ -204,8 +233,14 @@ describe("Asana Slack status sync", () => {
     }
   });
 
-  it("does not post a thread timestamp without a fraction", async () => {
+  it("posts a thread timestamp that has no fraction", async () => {
     const seen = capture(asanaTask({ status: "Completed", threadTs: "1795138819" }));
+    await syncAsanaSlackStatus([TASK], syncOptions(seen.fetchImpl));
+    assert.deepEqual(seen.slack.map((post) => post.thread_ts), ["1795138819"]);
+  });
+
+  it("does not post a thread timestamp that is not a Slack timestamp", async () => {
+    const seen = capture(asanaTask({ status: "Completed", threadTs: "not-a-timestamp" }));
     await syncAsanaSlackStatus([TASK], syncOptions(seen.fetchImpl));
     assert.deepEqual(seen.slack, []);
   });

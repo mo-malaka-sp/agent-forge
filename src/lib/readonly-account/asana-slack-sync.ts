@@ -4,7 +4,8 @@ import { getSafPocStore } from "@/lib/saf-poc/storage";
 const ASANA_API = "https://app.asana.com/api/1.0";
 const SLACK_POST_URL = "https://slack.com/api/chat.postMessage";
 const TASK_GID = /^[0-9]{5,20}$/;
-const THREAD_TS = /^\d+\.\d+$/;
+// Live tasks store either "1795138819" or the full Slack form "1795138819.813139".
+const THREAD_TS = /^\d+(\.\d+)?$/;
 const DEDUP_TTL_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 
@@ -15,6 +16,7 @@ const TASK_FIELDS = [
   "projects.gid",
   "memberships.project.gid",
   "memberships.section.name",
+  "custom_type_status_option.name",
   "custom_fields.name",
   "custom_fields.display_value",
   "custom_fields.text_value",
@@ -57,6 +59,7 @@ const STAGES: Stage[] = [
 type AsanaEvent = {
   action?: string;
   resource?: { gid?: string; resource_type?: string };
+  parent?: { gid?: string; resource_type?: string };
 };
 
 type AsanaCustomField = {
@@ -68,6 +71,7 @@ type AsanaCustomField = {
 
 type AsanaTask = {
   name?: string;
+  custom_type_status_option?: { name?: string } | null;
   projects?: Array<{ gid?: string }>;
   memberships?: Array<{ project?: { gid?: string }; section?: { name?: string } }>;
   custom_fields?: AsanaCustomField[];
@@ -109,6 +113,8 @@ export type SlackSyncOptions = {
 
 const processCache = new Map<string, number>();
 
+// Asana sends some task changes (custom fields, status options) with the task as
+// the parent of the event, not the resource. Check both, as the Test Drive path does.
 export function taskGidsForSlackSync(events: unknown): string[] {
   if (!Array.isArray(events)) {
     return [];
@@ -122,9 +128,11 @@ export function taskGidsForSlackSync(events: unknown): string[] {
     if (record.action !== "added" && record.action !== "changed") {
       continue;
     }
-    const gid = record.resource?.gid ?? "";
-    if (record.resource?.resource_type === "task" && TASK_GID.test(gid)) {
-      gids.add(gid);
+    for (const candidate of [record.resource, record.parent]) {
+      const gid = candidate?.gid ?? "";
+      if (candidate?.resource_type === "task" && TASK_GID.test(gid)) {
+        gids.add(gid);
+      }
     }
   }
   return [...gids];
@@ -252,7 +260,10 @@ async function syncTask(input: {
 
   const fields = task.custom_fields ?? [];
   const threadTs = customFieldValue(fields, "Slack Thread TS");
-  const pocStatus = customFieldValue(fields, "POC Status");
+  // Custom task types (for example POC Request) keep their status in the task type
+  // status option. Fall back to a POC Status field, then to the section name.
+  const pocStatus =
+    task.custom_type_status_option?.name?.trim() || customFieldValue(fields, "POC Status");
   const status = pocStatus || sectionName(task, input.projectGid);
   if (!threadTs || !THREAD_TS.test(threadTs)) {
     logSlackSync(input.results, "skipped_thread_ts", { taskGid: input.taskGid, targetStatus: status }, input.now);
