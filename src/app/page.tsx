@@ -152,11 +152,14 @@ export default function HomePage() {
       </section>
 
       <p className="mt-8 text-sm text-zinc-600 dark:text-zinc-400">
-        Test tool:{" "}
+        Test tools:{" "}
         <Link href="/readonly-account" className="font-medium underline underline-offset-2">
-          Create read-only test accounts
-        </Link>{" "}
-        for the SAF Test Drive.
+          SAF TestDrive Accounts
+        </Link>
+        {" · "}
+        <Link href="/poc-tracker" className="font-medium underline underline-offset-2">
+          SAF POC Tracker
+        </Link>
       </p>
     </main>
   );

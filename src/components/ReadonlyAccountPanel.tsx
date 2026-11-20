@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { WebhookLogList } from "@/components/WebhookLogList";
 import type {
   ActivationResult,
   CreateResult,
@@ -408,10 +410,15 @@ export function ReadonlyAccountPanel() {
         <div className="space-y-1">
           <h2 className="text-sm font-medium">3. Back desk</h2>
           <p className="text-xs text-zinc-600 dark:text-zinc-400">
-            When a task status is {desk.triggerStatus}, AgentForge sets it to {desk.workingStatus},
-            creates a @testmail.identitysoon.com account, and writes the account, reset code, and tenant
-            link. Success sets the status to {desk.doneStatus} and Test Drive Status to Done. An error
-            sets the status to {desk.declinedStatus} and posts the error on the task.
+            SAF TestDrive Accounts only. When a task status is {desk.triggerStatus}, AgentForge sets it to{" "}
+            {desk.workingStatus}, creates a @testmail.identitysoon.com account, and writes the account, reset
+            code, and tenant link. Success sets the status to {desk.doneStatus} and Test Drive Status to Done.
+            An error sets the status to {desk.declinedStatus} and posts the error on the task. POC Slack replies
+            are on{" "}
+            <Link href="/poc-tracker" className="underline underline-offset-2">
+              SAF POC Tracker
+            </Link>
+            .
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -512,24 +519,10 @@ export function ReadonlyAccountPanel() {
             redeploy.
           </p>
         ) : null}
-        <div className="space-y-1">
-          <h3 className="text-xs font-medium">Webhook log</h3>
-          {webhookLog.length === 0 ? (
-            <p className="text-xs text-zinc-500">
-              No webhook deliveries yet. This list updates when a task status becomes New request.
-            </p>
-          ) : (
-            <ul className="max-h-48 space-y-1 overflow-auto text-xs">
-              {[...webhookLog].reverse().map((entry) => (
-                <li key={`${entry.at}-${entry.message}`} className="flex gap-2">
-                  <span className="shrink-0 font-mono text-zinc-500">
-                    {new Date(entry.at).toLocaleTimeString()}
-                  </span>
-                  <span>{entry.message}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+        <WebhookLogList
+          entries={webhookLog}
+          empty="No webhook deliveries yet. This list updates when a task changes in the TestDrive project."
+        />
           {asanaJobs.length > 0 ? (
             <ul className="space-y-1 text-xs">
               {asanaJobs.map((job) => (
@@ -539,7 +532,6 @@ export function ReadonlyAccountPanel() {
               ))}
             </ul>
           ) : null}
-        </div>
       </section>
     </div>
   );

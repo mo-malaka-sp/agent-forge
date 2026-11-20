@@ -5,14 +5,15 @@ export default function ReadonlyAccountPage() {
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-8">
       <section className="space-y-1">
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          Test tool · SAF Test Drive
+          Test tool · SAF TestDrive Accounts
         </p>
         <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
-          Read-only test accounts
+          SAF TestDrive Accounts
         </h1>
         <p className="max-w-3xl text-sm text-zinc-600 dark:text-zinc-400">
           Create a sign-in user on the TestDriveUsers source. The account type is TestDrive,
-          and the ReadOnly-Admins role grants SAF Admin to those accounts.
+          and the ReadOnly-Admins role grants SAF Admin to those accounts. Slack replies for POC
+          requests live on SAF POC Tracker, which uses a different Asana project.
         </p>
       </section>
       <ReadonlyAccountPanel />

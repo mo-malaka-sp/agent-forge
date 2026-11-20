@@ -6,6 +6,7 @@ import { resolveAgentForgeDataDir } from "@/lib/db/store";
 import { getSafPocStore } from "@/lib/saf-poc/storage";
 
 const ASANA_API = "https://app.asana.com/api/1.0";
+export const TEST_DRIVE_WEBHOOK_PATH = "/api/readonly-account/asana/webhook";
 const TASK_GID = /^[0-9]{5,20}$/;
 const WEBHOOK_KEY = "READONLY_ACCOUNT#asana-webhook";
 
@@ -352,7 +353,7 @@ export async function registerReadySectionWebhook(options: {
   const targetUrl = webhookTarget(options.targetUrl, sectionGid, stashGid);
   await options.store.update({ projectGid, sectionGid });
   for (const hook of hooks) {
-    if (hook.gid && hook.target?.includes("/api/readonly-account/asana/webhook")) {
+    if (hook.gid && hook.target?.includes(TEST_DRIVE_WEBHOOK_PATH)) {
       await asana(token, `/webhooks/${hook.gid}`, fetchImpl, { method: "DELETE" });
     }
   }
@@ -435,6 +436,7 @@ export async function registerProjectWebhook(options: {
   store: WebhookStore;
   projectName: string;
   projectGid?: string;
+  hookPath?: string;
 }): Promise<{
   projectName: string;
   projectGid: string;
@@ -455,14 +457,15 @@ export async function registerProjectWebhook(options: {
   if (!workspaceGid) {
     throw new Error("Asana did not return the project workspace.");
   }
+  const hookPath = options.hookPath?.trim() || TEST_DRIVE_WEBHOOK_PATH;
   const hooks = await listRecords(token, `/webhooks?workspace=${workspaceGid}&limit=100`, fetchImpl);
-  const stashGid = stashGidFromHooks(hooks) || (await createStashTask(token, workspaceGid, fetchImpl));
+  const stashGid = stashGidFromHooks(hooks, hookPath) || (await createStashTask(token, workspaceGid, fetchImpl));
   const target = new URL(options.targetUrl);
   target.searchParams.set("stash", stashGid);
   const targetUrl = target.toString();
   await options.store.update({ projectGid });
   for (const hook of hooks) {
-    if (hook.gid && hook.target?.includes("/api/readonly-account/asana/webhook")) {
+    if (hook.gid && hook.target?.includes(hookPath)) {
       await asana(token, `/webhooks/${hook.gid}`, fetchImpl, { method: "DELETE" });
     }
   }
@@ -496,9 +499,9 @@ function webhookTarget(baseUrl: string, sectionGid: string, stashGid: string): s
   return target.toString();
 }
 
-function stashGidFromHooks(hooks: AsanaRecord[]): string {
+function stashGidFromHooks(hooks: AsanaRecord[], hookPath = TEST_DRIVE_WEBHOOK_PATH): string {
   for (const hook of hooks) {
-    if (!hook.target?.includes("/api/readonly-account/asana/webhook")) {
+    if (!hook.target?.includes(hookPath)) {
       continue;
     }
     try {

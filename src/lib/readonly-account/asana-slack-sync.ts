@@ -77,6 +77,25 @@ type DedupRecord = {
   postedAt: number;
 };
 
+export type SlackDeliveryStatus =
+  | "posted"
+  | "deduplicated"
+  | "skipped_status"
+  | "skipped_thread_ts"
+  | "skipped_project"
+  | "skipped_no_project"
+  | "missing_slack_credentials"
+  | "missing_asana_token"
+  | "task_fetch_failed"
+  | "slack_rejected";
+
+export type SlackSyncResult = {
+  taskGid: string;
+  targetStatus: string;
+  slackThreadTs: string;
+  deliveryStatus: SlackDeliveryStatus;
+};
+
 export type SlackSyncOptions = {
   asanaToken: string;
   projectGid: string;
@@ -135,21 +154,50 @@ export function slackPocChannelId(override?: string): string {
   return process.env.SLACK_POC_CHANNEL_ID?.trim() || DEFAULT_SLACK_POC_CHANNEL_ID;
 }
 
-export async function syncAsanaSlackStatus(taskGids: string[], options: SlackSyncOptions): Promise<void> {
+export function describeSlackSyncResult(result: SlackSyncResult): string {
+  const task = result.taskGid ? `Task ${result.taskGid}` : "Slack sync";
+  switch (result.deliveryStatus) {
+    case "posted":
+      return `${task} is ${result.targetStatus}. Posted to the Slack thread.`;
+    case "deduplicated":
+      return `${task} is ${result.targetStatus}. Already posted in the last minute.`;
+    case "skipped_status":
+      return `${task} is in "${result.targetStatus || "blank"}". No Slack reply for this stage.`;
+    case "skipped_thread_ts":
+      return `${task} is in "${result.targetStatus || "blank"}". Slack thread timestamp is missing or invalid.`;
+    case "skipped_project":
+      return `${task} is not in this Asana project.`;
+    case "skipped_no_project":
+      return "Slack sync skipped. The POC Tracker project is not connected.";
+    case "missing_slack_credentials":
+      return "Slack bot token is not set. No reply was posted.";
+    case "missing_asana_token":
+      return "Asana access token is not set. No reply was posted.";
+    case "task_fetch_failed":
+      return `${task} could not be read from Asana.`;
+    case "slack_rejected":
+      return `${task} is ${result.targetStatus}. Slack rejected the reply.`;
+    default:
+      return `${task} sync finished with ${result.deliveryStatus}.`;
+  }
+}
+
+export async function syncAsanaSlackStatus(taskGids: string[], options: SlackSyncOptions): Promise<SlackSyncResult[]> {
   const now = options.now ?? Date.now;
+  const results: SlackSyncResult[] = [];
   const slackToken = resolveSlackToken(options);
   if (!slackToken) {
-    logSlackSync("missing_slack_credentials", {}, now);
-    return;
+    logSlackSync(results, "missing_slack_credentials", {}, now);
+    return results;
   }
   if (!options.asanaToken.trim()) {
-    logSlackSync("missing_asana_token", {}, now);
-    return;
+    logSlackSync(results, "missing_asana_token", {}, now);
+    return results;
   }
   const projectGid = options.projectGid.trim();
   if (!projectGid) {
-    logSlackSync("skipped_no_project", {}, now);
-    return;
+    logSlackSync(results, "skipped_no_project", {}, now);
+    return results;
   }
 
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -171,8 +219,10 @@ export async function syncAsanaSlackStatus(taskGids: string[], options: SlackSyn
       store,
       cache,
       now,
+      results,
     });
   }
+  return results;
 }
 
 async function syncTask(input: {
@@ -185,17 +235,18 @@ async function syncTask(input: {
   store: SafPocStore | null;
   cache: Map<string, number>;
   now: () => number;
+  results: SlackSyncResult[];
 }): Promise<void> {
   let task: AsanaTask;
   try {
     task = await fetchTask(input.fetchImpl, input.asanaToken, input.taskGid);
   } catch {
-    logSlackSync("task_fetch_failed", { taskGid: input.taskGid }, input.now);
+    logSlackSync(input.results, "task_fetch_failed", { taskGid: input.taskGid }, input.now);
     return;
   }
 
   if (!taskInProject(task, input.projectGid)) {
-    logSlackSync("skipped_project", { taskGid: input.taskGid }, input.now);
+    logSlackSync(input.results, "skipped_project", { taskGid: input.taskGid }, input.now);
     return;
   }
 
@@ -204,20 +255,20 @@ async function syncTask(input: {
   const pocStatus = customFieldValue(fields, "POC Status");
   const status = pocStatus || sectionName(task, input.projectGid);
   if (!threadTs || !THREAD_TS.test(threadTs)) {
-    logSlackSync("skipped_thread_ts", { taskGid: input.taskGid, targetStatus: status }, input.now);
+    logSlackSync(input.results, "skipped_thread_ts", { taskGid: input.taskGid, targetStatus: status }, input.now);
     return;
   }
 
   const stage = stageFor(status);
   if (!stage) {
-    logSlackSync("skipped_status", { taskGid: input.taskGid, targetStatus: status, slackThreadTs: threadTs }, input.now);
+    logSlackSync(input.results, "skipped_status", { taskGid: input.taskGid, targetStatus: status, slackThreadTs: threadTs }, input.now);
     return;
   }
 
   const dedupKey = `ASANA_SLACK_SYNC#${input.taskGid}#${stage.label.toLowerCase()}`;
   const at = input.now();
   if (await postedRecently(input.cache, input.store, dedupKey, at)) {
-    logSlackSync("deduplicated", { taskGid: input.taskGid, targetStatus: stage.label, slackThreadTs: threadTs }, input.now);
+    logSlackSync(input.results, "deduplicated", { taskGid: input.taskGid, targetStatus: stage.label, slackThreadTs: threadTs }, input.now);
     return;
   }
   remember(input.cache, dedupKey, at);
@@ -227,13 +278,13 @@ async function syncTask(input: {
   const text = stage.text(customer);
   try {
     const posted = await postSlack(input.fetchImpl, input.slackToken, input.channel, threadTs, text);
-    logSlackSync(posted ? "posted" : "slack_rejected", {
+    logSlackSync(input.results, posted ? "posted" : "slack_rejected", {
       taskGid: input.taskGid,
       targetStatus: stage.label,
       slackThreadTs: threadTs,
     }, input.now);
   } catch {
-    logSlackSync("slack_rejected", {
+    logSlackSync(input.results, "slack_rejected", {
       taskGid: input.taskGid,
       targetStatus: stage.label,
       slackThreadTs: threadTs,
@@ -384,16 +435,24 @@ async function writePostedAt(store: SafPocStore | null, key: string, at: number)
 }
 
 function logSlackSync(
-  deliveryStatus: string,
+  results: SlackSyncResult[],
+  deliveryStatus: SlackDeliveryStatus,
   details: { taskGid?: string; targetStatus?: string; slackThreadTs?: string },
   now: () => number,
 ): void {
+  const result: SlackSyncResult = {
+    taskGid: details.taskGid ?? "",
+    targetStatus: details.targetStatus ?? "",
+    slackThreadTs: details.slackThreadTs ?? "",
+    deliveryStatus,
+  };
+  results.push(result);
   console.log(
     JSON.stringify({
       timestamp: new Date(now()).toISOString(),
-      taskGid: details.taskGid ?? "",
-      targetStatus: details.targetStatus ?? "",
-      slackThreadTs: details.slackThreadTs ?? "",
+      taskGid: result.taskGid,
+      targetStatus: result.targetStatus,
+      slackThreadTs: result.slackThreadTs,
       deliveryStatus,
     }),
   );

@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   DEFAULT_SLACK_POC_CHANNEL_ID,
   slackPocChannelId,
+  describeSlackSyncResult,
   syncAsanaSlackStatus,
   taskGidsForSignedDelivery,
   type SlackSyncOptions,
@@ -284,6 +285,15 @@ describe("Asana Slack status sync", () => {
         process.env.SLACK_POC_CHANNEL_ID = previous;
       }
     }
+  });
+
+  it("describes a posted update for the POC Tracker log", async () => {
+    const seen = capture(asanaTask({ status: "Completed" }));
+    const results = await syncAsanaSlackStatus([TASK], syncOptions(seen.fetchImpl));
+    assert.equal(
+      describeSlackSyncResult(results[0]!),
+      `Task ${TASK} is Completed. Posted to the Slack thread.`,
+    );
   });
 
   it("uses the task name when the customer field is empty", async () => {
