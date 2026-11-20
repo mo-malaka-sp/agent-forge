@@ -183,7 +183,7 @@ describe("Asana Slack status sync", () => {
       },
       {
         status: "Implemented / Live",
-        text: "🟢 *Status Update: Implemented / Live*\n🎉 _The POC environment for *State Farm* is now live! Secure credentials have been delivered via Slack DM._",
+        text: "🟢 *Status Update: Implemented / Live*\n🎉 _The POC environment for *State Farm* is now live!_",
       },
       {
         status: "Completed",

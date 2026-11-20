@@ -41,7 +41,7 @@ const STAGES: Stage[] = [
     aliases: ["implemented / live"],
     label: "Implemented / Live",
     text: (customer) =>
-      `🟢 *Status Update: Implemented / Live*\n🎉 _The POC environment for *${customer}* is now live! Secure credentials have been delivered via Slack DM._`,
+      `🟢 *Status Update: Implemented / Live*\n🎉 _The POC environment for *${customer}* is now live!_`,
   },
   {
     aliases: ["completed"],
