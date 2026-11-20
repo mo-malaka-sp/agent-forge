@@ -22,6 +22,7 @@ Its primary business objective is to streamline the intake, governance, provisio
 * **Standard Licensing Compliance:** Operates completely on Microsoft Power Automate Standard connectors (Office 365 / Slack Standard), requiring zero Premium licenses, custom HTTP webhooks, or third-party middleware (e.g., Zapier/Workato).
 * **Zero Custom Slack App / Bot Overhead:** Leverages pre-approved enterprise connectors and native Slack Workflow Builder features, avoiding unapproved custom `xoxb-` bot token dependencies.
 * **Resilient Data Contracts:** Each fulfillment value sits on its own line between a start and an end marker, so parsing does not depend on what else is in the notes.
+* **Three-State Dispatch:** The flow reads the status as `APPROVED`, `DECLINED`, or `NO_BLOCK`. A missing block, or a Slack User ID that does not start with `U`, stops the run. No DM is sent.
 
 ---
 
@@ -56,12 +57,12 @@ flowchart TD
 
     subgraph PowerAutomate ["Power Automate (Standard License Dispatcher)"]
         K --> L[Trigger: When a task is completed V2]
-        L --> M[Get task by ID V2]
-        M --> N[Initialize Global Variables: varSlackUserId, varStatus, etc.]
-        N --> O{Switch on varStatus}
+        L --> M[Get task by ID V2 and Html to text]
+        M --> N[Six variables parsed from the converted notes]
+        N --> O{Gatekeeper: ID starts with U and status is recognized?}
+        O -->|NO_BLOCK or ID is INVALID| R[Stop the run or alert the admin channel. No DM]
         O -->|DECLINED| P[Send Decline Notice DM to Requester in Slack]
         O -->|APPROVED| Q[Send Secure Credentials DM to Requester in Slack]
-        O -->|NONE or no Slack ID| R[Notify admin channel without credentials]
     end
 ```
 
@@ -122,7 +123,7 @@ sequenceDiagram
 | **Asana Automation Rules** | Structural state setup & dropdown mapping | `Task added to project` | Custom Task Type: `Work request`, Status: `New request` | _TBD_ |
 | **Asana Script (`run()`)** | Dynamic regex metadata parser | `Task added to project` | node-asana v3 SDK parameter sequence | _TBD_ |
 | **AgentForge** | Sandbox account provisioning on the SailPoint tenant | Signed Asana project webhook on status `New request` (page poll as fallback) | Writes fields and the `--- FULFILLMENT DETAILS ---` block, then sets `Implemented` or `Declined` | _TBD_ |
-| **Power Automate Flow** | Event router & private DM dispatcher | `When a task is completed (V2)` | Flow: `SAF - Fulfillment Thread Reply & DM` | _TBD_ |
+| **Power Automate Flow** | Gatekeeper and private DM dispatcher | `When a task is completed (V2)` | Flow: `SAF - Fulfillment Thread Reply & DM` | _TBD_ |
 
 ---
 
@@ -356,60 +357,107 @@ Hosting requirements (Amplify):
   * *Project:* `Test Drive Requests - Testing`
 * **Action 1:** `Asana - Get task by ID (V2)`
   * *Task ID:* `@{triggerOutputs()?['body/gid']}`
-* **Parse the plain `notes` field directly.** Asana's `notes` is already plain text (`html_notes` is the HTML version). The previous `Html to text` step is not needed and can change line breaks, which the expressions below rely on. If the step is kept, test that line breaks survive it.
+* **Action 2:** `Content Conversion - Html to text`
+  * *Content:* `@{outputs('Get_task_by_ID_(V2)')?['body/notes']}`
+
+The expressions below read `outputs('Html_to_text')?['body']`. `varSlackUserId` splits on a line break (`decodeUriComponent('%0A')`), so that step must keep line breaks. The credential and reason values are bounded by the next key or by `--- END FULFILLMENT DETAILS ---`, so text typed after the block cannot leak into a DM.
+
+The expressions search the whole converted notes. AgentForge keeps a single block, which makes the keys unique. The words `STATUS: APPROVED` typed above the block would be read as the status.
 
 ### Root-Level Variable Declarations (Sequential Stack)
 
 > **Platform Rule:** In Power Automate, all `Initialize variable` actions MUST be declared at the root level of the flow. They cannot be nested inside Conditions.
 
-`decodeUriComponent('%0A')` is a line break. Every value is read up to the end of its own line, so nothing after it can leak into a DM.
+#### 1. `varSlackUserId` (Type: `String`)
+The ID is taken from the first line after `Slack User ID:`, then the first word of that line. A missing line resolves to `INVALID`. There is no default person.
 
-1. **`varNotes`** (Type: `String`)
-   ```text
-   @{coalesce(outputs('Get_task_by_ID_(V2)')?['body/notes'], '')}
-   ```
-2. **`varBlock`** (Type: `String`) — only the text between the two markers
-   ```text
-   if(and(contains(variables('varNotes'), '--- FULFILLMENT DETAILS ---'), contains(variables('varNotes'), '--- END FULFILLMENT DETAILS ---')), first(split(last(split(variables('varNotes'), '--- FULFILLMENT DETAILS ---')), '--- END FULFILLMENT DETAILS ---')), '')
-   ```
-3. **`varSlackUserId`** (Type: `String`) — empty when missing; there is **no** default user
-   ```text
-   if(contains(variables('varNotes'), 'Slack User ID: '), trim(first(split(first(split(last(split(variables('varNotes'), 'Slack User ID: ')), decodeUriComponent('%0A'))), ' '))), '')
-   ```
-4. **`varStatus`** (Type: `String`) — `APPROVED`, `DECLINED`, or `NONE`
-   ```text
-   if(contains(variables('varBlock'), 'STATUS: DECLINED'), 'DECLINED', if(contains(variables('varBlock'), 'STATUS: APPROVED'), 'APPROVED', 'NONE'))
-   ```
-5. **`varDeclineReason`** (Type: `String`)
-   ```text
-   if(contains(variables('varBlock'), 'REASON:'), trim(first(split(last(split(variables('varBlock'), 'REASON:')), decodeUriComponent('%0A')))), 'No specific reason provided.')
-   ```
-6. **`varTenantLink`** (Type: `String`)
-   ```text
-   if(contains(variables('varBlock'), 'TENANT_LINK:'), trim(first(split(last(split(variables('varBlock'), 'TENANT_LINK:')), decodeUriComponent('%0A')))), '')
-   ```
-7. **`varSandboxAccount`** (Type: `String`)
-   ```text
-   if(contains(variables('varBlock'), 'SANDBOX_ACCOUNT:'), trim(first(split(last(split(variables('varBlock'), 'SANDBOX_ACCOUNT:')), decodeUriComponent('%0A')))), '')
-   ```
-8. **`varInitialPassword`** (Type: `String`)
-   ```text
-   if(contains(variables('varBlock'), 'INITIAL_PASSWORD:'), trim(first(split(last(split(variables('varBlock'), 'INITIAL_PASSWORD:')), decodeUriComponent('%0A')))), '')
-   ```
+```text
+if(
+  contains(outputs('Html_to_text')?['body'], 'Slack User ID:'),
+  trim(first(split(trim(first(split(last(split(outputs('Html_to_text')?['body'], 'Slack User ID:')), decodeUriComponent('%0A')))), ' '))),
+  'INVALID'
+)
+```
+
+#### 2. `varStatus` (Type: `String`)
+`APPROVED`, `DECLINED`, or `NO_BLOCK`. A task completed by hand, with no fulfillment block, returns `NO_BLOCK`.
+
+```text
+if(
+  contains(outputs('Html_to_text')?['body'], 'STATUS: DECLINED'),
+  'DECLINED',
+  if(
+    contains(outputs('Html_to_text')?['body'], 'STATUS: APPROVED'),
+    'APPROVED',
+    'NO_BLOCK'
+  )
+)
+```
+
+#### 3. `varDeclineReason` (Type: `String`)
+Read from `REASON:` up to `--- END FULFILLMENT DETAILS ---`.
+
+```text
+if(
+  contains(outputs('Html_to_text')?['body'], 'REASON:'),
+  trim(first(split(last(split(outputs('Html_to_text')?['body'], 'REASON:')), '--- END FULFILLMENT DETAILS ---'))),
+  'No specific reason provided.'
+)
+```
+
+#### 4. `varTenantLink` (Type: `String`)
+Read from `TENANT_LINK:` up to `SANDBOX_ACCOUNT:`.
+
+```text
+if(
+  contains(outputs('Html_to_text')?['body'], 'TENANT_LINK:'),
+  trim(first(split(last(split(outputs('Html_to_text')?['body'], 'TENANT_LINK:')), 'SANDBOX_ACCOUNT:'))),
+  ''
+)
+```
+
+#### 5. `varSandboxAccount` (Type: `String`)
+Read from `SANDBOX_ACCOUNT:` up to `INITIAL_PASSWORD:`.
+
+```text
+if(
+  contains(outputs('Html_to_text')?['body'], 'SANDBOX_ACCOUNT:'),
+  trim(first(split(last(split(outputs('Html_to_text')?['body'], 'SANDBOX_ACCOUNT:')), 'INITIAL_PASSWORD:'))),
+  ''
+)
+```
+
+#### 6. `varInitialPassword` (Type: `String`)
+Read from `INITIAL_PASSWORD:` up to `--- END FULFILLMENT DETAILS ---`.
+
+```text
+if(
+  contains(outputs('Html_to_text')?['body'], 'INITIAL_PASSWORD:'),
+  trim(first(split(last(split(outputs('Html_to_text')?['body'], 'INITIAL_PASSWORD:')), '--- END FULFILLMENT DETAILS ---'))),
+  ''
+)
+```
 
 ### Condition & Branching Logic
 
-1. **Condition `CanRoute`:** `varSlackUserId` is not empty **and** `varStatus` is not `NONE` **and**, when `varStatus` is `APPROVED`, `varSandboxAccount` and `varInitialPassword` are not empty.
-   * **False → Admin notice.** `Slack - Post message (V2)` to the private admin channel (_TBD_), with **no credentials**:
-     ```text
-     ⚠️ SAF Test Drive task completed but could not be routed.
-     Task: https://app.asana.com/0/0/@{triggerOutputs()?['body/gid']}
-     Status block: @{variables('varStatus')} | Slack User ID: @{variables('varSlackUserId')}
-     ```
-     This covers tasks completed by hand, tasks declined by a person without a block, and requests without a Slack User ID.
-   * **True → Switch on `varStatus`** (below).
+**Condition 1, the gatekeeper.** All three must be true:
 
-#### Case `DECLINED`
+* `variables('varSlackUserId')` is not equal to `INVALID`
+* `variables('varSlackUserId')` starts with `U`
+* `variables('varStatus')` is not equal to `NO_BLOCK`
+
+The gatekeeper does not check that the account or the password is non-empty. An `APPROVED` block with either value missing still sends the DM.
+
+* **False.** No DM is sent. The run terminates (`Succeeded` or `Cancelled`), or it posts this diagnostic to an admin channel such as `#saf-testdrive-alerts`. The channel is not chosen yet (see [Section 13](#13-known-gaps--open-items)).
+  ```text
+  ⚠️ *SAF Test Drive Dispatch Skipped:* Task @{triggerOutputs()?['body/gid']} was completed without a valid fulfillment block or with an unparseable Slack User ID.
+  ```
+  This covers a task completed by hand, a task declined by a person with no block, and a request whose Slack User ID cannot be read.
+* **True.** Continue to Condition 2.
+
+**Condition 2.** `variables('varStatus')` is equal to `DECLINED`.
+
+#### True: `DECLINED`
 * **Action:** `Slack - Post message (V2)`
   * *Channel Name (Enter custom value):* `@{variables('varSlackUserId')}` *(Routes natively as a private DM)*
   * *Message Text:*
@@ -426,7 +474,7 @@ Your SAF Test Drive request could not be completed at this time.
 👉 *Next Steps:* Please follow up with the team in *#saf-testdrive-requests* if you need assistance or believe this was declined in error.
 ```
 
-#### Case `APPROVED`
+#### False: `APPROVED`
 * **Action:** `Slack - Post message (V2)`
   * *Channel Name (Enter custom value):* `@{variables('varSlackUserId')}`
   * *Message Text:*
@@ -435,15 +483,13 @@ Your SAF Test Drive request could not be completed at this time.
 
 Hi <@{variables('varSlackUserId')}>,
 
-Your SAF Test Drive environment has been provisioned. Here are your details:
+Your SAF Test Drive environment has been provisioned. Here are your credentials:
 
 🔗 *Tenant Link:* @{variables('varTenantLink')}
 👤 *Sandbox Account:* `@{variables('varSandboxAccount')}`
-🔑 *One-time code:* `@{variables('varInitialPassword')}`
+🔑 *Initial Password:* `@{variables('varInitialPassword')}`
 
-⏱️ This 6-digit code expires *60 minutes* after it was issued. Use it to set your own password the first time you sign in. If it has expired, ask in *#saf-testdrive-requests* for a new one.
-
-🔒 *Security Notice:* Do not share these details in public channels.
+🔒 *Security Notice:* Please sign in and reset your credentials promptly. Do not share these credentials in public channels.
 ```
 
 > **Duplicate messages:** if a task is reopened and completed again, the trigger fires again and the requester receives a second DM. That is expected after a retry (see [Section 10](#10-runbook--observability)).
@@ -459,7 +505,10 @@ Your SAF Test Drive environment has been provisioned. Here are your details:
 | **Slack DM Action Blocked in Power Automate** | Standard `Post DM` step unavailable | Trick: Pass raw `Slack User ID` (e.g., `U0AUACHKTDF`) into the `Channel Name` parameter of `Post message (V2)`. |
 | **No Premium Microsoft Licenses** | Custom HTTP Webhook triggers and actions locked | Replaced webhook trigger with native `When a task is completed (V2)` trigger on Asana. |
 | **Missing Custom Fields in Asana API** | `Get task by ID (V2)` omits custom fields by default | Description notes (`notes`) hold the fulfillment payload. Power Automate parses notes directly using regex-free string splits between start and end markers. |
-| **Variable Initialization Nesting Error** | Flow save fails if variables are placed inside Condition | All 8 variables are initialized at the top level with `if(contains(...))` fallback safety checks. |
+| **Variable Initialization Nesting Error** | Flow save fails if variables are placed inside Condition | All 6 variables are initialized at the top level with `if(contains(...))` fallback safety checks. |
+| **Unintended Manual Task Completion** | Completing a task by hand sent an approval DM full of empty values | `varStatus` returns `NO_BLOCK` unless the notes contain `STATUS: APPROVED` or `STATUS: DECLINED`, and the gatekeeper stops the run. |
+| **Trailing Description Bleed** | Text typed after the password was included in the DM | `varInitialPassword` and `varDeclineReason` stop at `--- END FULFILLMENT DETAILS ---`. |
+| **Retry Dual-Block Contamination** | A retried task kept the old block under the new one, so the flow could read mixed values | AgentForge removes the existing fulfillment block before writing the new one. A task holds one block. |
 
 ### 8.1 Where credentials live
 
@@ -474,7 +523,7 @@ Mitigations:
 * The code is single-use and expires after 60 minutes, which limits the exposure in Asana.
 * Keep the Asana project private to the fulfillment team.
 * _Optional:_ after the DM is sent, have the flow clear `INITIAL_PASSWORD` from the notes with `Asana - Update task`.
-* The Power Automate fallback never sends credentials to anyone but the parsed requester. There is no hard-coded default user.
+* A missing or unreadable Slack User ID becomes `INVALID`, and the gatekeeper sends no DM. There is no hard-coded default user.
 
 ---
 
@@ -490,7 +539,7 @@ Every failure produces a `STATUS: DECLINED` block, a task comment with the same 
 | Account never activates | Status stays `Evaluation` | Tenant aggregation is slow | AgentForge keeps checking; investigate if it stays longer than the agreed limit (_TBD_) |
 | Back desk missing or unreadable | **Task is left unchanged** (not declined) | Desk not saved after a deploy, or DynamoDB unreachable | Open the back desk, **Save and connect** |
 | Asana update fails | Reason names the Asana call and HTTP status | Expired token, field renamed, missing permission | Fix the token or field names in the back desk |
-| No Slack User ID / no block | No DM; admin notice instead | Form changed, or task completed by hand | Contact the requester directly |
+| No Slack User ID / no block | No DM. The run terminates, or an admin notice is posted | Form changed, or task completed by hand | `varStatus` is `NO_BLOCK` or `varSlackUserId` is `INVALID`. Contact the requester directly |
 
 ---
 
@@ -522,13 +571,13 @@ Run these in `Test Drive Requests - Testing` before cutover and after any change
 | 3 | Cloudflare block | Request blocked at the edge | Reason includes error code and Ray ID | Decline DM |
 | 4 | Back desk missing | Deploy without saving the desk | Task stays `New request`, nothing written | No DM |
 | 5 | Retry after decline | Scenario 2, then follow the retry steps | Exactly one block in the notes, `STATUS: APPROVED` | Second DM with credentials |
-| 6 | Manual completion | Mark a `New request` task complete by hand | No block | Admin notice, no DM to the requester |
-| 7 | Missing Slack User ID | Remove the line from the notes before completion | — | Admin notice, no credentials sent |
+| 6 | Manual completion | Mark a `New request` task complete by hand | No block | `varStatus` = `NO_BLOCK`. Run stops or admin notice. No DM |
+| 7 | Missing Slack User ID | Remove the line from the notes before completion | — | `varSlackUserId` = `INVALID`. No credentials sent |
 | 8 | Text after the block | Add a line below the end marker, then retry | New block at the bottom, the added line kept above it | DM values unaffected |
 | 9 | Duplicate submission | Submit the same customer twice | Two tasks, two accounts | Two DMs |
 | 10 | MNDA = No | Form with MNDA `No` | _Currently provisions anyway_ (see Section 13) | Credentials DM |
 | 11 | Extension | Form with request type `Extension` | _Currently creates a new account_ (see Section 13) | Credentials DM |
-| 12 | Line breaks in the flow | Any approved task | — | Run history shows each variable on one line with no trailing text |
+| 12 | Bounds in the flow | Any approved task, plus one with a line typed under the end marker | — | Run history: password and reason stop at the end marker; tenant link and account stop at the next key |
 
 ---
 
@@ -553,7 +602,7 @@ Follow these steps when moving from the sandbox environment to live production:
    * Verify the block is written with proper casing (`STATUS: APPROVED` or `STATUS: DECLINED`) and ends with `--- END FULFILLMENT DETAILS ---`.
 4. **Power Automate Production Flow:**
    * In `SAF - Fulfillment Thread Reply & DM`, update the **Trigger** and **Get task by ID** steps to point to the production Asana workspace and project.
-   * Update the variables to the expressions in Section 7 and set the admin notice channel.
+   * Confirm the six variables, the `Html to text` step, and the gatekeeper match Section 7. A failed gatekeeper must not send a DM.
    * Verify flow status is toggled to **On / Active**.
 5. **Sign-off:** run E2E scenarios 1, 2, 5, 6 and 12 against production.
 
@@ -570,5 +619,5 @@ Follow these steps when moving from the sandbox environment to live production:
 | Customer emails unused | `Main Contact Email` is captured but not used | Confirm whether customers should get accounts directly | _TBD_ |
 | Tenant link stored in `Customer role` | Field name does not match its content | Create a `Tenant Link` field and update the back desk | _TBD_ |
 | `MDNA signed?` field name | Typo in the Asana field name | Rename to `MNDA signed?` and update Rule 2 | _TBD_ |
-| Code sign-in steps | The DM wording assumes the code is used to set a password on first sign-in | Confirm the steps with the identity team and update the DM | _TBD_ |
-| Admin notice channel | Section 7 needs a private channel | Choose the channel | _TBD_ |
+| Code sign-in steps | The approved DM calls the value an initial password and says to sign in and reset it. It does not say the code expires after 60 minutes | Confirm the sign-in steps with the identity team and update the DM | _TBD_ |
+| Admin notice channel | A failed gatekeeper can post a diagnostic. The channel is undecided; `#saf-testdrive-alerts` is only an example | Choose the channel, or confirm the run terminates with no post | _TBD_ |

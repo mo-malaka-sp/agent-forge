@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { asanaAccessToken, loadAsanaDesk } from "@/lib/readonly-account/asana-desk";
+import { syncAsanaSlackStatus, taskGidsForSignedDelivery } from "@/lib/readonly-account/asana-slack-sync";
 import {
   acceptAsanaTask,
   commentAsanaOnce,
@@ -30,11 +31,12 @@ export async function POST(request: Request) {
   }
   const token = asanaAccessToken(undefined, desk);
   const store = defaultWebhookStore();
+  const body = await request.text();
   const result = await receiveAsanaWebhook(
     {
       hookSecret: request.headers.get("x-hook-secret"),
       signature: request.headers.get("x-hook-signature"),
-      body: await request.text(),
+      body,
       sectionGid: url.searchParams.get("section") ?? "",
       stashGid: url.searchParams.get("stash") ?? "",
     },
@@ -93,6 +95,26 @@ export async function POST(request: Request) {
       writeSecret: (stashGid, secret) => writeStashSecret(token, stashGid, secret),
     },
   );
+  const taskGids = taskGidsForSignedDelivery(result.status, body);
+  if (taskGids.length > 0) {
+    after(async () => {
+      try {
+        const projectGid =
+          process.env.ASANA_PROJECT_GID?.trim() || (await store.load())?.projectGid?.trim() || "";
+        await syncAsanaSlackStatus(taskGids, { asanaToken: token, projectGid });
+      } catch {
+        console.log(
+          JSON.stringify({
+            timestamp: new Date().toISOString(),
+            taskGid: "",
+            targetStatus: "",
+            slackThreadTs: "",
+            deliveryStatus: "sync_failed",
+          }),
+        );
+      }
+    });
+  }
   return new NextResponse(result.body ? JSON.stringify(result.body) : null, {
     status: result.status,
     headers: {
