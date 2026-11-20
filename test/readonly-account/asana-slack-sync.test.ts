@@ -93,10 +93,12 @@ function capture(task: ReturnType<typeof asanaTask> | { fail: true }) {
     calls += 1;
     const target = String(url);
     if (target.includes("slack.com")) {
-      slack.push(JSON.parse(String(init?.body)) as SlackPost);
+      const post = JSON.parse(String(init?.body)) as SlackPost;
+      slack.push(post);
       const headers = init?.headers as { Authorization?: string } | undefined;
       assert.equal(headers?.Authorization, "Bearer xoxb-test");
-      return Response.json({ ok: true });
+      // Slack echoes the parent timestamp when the reply lands in the thread.
+      return Response.json({ ok: true, message: { text: post.text, thread_ts: post.thread_ts } });
     }
     assert.match(target, new RegExp(`/tasks/${TASK}\\?`));
     const headers = init?.headers as { Authorization?: string } | undefined;
@@ -233,10 +235,21 @@ describe("Asana Slack status sync", () => {
     }
   });
 
-  it("posts a thread timestamp that has no fraction", async () => {
+  it("does not post a thread timestamp without the Slack fraction", async () => {
     const seen = capture(asanaTask({ status: "Completed", threadTs: "1795138819" }));
     await syncAsanaSlackStatus([TASK], syncOptions(seen.fetchImpl));
-    assert.deepEqual(seen.slack.map((post) => post.thread_ts), ["1795138819"]);
+    assert.deepEqual(seen.slack, []);
+  });
+
+  it("reports a reply that Slack posted at top level instead of in the thread", async () => {
+    const fetchImpl: typeof fetch = async (url) => {
+      if (String(url).includes("slack.com")) {
+        return Response.json({ ok: true, message: { text: "top level" } });
+      }
+      return Response.json({ data: asanaTask({ status: "Completed", threadTs: "1795138819.813139" }) });
+    };
+    const results = await syncAsanaSlackStatus([TASK], syncOptions(fetchImpl));
+    assert.equal(results[0]?.deliveryStatus, "posted_outside_thread");
   });
 
   it("does not post a thread timestamp that is not a Slack timestamp", async () => {

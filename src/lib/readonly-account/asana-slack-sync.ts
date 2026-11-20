@@ -4,8 +4,9 @@ import { getSafPocStore } from "@/lib/saf-poc/storage";
 const ASANA_API = "https://app.asana.com/api/1.0";
 const SLACK_POST_URL = "https://slack.com/api/chat.postMessage";
 const TASK_GID = /^[0-9]{5,20}$/;
-// Live tasks store either "1795138819" or the full Slack form "1795138819.813139".
-const THREAD_TS = /^\d+(\.\d+)?$/;
+// A Slack message timestamp always has the fraction, for example "1795138819.813139".
+// Without it Slack does not find the thread and posts at top level.
+const THREAD_TS = /^\d+\.\d+$/;
 const DEDUP_TTL_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 
@@ -83,6 +84,7 @@ type DedupRecord = {
 
 export type SlackDeliveryStatus =
   | "posted"
+  | "posted_outside_thread"
   | "deduplicated"
   | "skipped_status"
   | "skipped_thread_ts"
@@ -167,6 +169,8 @@ export function describeSlackSyncResult(result: SlackSyncResult): string {
   switch (result.deliveryStatus) {
     case "posted":
       return `${task} is ${result.targetStatus}. Posted to the Slack thread.`;
+    case "posted_outside_thread":
+      return `${task} is ${result.targetStatus}. Slack posted the reply outside the thread. Set Slack Thread TS to the full message timestamp, for example 1795138819.813139.`;
     case "deduplicated":
       return `${task} is ${result.targetStatus}. Already posted in the last minute.`;
     case "skipped_status":
@@ -288,8 +292,10 @@ async function syncTask(input: {
   const customer = sanitizeSlackText(customFieldValue(fields, "Customer") || task.name?.trim() || "POC Request");
   const text = stage.text(customer);
   try {
-    const posted = await postSlack(input.fetchImpl, input.slackToken, input.channel, threadTs, text);
-    logSlackSync(input.results, posted ? "posted" : "slack_rejected", {
+    const outcome = await postSlack(input.fetchImpl, input.slackToken, input.channel, threadTs, text);
+    const deliveryStatus: SlackDeliveryStatus =
+      outcome === "posted" ? "posted" : outcome === "outside_thread" ? "posted_outside_thread" : "slack_rejected";
+    logSlackSync(input.results, deliveryStatus, {
       taskGid: input.taskGid,
       targetStatus: stage.label,
       slackThreadTs: threadTs,
@@ -376,13 +382,15 @@ async function fetchTask(fetchImpl: typeof fetch, token: string, taskGid: string
   return payload.data;
 }
 
+type SlackPostOutcome = "posted" | "outside_thread" | "rejected";
+
 async function postSlack(
   fetchImpl: typeof fetch,
   token: string,
   channel: string,
   threadTs: string,
   text: string,
-): Promise<boolean> {
+): Promise<SlackPostOutcome> {
   const response = await fetchImpl(SLACK_POST_URL, {
     method: "POST",
     headers: {
@@ -393,11 +401,15 @@ async function postSlack(
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const raw = await response.text();
-  let payload: { ok?: boolean } = {};
+  let payload: { ok?: boolean; message?: { thread_ts?: string } } = {};
   if (raw) {
-    payload = JSON.parse(raw) as { ok?: boolean };
+    payload = JSON.parse(raw) as typeof payload;
   }
-  return response.ok && payload.ok === true;
+  if (!response.ok || payload.ok !== true) {
+    return "rejected";
+  }
+  // Slack returns the parent timestamp on a threaded reply. A top-level post has none.
+  return payload.message?.thread_ts === threadTs ? "posted" : "outside_thread";
 }
 
 async function postedRecently(
