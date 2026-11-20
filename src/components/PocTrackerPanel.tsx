@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { WebhookLogList, type WebhookLogEntryView } from "@/components/WebhookLogList";
 
 type Tracker = {
-  asanaTokenSet: boolean;
+  asanaTokenSource: "desk" | "environment" | "missing";
   slackTokenSource: "saved" | "environment" | "missing";
   projectName: string;
   projectGid: string;
@@ -23,7 +23,6 @@ type Storage = {
 const POLL_INTERVAL_MS = 4000;
 
 export function PocTrackerPanel() {
-  const [asanaToken, setAsanaToken] = useState("");
   const [slackBotToken, setSlackBotToken] = useState("");
   const [projectName, setProjectName] = useState("POC Gateway - Request Management");
   const [channelId, setChannelId] = useState("");
@@ -75,12 +74,7 @@ export function PocTrackerPanel() {
       const response = await fetch("/api/poc-tracker", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          asanaToken,
-          slackBotToken,
-          projectName,
-          channelId,
-        }),
+        body: JSON.stringify({ slackBotToken, projectName, channelId }),
       });
       const body = (await response.json()) as {
         tracker?: Tracker;
@@ -90,7 +84,6 @@ export function PocTrackerPanel() {
       };
       if (body.tracker) {
         setTracker(body.tracker);
-        setAsanaToken("");
         setSlackBotToken("");
       }
       setStorage(body.storage ?? null);
@@ -118,22 +111,36 @@ export function PocTrackerPanel() {
       <div className="space-y-1">
         <h2 className="text-sm font-medium">Connection</h2>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          This Asana project is separate from{" "}
+          This is a separate Asana project from{" "}
           <Link href="/readonly-account" className="underline underline-offset-2">
             SAF TestDrive Accounts
           </Link>
-          . A move into Active Provisioning, Implemented / Live, Completed, or Rejected posts a reply in the
-          Slack thread stored on the task.
+          , in the same Asana workspace. It uses the same Asana access token. A move into Active Provisioning,
+          Implemented / Live, Completed, or Rejected posts a reply in the Slack thread stored on the task.
         </p>
       </div>
+      <p className="text-xs">
+        Asana access token:{" "}
+        {tracker?.asanaTokenSource === "desk" ? (
+          <span className="text-emerald-700 dark:text-emerald-300">
+            saved on{" "}
+            <Link href="/readonly-account" className="underline underline-offset-2">
+              SAF TestDrive Accounts
+            </Link>
+          </span>
+        ) : tracker?.asanaTokenSource === "environment" ? (
+          <span className="text-emerald-700 dark:text-emerald-300">set as ASANA_ACCESS_TOKEN on the server</span>
+        ) : (
+          <span className="text-red-700 dark:text-red-300">
+            not set. Save it on{" "}
+            <Link href="/readonly-account" className="underline underline-offset-2">
+              SAF TestDrive Accounts
+            </Link>{" "}
+            first, or set ASANA_ACCESS_TOKEN.
+          </span>
+        )}
+      </p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field
-          label="Asana access token"
-          type="password"
-          value={asanaToken}
-          placeholder={tracker?.asanaTokenSet ? "Saved. Enter a new token to replace it." : ""}
-          onChange={setAsanaToken}
-        />
         <Field label="Asana project" value={projectName} onChange={setProjectName} />
         <Field
           label="Slack bot token"
@@ -142,12 +149,7 @@ export function PocTrackerPanel() {
           placeholder={tracker?.slackTokenSource === "saved" ? "Saved. Enter a new token to replace it." : "Optional"}
           onChange={setSlackBotToken}
         />
-        <Field
-          label="Slack channel"
-          value={channelId}
-          placeholder="C0CK03K8QF3"
-          onChange={setChannelId}
-        />
+        <Field label="Slack channel" value={channelId} placeholder="C0CK03K8QF3" onChange={setChannelId} />
       </div>
       <p className="text-xs text-zinc-500">{slackNote}</p>
       <button

@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { resolveAgentForgeDataDir } from "@/lib/db/store";
+import { asanaAccessToken, loadAsanaDesk } from "@/lib/readonly-account/asana-desk";
+import { DEFAULT_SLACK_POC_CHANNEL_ID } from "@/lib/readonly-account/asana-slack-sync";
 import type { WebhookLogEntry, WebhookStore } from "@/lib/readonly-account/asana-webhook";
 import { getSafPocStore, type SafPocStore } from "@/lib/saf-poc/storage";
 
@@ -11,8 +13,10 @@ export const POC_TRACKER_WEBHOOK_PATH = "/api/poc-tracker/asana/webhook";
 const STATE_KEY = "POC_TRACKER#config";
 const LOG_LIMIT = 50;
 
+// The Asana token is not stored here. SAF POC Tracker and SAF TestDrive Accounts
+// are two projects in one Asana workspace, so both use the token saved on the
+// Test Drive back desk (or ASANA_ACCESS_TOKEN).
 export type PocTrackerConfig = {
-  asanaToken: string;
   slackBotToken: string;
   projectName: string;
   channelId: string;
@@ -22,8 +26,10 @@ export type PocTrackerConfig = {
   log: WebhookLogEntry[];
 };
 
+export type AsanaTokenSource = "desk" | "environment" | "missing";
+
 export type PocTrackerPublic = {
-  asanaTokenSet: boolean;
+  asanaTokenSource: AsanaTokenSource;
   slackTokenSource: "saved" | "environment" | "missing";
   projectName: string;
   projectGid: string;
@@ -34,7 +40,6 @@ export type PocTrackerPublic = {
 
 export function defaultPocTracker(): PocTrackerConfig {
   return {
-    asanaToken: "",
     slackBotToken: "",
     projectName: DEFAULT_POC_PROJECT_NAME,
     channelId: "",
@@ -45,11 +50,11 @@ export function defaultPocTracker(): PocTrackerConfig {
   };
 }
 
-export function pocTrackerPublic(config: PocTrackerConfig): PocTrackerPublic {
+export function pocTrackerPublic(config: PocTrackerConfig, asanaTokenSource: AsanaTokenSource): PocTrackerPublic {
   const channelId =
-    config.channelId.trim() || process.env.SLACK_POC_CHANNEL_ID?.trim() || "C0CK03K8QF3";
+    config.channelId.trim() || process.env.SLACK_POC_CHANNEL_ID?.trim() || DEFAULT_SLACK_POC_CHANNEL_ID;
   return {
-    asanaTokenSet: Boolean(config.asanaToken.trim()),
+    asanaTokenSource,
     slackTokenSource: config.slackBotToken.trim()
       ? "saved"
       : process.env.SLACK_BOT_TOKEN?.trim()
@@ -68,6 +73,20 @@ export function pocTrackerStorage(): { storage: "dynamodb" | "local"; storedAt: 
     return { storage: "dynamodb", storedAt: process.env.SAF_POC_TABLE_NAME.trim() };
   }
   return { storage: "local", storedAt: "" };
+}
+
+/** The Asana token shared with SAF TestDrive Accounts. Throws if the back desk cannot be read. */
+export async function sharedAsanaToken(): Promise<string> {
+  return asanaAccessToken(undefined, await loadAsanaDesk());
+}
+
+/** Where the shared token comes from: the saved back desk first, then ASANA_ACCESS_TOKEN. */
+export async function sharedAsanaTokenSource(): Promise<AsanaTokenSource> {
+  const desk = await loadAsanaDesk();
+  if (desk.asanaToken.trim()) {
+    return "desk";
+  }
+  return process.env.ASANA_ACCESS_TOKEN?.trim() ? "environment" : "missing";
 }
 
 let memoryState: PocTrackerConfig | null = null;
@@ -89,7 +108,6 @@ function trackerPath(): string {
 function normalize(config: Partial<PocTrackerConfig> | null | undefined): PocTrackerConfig {
   const defaults = defaultPocTracker();
   return {
-    asanaToken: config?.asanaToken?.trim() ?? "",
     slackBotToken: config?.slackBotToken?.trim() ?? "",
     projectName: config?.projectName?.trim() || defaults.projectName,
     channelId: config?.channelId?.trim() ?? "",
@@ -195,7 +213,6 @@ async function writePocTracker(
   const next = normalize({
     ...current,
     ...input,
-    asanaToken: input.asanaToken?.trim() || current.asanaToken,
     slackBotToken: input.slackBotToken?.trim() || current.slackBotToken,
     log: input.log ?? current.log,
   });

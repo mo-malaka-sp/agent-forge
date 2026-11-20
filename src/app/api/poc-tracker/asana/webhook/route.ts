@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { receivePocTrackerWebhook } from "@/lib/poc-tracker/webhook";
 import {
   appendPocTrackerLog,
   loadPocTracker,
   pocTrackerWebhookStore,
+  sharedAsanaToken,
 } from "@/lib/poc-tracker/store";
+import { receivePocTrackerWebhook } from "@/lib/poc-tracker/webhook";
 import { describeSlackSyncResult, syncAsanaSlackStatus } from "@/lib/readonly-account/asana-slack-sync";
 import { readStashSecret, writeStashSecret } from "@/lib/readonly-account/asana-webhook";
 
@@ -13,14 +14,13 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   const url = new URL(request.url);
-  let config: Awaited<ReturnType<typeof loadPocTracker>>;
+  let token: string;
   try {
-    config = await loadPocTracker();
+    token = await sharedAsanaToken();
   } catch (error) {
-    const message = error instanceof Error ? error.message : "SAF POC Tracker could not be read.";
+    const message = error instanceof Error ? error.message : "The back desk could not be read.";
     return NextResponse.json({ error: message }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
-  const token = config.asanaToken.trim();
   const store = pocTrackerWebhookStore();
   const body = await request.text();
   const result = await receivePocTrackerWebhook(
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     try {
       const current = await loadPocTracker();
       const outcomes = await syncAsanaSlackStatus(result.taskGids, {
-        asanaToken: current.asanaToken,
+        asanaToken: token,
         projectGid: current.projectGid,
         slackToken: current.slackBotToken.trim() || undefined,
         channelId: current.channelId.trim() || undefined,
