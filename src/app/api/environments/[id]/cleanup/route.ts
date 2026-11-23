@@ -1,8 +1,9 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { environmentError, environmentJson, environmentService } from "@/lib/environments/http";
 
 export const runtime = "nodejs";
 
-export async function POST(
+async function POSTUnscoped(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -15,3 +16,5 @@ export async function POST(
     return environmentError(error);
   }
 }
+
+export const POST = withFeatureTenant("govern", POSTUnscoped);

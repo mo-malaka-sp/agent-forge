@@ -160,6 +160,10 @@ export async function composeAnswer(
       return answered(deps, response.text, reads);
     }
     const batch = response.tools.slice(0, MAX_TOOL_CALLS - calls);
+    if (batch.length === 0) {
+      // The limit is reached and the model still asked for a tool. Go to the final answer.
+      break;
+    }
     calls += batch.length;
     const results = [];
     for (const call of batch) {

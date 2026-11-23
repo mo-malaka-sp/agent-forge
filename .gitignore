@@ -51,6 +51,9 @@ yarn-error.log*
 /config/isc/exports/*.zip
 /exportedObjects/
 
+# Local ISC connection check. Holds a client secret. Do not commit.
+/scripts/test-isc-connection.mjs
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

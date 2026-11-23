@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -21,7 +22,7 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-export async function GET(request: NextRequest, context: RouteContext) {
+async function GETUnscoped(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const agent = await getAgentById(id);
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
 }
 
-export async function PATCH(request: NextRequest, context: RouteContext) {
+async function PATCHUnscoped(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const body = updateAgentSchema.parse(await request.json());
@@ -79,7 +80,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: NextRequest, context: RouteContext) {
+async function DELETEUnscoped(_request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const deleted = await deleteAgent(id);
@@ -94,3 +95,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
     return jsonError("Failed to delete agent", 500);
   }
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);
+export const PATCH = withFeatureTenant("govern", PATCHUnscoped);
+export const DELETE = withFeatureTenant("govern", DELETEUnscoped);

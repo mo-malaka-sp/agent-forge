@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import {
   safError,
@@ -10,7 +11,7 @@ import { resolveBaseUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as { sendTest?: boolean };
     const config = loadSafPocConfig();
@@ -28,3 +29,5 @@ export async function POST(request: Request) {
     return safError(error);
   }
 }
+
+export const POST = withFeatureTenant("caep", POSTUnscoped);

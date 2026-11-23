@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { handleMcpRequest, mcpCallerAllowed, rpcError, rpcId } from "@/lib/ask-tenant/mcp";
@@ -22,14 +23,14 @@ async function allowed(request: NextRequest): Promise<boolean> {
   );
 }
 
-export async function GET() {
+async function GETUnscoped() {
   return NextResponse.json(rpcError(null, -32000, "POST a JSON-RPC message."), {
     status: 405,
     headers: { Allow: "POST", "Cache-Control": "no-store" },
   });
 }
 
-export async function POST(request: NextRequest) {
+async function POSTUnscoped(request: NextRequest) {
   const callerAllowed = await allowed(request);
   let payload: unknown;
   try {
@@ -61,3 +62,6 @@ export async function POST(request: NextRequest) {
     headers: { "Cache-Control": "no-store" },
   });
 }
+
+export const GET = withFeatureTenant("ask", GETUnscoped);
+export const POST = withFeatureTenant("ask", POSTUnscoped);

@@ -214,7 +214,7 @@ export async function acceptAsanaTask(
 async function acceptLocked(gid: string, options: AsanaCallOptions): Promise<AsanaAccountStatus> {
   const store = options.store ?? fileJobStore();
   const desk = options.desk ?? await loadAsanaDesk();
-  const client = options.client ?? sailPointClientForDesk(desk);
+  const client = options.client ?? sailPointClientForDesk();
   const gap = deskGap(desk);
   if (gap) {
     return notReady(gid, gap);
@@ -265,7 +265,7 @@ async function resumeLocked(gid: string, options: AsanaCallOptions): Promise<Asa
   if (gap) {
     return notReady(gid, gap);
   }
-  const client = options.client ?? sailPointClientForDesk(desk);
+  const client = options.client ?? sailPointClientForDesk();
   let job = store.load().find((item) => item.asanaTaskGid === gid);
   if (!job) {
     const recovered = await recoverJob(gid, { ...options, client, desk });
@@ -316,7 +316,7 @@ export async function finishPendingAsanaAccounts(
   if (deskGap(desk)) {
     return [];
   }
-  const client = options.client ?? sailPointClientForDesk(desk);
+  const client = options.client ?? sailPointClientForDesk();
   const discovered = await discoverAccounts(client, options.discoveryIntervalMs ?? DISCOVERY_INTERVAL_MS);
   for (const account of discovered) {
     if (store.load().some((job) => job.asanaTaskGid === account.taskGid)) {
@@ -387,7 +387,7 @@ export async function tickAsanaAccounts(
   if (deskGap(desk)) {
     return [];
   }
-  const client = options.client ?? sailPointClientForDesk(desk);
+  const client = options.client ?? sailPointClientForDesk();
   const pending = store.load().filter((job) => !job.commented).slice(0, 5);
   const statuses: AsanaAccountStatus[] = [];
   for (const queued of pending) {

@@ -1,9 +1,12 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextRequest } from "next/server";
 
 import { handleEnableAccountRequest } from "@/lib/api/web-services-provision-route";
 
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
+async function POSTUnscoped(request: NextRequest) {
   return handleEnableAccountRequest(request, "aws_bedrock");
 }
+
+export const POST = withFeatureTenant("govern", POSTUnscoped);

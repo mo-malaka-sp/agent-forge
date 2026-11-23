@@ -1,0 +1,22 @@
+stateDiagram-v2
+    direction LR
+    [*] --> PendingATS: Intake workflow creates task
+    PendingATS --> PendingGVP: ATS approves
+    PendingATS --> Rejected: ATS rejects
+    PendingGVP --> AgreementValidation: GVP approves
+    PendingGVP --> Rejected: GVP rejects
+    AgreementValidation --> ReadyForTES: MNDA confirmed
+    ReadyForTES --> ActiveProvisioning: TES picks up
+    ActiveProvisioning --> Live: Environment ready
+    Live --> Completed: Engagement finished
+    Completed --> [*]
+    Rejected --> [*]
+
+    PendingATS: Pending ATS Approval
+    PendingGVP: Pending GVP Approval
+    AgreementValidation: Agreement Validation
+    ReadyForTES: Ready for TES
+    ActiveProvisioning: Active Provisioning (AgentForge replies)
+    Live: Implemented / Live (AgentForge replies)
+    Completed: Completed (AgentForge replies)
+    Rejected: Rejected (AgentForge replies)

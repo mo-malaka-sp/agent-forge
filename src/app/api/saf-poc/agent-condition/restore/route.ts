@@ -1,9 +1,10 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { restoreAgentConditionRun } from "@/lib/saf-poc/agent-condition";
 import { safError, safJson } from "@/lib/saf-poc/http";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const body = (await request.json()) as { id?: string };
     if (!body.id) throw new Error("Run id is required.");
@@ -12,3 +13,5 @@ export async function POST(request: Request) {
     return safError(error);
   }
 }
+
+export const POST = withFeatureTenant("endpoint", POSTUnscoped);

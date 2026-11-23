@@ -19,10 +19,11 @@ export { DETECTION_QUERY, SIGNAL_TITLE };
 const EVENT_PREFIX = "EVENT#";
 
 const AGENT_CACHE_MS = 5 * 60 * 1000;
-let cachedAgents: { at: number; agents: TenantAgent[] } | null = null;
+// Keyed by tenant and API base, so one tenant never reuses another tenant's agents.
+const cachedAgents = new Map<string, { at: number; agents: TenantAgent[] }>();
 
 export function resetSignalAgentsForTests(): void {
-  cachedAgents = null;
+  cachedAgents.clear();
 }
 
 export function sailPointAgentUrl(
@@ -156,7 +157,7 @@ async function signalEvent(
     return event;
   }
   try {
-    const agent = pickSignalAgent(await tenantAgents());
+    const agent = pickSignalAgent(await tenantAgents(config));
     if (!agent) {
       return event;
     }
@@ -174,12 +175,14 @@ async function signalEvent(
   }
 }
 
-async function tenantAgents(): Promise<TenantAgent[]> {
-  if (cachedAgents && Date.now() - cachedAgents.at < AGENT_CACHE_MS) {
-    return cachedAgents.agents;
+async function tenantAgents(config: SafPocConfig): Promise<TenantAgent[]> {
+  const key = `${config.tenant.trim().toLowerCase()}|${config.apiBase}`;
+  const cached = cachedAgents.get(key);
+  if (cached && Date.now() - cached.at < AGENT_CACHE_MS) {
+    return cached.agents;
   }
-  const agents = await listTenantAgents();
-  cachedAgents = { at: Date.now(), agents };
+  const agents = await listTenantAgents(config);
+  cachedAgents.set(key, { at: Date.now(), agents });
   return agents;
 }
 

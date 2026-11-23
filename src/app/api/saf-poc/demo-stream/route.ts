@@ -1,3 +1,5 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
+import { sectionFeature } from "@/lib/saf-poc/section";
 import { runSailPointDemoStream } from "@/lib/saf-poc/events";
 import { safError, safJson, safPocResponse } from "@/lib/saf-poc/http";
 import { resolveBaseUrl } from "@/lib/url";
@@ -5,7 +7,7 @@ import { resolveBaseUrl } from "@/lib/url";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const index = await demoIndex(request);
     const sent = await runSailPointDemoStream(1, index);
@@ -29,3 +31,5 @@ async function demoIndex(request: Request): Promise<number> {
   }
   return Date.now();
 }
+
+export const POST = withFeatureTenant(sectionFeature, POSTUnscoped);

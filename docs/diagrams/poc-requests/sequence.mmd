@@ -1,0 +1,37 @@
+sequenceDiagram
+    participant U as Requester (Slack)
+    participant S as Slack Workflow
+    participant L as Slack List
+    participant A as Asana
+    participant V as ATS / GVP (Slack)
+    participant T as TES team (Asana)
+    participant F as AgentForge
+    participant B as POC Gateway Bot
+
+    U->>S: Submit SAF POC Request form
+    S->>U: Intake message in #saf-poc-requests (thread root)
+    S->>A: Create task (description with Slack Thread TS)
+    S->>L: Add item to POC Request Tracker
+    A->>A: Initialize Work Request, parser script
+    S->>V: Thread reply to ATS: Approve / Reject
+    V->>S: ATS clicks Approve
+    S->>A: Move to Pending GVP Approval, comment
+    S->>L: Update ATS status
+    S->>V: Thread reply to GVP: Approve / Decline
+    V->>S: GVP clicks Approve
+    S->>A: Move to Agreement Validation, comment
+    S->>U: Thread reply: confirm MNDA
+    U->>S: Clicks Confirmed
+    S->>A: Move to Ready for TES, comment
+    S->>U: Thread reply: Stage 4 Ready for TES
+    A->>A: Sync Status with Board Lane (POC Status, task type status)
+    T->>A: Move to Active Provisioning
+    A-->>F: Signed webhook event
+    F->>A: Read task (status, Customer, Slack Thread TS)
+    F->>B: Post status update with thread_ts
+    B->>U: Reply in the original thread
+    F->>F: Write outcome to page log
+    T->>A: Move to Implemented / Live, then Completed
+    A-->>F: Signed webhook event (each move)
+    F->>B: Post reply (de-duplicated per task and stage, 60 s)
+    B->>U: Reply in the original thread

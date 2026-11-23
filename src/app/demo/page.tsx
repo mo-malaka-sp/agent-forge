@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 
 import { DemoOrchestratorPanel } from "@/components/DemoOrchestratorPanel";
+import { TenantPicker } from "@/components/TenantPicker";
 
 function DemoOrchestratorFallback() {
   return (
@@ -30,6 +31,7 @@ export default async function DemoPage({
             : "Aggregate agent access, then run governance and enforcement."}
         </p>
       </section>
+      <TenantPicker feature="govern" label="SailPoint tenant for Govern and environments" />
       <Suspense fallback={<DemoOrchestratorFallback />}>
         <DemoOrchestratorPanel />
       </Suspense>

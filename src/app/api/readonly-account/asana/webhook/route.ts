@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextResponse } from "next/server";
 
 import { asanaAccessToken, loadAsanaDesk } from "@/lib/readonly-account/asana-desk";
@@ -19,7 +20,7 @@ import {
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   const url = new URL(request.url);
   let desk: Awaited<ReturnType<typeof loadAsanaDesk>>;
   try {
@@ -103,3 +104,5 @@ export async function POST(request: Request) {
     },
   });
 }
+
+export const POST = withFeatureTenant("test-drive", POSTUnscoped);

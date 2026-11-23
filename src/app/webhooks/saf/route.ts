@@ -1,9 +1,10 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { ingestSafEvent } from "@/lib/saf-poc/events";
 import { safError, safJson, webhookAuthorized } from "@/lib/saf-poc/http";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     if (!webhookAuthorized(request.headers.get("x-saf-webhook-token"))) {
       return safJson({ error: "Webhook token is invalid." }, 401);
@@ -20,3 +21,5 @@ export async function POST(request: Request) {
     return safError(error);
   }
 }
+
+export const POST = withFeatureTenant("caep", POSTUnscoped);

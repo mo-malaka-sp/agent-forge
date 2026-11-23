@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -16,7 +17,7 @@ import { iscSourceBaseUrlRepairSchema } from "@/lib/validation/isc.schema";
 export const runtime = "nodejs";
 
 /** Report the callback base URL stored on every configured Web Services source. */
-export async function GET(request: Request) {
+async function GETUnscoped(request: Request) {
   const expectedBaseUrl = resolveBaseUrl(request.headers);
 
   try {
@@ -68,7 +69,7 @@ export async function GET(request: Request) {
 }
 
 /** Repoint an imported source at this AgentForge deployment. */
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const raw = await request.json();
     const body = iscSourceBaseUrlRepairSchema.parse(raw);
@@ -113,3 +114,6 @@ export async function POST(request: Request) {
     return jsonError(message, 502);
   }
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);
+export const POST = withFeatureTenant("govern", POSTUnscoped);

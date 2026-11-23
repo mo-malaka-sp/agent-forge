@@ -1,7 +1,9 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { z } from "zod";
 
 import { safError, safJson } from "@/lib/saf-poc/http";
-import { activateTestAccount, readonlyAccountClient } from "@/lib/readonly-account/tenant";
+import { sailPointClientForDesk } from "@/lib/readonly-account/asana-desk";
+import { activateTestAccount } from "@/lib/readonly-account/tenant";
 
 export const runtime = "nodejs";
 
@@ -24,11 +26,14 @@ const activationSchema = z.object({
   processed: z.boolean(),
 });
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const input = activationSchema.parse(await request.json());
-    return safJson(await activateTestAccount(readonlyAccountClient(), input));
+    const client = sailPointClientForDesk();
+    return safJson(await activateTestAccount(client, input));
   } catch (error) {
     return safError(error);
   }
 }
+
+export const POST = withFeatureTenant("test-drive", POSTUnscoped);

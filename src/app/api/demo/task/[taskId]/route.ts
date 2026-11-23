@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextResponse } from "next/server";
 
 import { withRequestIscRuntime } from "@/lib/isc/apply-runtime";
@@ -17,7 +18,7 @@ type RouteContext = {
   params: Promise<{ taskId: string }>;
 };
 
-export async function GET(request: Request, context: RouteContext) {
+async function GETUnscoped(request: Request, context: RouteContext) {
   try {
     return await withRequestIscRuntime(request, undefined, async () => {
       const config = getAnyIscConfig();
@@ -48,3 +49,5 @@ export async function GET(request: Request, context: RouteContext) {
     );
   }
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);

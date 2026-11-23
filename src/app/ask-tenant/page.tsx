@@ -1,12 +1,13 @@
 import { AskTenantPanel } from "@/components/AskTenantPanel";
+import { TenantPicker } from "@/components/TenantPicker";
 import { ROW_LIMIT } from "@/lib/ask-tenant/tools";
-import { getIscPublicStatus } from "@/lib/isc/config";
+import { resolveFeatureRuntime } from "@/lib/isc/feature-tenant";
 
 export const dynamic = "force-dynamic";
 
-export default function AskTenantPage() {
-  const isc = getIscPublicStatus();
-  const tenant = isc.credentialsConfigured ? isc.tenant : null;
+export default async function AskTenantPage() {
+  const runtime = await resolveFeatureRuntime("ask");
+  const tenant = runtime ? `${runtime.tenant}` : null;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-6 py-8">
@@ -21,6 +22,7 @@ export default function AskTenantPage() {
           data are refused.
         </p>
       </section>
+      <TenantPicker feature="ask" label="SailPoint tenant for Ask this tenant" />
       <AskTenantPanel tenant={tenant} />
       <section className="max-w-3xl space-y-3 text-sm text-zinc-600 dark:text-zinc-400">
         <h2 className="text-base font-medium text-zinc-900 dark:text-zinc-100">

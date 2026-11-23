@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { jsonError } from "@/lib/api/response";
 import { loadPreparedSpConfig } from "@/lib/isc/sp-config-package";
 import { resolveBaseUrl } from "@/lib/url";
@@ -6,7 +7,7 @@ interface RouteContext {
   params: Promise<{ platform: string }>;
 }
 
-export async function GET(request: Request, context: RouteContext) {
+async function GETUnscoped(request: Request, context: RouteContext) {
   try {
     const { platform } = await context.params;
     const baseUrl = resolveBaseUrl(request.headers);
@@ -32,3 +33,5 @@ export async function GET(request: Request, context: RouteContext) {
     return jsonError("Could not prepare SP-Config download", 500);
   }
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);

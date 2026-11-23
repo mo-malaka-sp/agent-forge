@@ -1,10 +1,11 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { safError, safJson, safPocResponse } from "@/lib/saf-poc/http";
 import { AGENT_CONDITION_UNAVAILABLE, changeAgentRisk } from "@/lib/saf-poc/risk";
 import { resolveBaseUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const body = (await request.json()) as {
       agentId?: string;
@@ -44,3 +45,5 @@ export async function POST(request: Request) {
     return safError(error);
   }
 }
+
+export const POST = withFeatureTenant("endpoint", POSTUnscoped);

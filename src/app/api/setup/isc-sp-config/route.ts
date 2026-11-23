@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextResponse } from "next/server";
 
 import { jsonError } from "@/lib/api/response";
@@ -5,7 +6,7 @@ import { getSpConfigPlatformStatuses } from "@/lib/isc/sp-config-package";
 import { isUnreachableBaseUrl } from "@/lib/isc/source-base-url";
 import { resolveBaseUrl } from "@/lib/url";
 
-export async function GET(request: Request) {
+async function GETUnscoped(request: Request) {
   try {
     const platforms = await getSpConfigPlatformStatuses();
     const baseUrl = resolveBaseUrl(request.headers);
@@ -26,3 +27,5 @@ export async function GET(request: Request) {
     return jsonError("Could not load golden SP-Config package", 500);
   }
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);

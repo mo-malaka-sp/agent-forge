@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getAgentById } from "@/lib/agents/repository";
@@ -12,7 +13,7 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-export async function GET(request: NextRequest, context: RouteContext) {
+async function GETUnscoped(request: NextRequest, context: RouteContext) {
   try {
     const { id } = await context.params;
     const agent = await getAgentById(id);
@@ -35,3 +36,5 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return jsonError("Failed to fetch entitlements", 500);
   }
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);

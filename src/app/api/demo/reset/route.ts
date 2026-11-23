@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextResponse } from "next/server";
 
 import { resetDemoData } from "@/lib/demo/reset";
@@ -5,7 +6,7 @@ import { demoResetSchema } from "@/lib/validation/demo.schema";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const body = demoResetSchema.parse(
       await request.json().catch(() => ({})),
@@ -24,3 +25,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
+
+export const POST = withFeatureTenant("govern", POSTUnscoped);

@@ -62,6 +62,26 @@ Resources:
               - dynamodb:Query
             Resource: !GetAtt SafPocTable.Arn
 
+  # Client secrets for saved SailPoint tenants. Scoped to the agentforge/isc-profile/ prefix
+  # only. The app stores each profile's secret under this prefix.
+  AmplifyComputeSecretsPolicy:
+    Type: AWS::IAM::Policy
+    Condition: AttachComputePolicy
+    Properties:
+      PolicyName: AgentForgeIscProfileSecrets
+      Roles:
+        - !Ref AmplifyComputeRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - secretsmanager:CreateSecret
+              - secretsmanager:DeleteSecret
+              - secretsmanager:GetSecretValue
+              - secretsmanager:PutSecretValue
+            Resource: !Sub "arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:agentforge/isc-profile/*"
+
   WorkerConnection:
     Type: AWS::Events::Connection
     Condition: ConfigureWorker

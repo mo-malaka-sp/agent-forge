@@ -128,37 +128,15 @@ export function getIscRuntimePayload(): IscRuntimePayload | null {
 export function withIscRuntimeBody<T extends Record<string, unknown>>(
   body: T,
 ): T & { isc_runtime?: IscRuntimePayload } {
-  const runtime = getIscRuntimePayload();
-  if (!runtime) {
-    return body;
-  }
-
-  const explicitTenant =
-    typeof body.tenant === "string" ? body.tenant.trim() : "";
-  const explicitDomain =
-    typeof body.domain === "string" ? body.domain.trim() : "";
-
-  const patchedRuntime: IscRuntimePayload = {
-    ...runtime,
-    ...(explicitTenant ? { tenant: explicitTenant } : {}),
-    ...(explicitDomain ? { domain: explicitDomain } : {}),
-  };
-
-  return { ...body, isc_runtime: patchedRuntime };
+  // Each route runs against the saved tenant bound to its feature. The browser sends nothing.
+  return body;
 }
 
 export function withIscRuntimeHeaders(
   headers: Record<string, string> = {},
 ): Record<string, string> {
-  const runtime = getIscRuntimePayload();
-  if (!runtime) {
-    return headers;
-  }
-
-  return {
-    ...headers,
-    "X-AgentForge-Isc-Runtime": btoa(JSON.stringify(runtime)),
-  };
+  // Saved tenant bindings decide the tenant on the server. The browser sends no session header.
+  return headers;
 }
 
 export function getSessionConfiguredSources(): Record<

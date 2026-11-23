@@ -4,6 +4,16 @@ import type { DeploymentProvider } from "@/lib/providers/profiles";
 
 import type { IscCredentials } from "./config";
 
+/** Tenant-specific SAF settings carried by a saved tenant profile. */
+export interface IscRuntimeSafExtras {
+  passwordClientId?: string;
+  passwordClientSecret?: string;
+  ownerId?: string;
+  ownerName?: string;
+  triggerName?: string;
+  notifyEmail?: string;
+}
+
 export interface IscRuntimePayload {
   tenant: string;
   client_id: string;
@@ -11,6 +21,10 @@ export interface IscRuntimePayload {
   api_version?: string;
   domain?: string;
   sources?: Partial<Record<DeploymentProvider, string>>;
+  /** Set when the payload comes from a saved tenant profile. Used for logging and config. */
+  profile_id?: string;
+  profile_name?: string;
+  saf?: IscRuntimeSafExtras;
 }
 
 const storage = new AsyncLocalStorage<IscRuntimePayload>();

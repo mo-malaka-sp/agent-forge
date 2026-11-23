@@ -1,9 +1,12 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextRequest } from "next/server";
 
 import { handleWebServicesAccountListRequest } from "@/lib/api/web-services-route";
 
 export const runtime = "nodejs";
 
-export async function GET(request: NextRequest) {
+async function GETUnscoped(request: NextRequest) {
   return handleWebServicesAccountListRequest(request, "gcp_vertex");
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);

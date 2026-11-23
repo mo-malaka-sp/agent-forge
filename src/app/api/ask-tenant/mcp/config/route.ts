@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { mcpClientConfig } from "@/lib/ask-tenant/mcp";
@@ -7,7 +8,7 @@ import { resolveBaseUrl } from "@/lib/url";
 export const runtime = "nodejs";
 
 // Signed-in download. The file contains the same sign-in used for this app.
-export async function GET(request: NextRequest) {
+async function GETUnscoped(request: NextRequest) {
   const mcpUrl = `${resolveBaseUrl(request.headers)}/api/ask-tenant/mcp`;
   return new NextResponse(mcpClientConfig(mcpUrl, adminUsername(), adminPassword()), {
     headers: {
@@ -17,3 +18,5 @@ export async function GET(request: NextRequest) {
     },
   });
 }
+
+export const GET = withFeatureTenant("ask", GETUnscoped);

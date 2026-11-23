@@ -4,8 +4,6 @@ export const dynamic = "force-dynamic";
 
 import { HomeContinueDemo } from "@/components/HomeContinueDemo";
 import { HomeTenantCard } from "@/components/HomeTenantCard";
-import { getIscPublicStatus } from "@/lib/isc/config";
-
 const PATHS = [
   {
     href: "/environments",
@@ -76,8 +74,7 @@ const PATHS = [
 ] as const;
 
 export default function HomePage() {
-  const isc = getIscPublicStatus();
-
+  
   return (
     <main className="home-page mx-auto flex w-full max-w-5xl flex-1 flex-col px-6 py-10">
       <section className="home-hero">
@@ -111,10 +108,7 @@ export default function HomePage() {
 
       <HomeContinueDemo />
 
-      <HomeTenantCard
-        serverConnected={isc.credentialsConfigured}
-        serverTenant={isc.tenant}
-      />
+      <HomeTenantCard />
 
       <section className="home-workspaces" aria-labelledby="workspace-heading">
         <div className="home-section-heading">
@@ -159,6 +153,10 @@ export default function HomePage() {
         {" · "}
         <Link href="/poc-tracker" className="font-medium underline underline-offset-2">
           SAF POC Tracker
+        </Link>
+        {" · "}
+        <Link href="/tenants" className="font-medium underline underline-offset-2">
+          Saved tenants
         </Link>
       </p>
     </main>

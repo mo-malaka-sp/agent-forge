@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { z } from "zod";
 
 import { acceptAsanaTask } from "@/lib/readonly-account/asana";
@@ -14,7 +15,7 @@ const requestSchema = z.object({
 // Header x-agentforge-worker: <SAF_POC_WORKER_TOKEN>
 // Body { "taskGid": "<asana task gid>" }
 // POST /api/readonly-account/asana/tick finishes invitations Amplify could not hold open.
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   if (!workerAuthorized(request.headers.get("x-agentforge-worker"))) {
     return safJson({ error: "Unauthorized." }, 401);
   }
@@ -25,3 +26,5 @@ export async function POST(request: Request) {
     return safError(error);
   }
 }
+
+export const POST = withFeatureTenant("test-drive", POSTUnscoped);

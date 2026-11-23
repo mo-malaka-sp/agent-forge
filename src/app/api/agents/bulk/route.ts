@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -9,7 +10,7 @@ import { bulkCreateAgentsSchema } from "@/lib/validation/agent.schema";
 
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
+async function POSTUnscoped(request: NextRequest) {
   try {
     const body = await request.json();
     const payload = bulkCreateAgentsSchema.parse(body);
@@ -32,3 +33,5 @@ export async function POST(request: NextRequest) {
     return jsonError("Failed to bulk create agents", 500);
   }
 }
+
+export const POST = withFeatureTenant("govern", POSTUnscoped);

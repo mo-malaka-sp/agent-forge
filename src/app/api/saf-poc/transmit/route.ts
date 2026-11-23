@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { loadSafPocConfig } from "@/lib/saf-poc/config";
 import { safError, safJson } from "@/lib/saf-poc/http";
 import { publishRiskLevelChange } from "@/lib/saf-poc/transmitter";
@@ -5,7 +6,7 @@ import { resolveBaseUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as {
       email?: string;
@@ -24,3 +25,5 @@ export async function POST(request: Request) {
     return safError(error);
   }
 }
+
+export const POST = withFeatureTenant("caep", POSTUnscoped);

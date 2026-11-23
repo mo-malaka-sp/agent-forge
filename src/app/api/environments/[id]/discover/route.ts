@@ -1,8 +1,9 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { environmentError, environmentJson, environmentService } from "@/lib/environments/http";
 
 export const runtime = "nodejs";
 
-export async function GET(
+async function GETUnscoped(
   _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -13,3 +14,5 @@ export async function GET(
     return environmentError(error);
   }
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);

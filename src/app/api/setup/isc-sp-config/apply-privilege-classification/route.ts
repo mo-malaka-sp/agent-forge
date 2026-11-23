@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -21,7 +22,7 @@ const PLATFORM_BY_SLUG = {
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const raw = await request.json();
 
@@ -93,3 +94,5 @@ export async function POST(request: Request) {
     return jsonError(message, 502);
   }
 }
+
+export const POST = withFeatureTenant("govern", POSTUnscoped);

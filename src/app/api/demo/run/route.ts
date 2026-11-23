@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -10,7 +11,7 @@ import { demoStepSchema } from "@/lib/validation/demo.schema";
 
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
+async function POSTUnscoped(request: NextRequest) {
   try {
     const raw = await request.json();
     const body = demoStepSchema.parse(raw);
@@ -41,6 +42,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET() {
+async function GETUnscoped() {
   return NextResponse.json(getDemoCatalog());
 }
+
+export const POST = withFeatureTenant("govern", POSTUnscoped);
+export const GET = withFeatureTenant("govern", GETUnscoped);

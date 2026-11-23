@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { TenantPicker } from "@/components/TenantPicker";
 import { WebhookLogList } from "@/components/WebhookLogList";
 import type {
   ActivationResult,
@@ -75,10 +76,6 @@ export function ReadonlyAccountPanel() {
   const [desk, setDesk] = useState({
     asanaToken: "",
     asanaTokenSet: false,
-    tenant: "",
-    clientId: "",
-    clientSecret: "",
-    clientSecretSet: false,
     projectName: "Test Drive Requests - Testing",
     triggerStatus: "New request",
     workingStatus: "Evaluation",
@@ -138,7 +135,7 @@ export function ReadonlyAccountPanel() {
           storageError?: string;
         };
         if (body.desk && response.ok) {
-          setDesk((current) => ({ ...current, ...body.desk, asanaToken: "", clientSecret: "" }));
+          setDesk((current) => ({ ...current, ...body.desk, asanaToken: "" }));
         }
         setDeskStorage(body.storage ?? null);
         setDeskStorageError(body.storageError ?? null);
@@ -161,11 +158,6 @@ export function ReadonlyAccountPanel() {
     };
     if (!desk.asanaToken.trim() && !desk.asanaTokenSet) {
       missing.push("Asana access token");
-    }
-    requireText(desk.tenant, "SailPoint tenant");
-    requireText(desk.clientId, "SailPoint client id");
-    if (!desk.clientSecret.trim() && !desk.clientSecretSet) {
-      missing.push("SailPoint client secret");
     }
     requireText(desk.projectName, "Asana project");
     requireText(desk.tenantLinkField, "Tenant link field");
@@ -193,21 +185,18 @@ export function ReadonlyAccountPanel() {
     setDeskSaved(null);
     try {
       const saved = await post<{
-        desk: { asanaTokenSet: boolean; clientSecretSet: boolean };
+        desk: { asanaTokenSet: boolean };
         webhook?: { projectName: string };
         webhookError?: string;
         storage?: DeskStorage;
       }>("/api/readonly-account/asana/desk", {
         ...desk,
         asanaToken: desk.asanaToken,
-        clientSecret: desk.clientSecret,
       });
       setDesk((current) => ({
         ...current,
         asanaToken: "",
-        clientSecret: "",
         asanaTokenSet: saved.desk.asanaTokenSet,
-        clientSecretSet: saved.desk.clientSecretSet,
       }));
       setDeskStorage(saved.storage ?? null);
       setDeskStorageError(null);
@@ -429,24 +418,9 @@ export function ReadonlyAccountPanel() {
             placeholder={desk.asanaTokenSet ? "Saved. Enter a new token to replace it." : ""}
             onChange={(asanaToken) => setDesk({ ...desk, asanaToken })}
           />
-          <DeskField
-            label="SailPoint tenant"
-            value={desk.tenant}
-            placeholder="beta-25503"
-            onChange={(tenant) => setDesk({ ...desk, tenant })}
-          />
-          <DeskField
-            label="SailPoint client id"
-            value={desk.clientId}
-            onChange={(clientId) => setDesk({ ...desk, clientId })}
-          />
-          <DeskField
-            label="SailPoint client secret"
-            type="password"
-            value={desk.clientSecret}
-            placeholder={desk.clientSecretSet ? "Saved. Enter a new secret to replace it." : ""}
-            onChange={(clientSecret) => setDesk({ ...desk, clientSecret })}
-          />
+          <div className="sm:col-span-2">
+            <TenantPicker feature="test-drive" label="SailPoint tenant for Test Drive" />
+          </div>
           <DeskField
             label="Asana project"
             value={desk.projectName}

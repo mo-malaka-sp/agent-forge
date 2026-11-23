@@ -8,6 +8,7 @@ import {
 } from "@/lib/providers/profiles";
 import { resolveAgentForgeDataDir } from "@/lib/db/store";
 import { formatIscTenantUrl } from "@/lib/isc/tenant-url";
+import { getActiveIscRuntime } from "@/lib/isc/runtime-config";
 
 const DATA_DIR = resolveAgentForgeDataDir();
 const SETTINGS_PATH = path.join(DATA_DIR, "isc-settings.json");
@@ -183,7 +184,15 @@ export function readIscSettings(): IscSettingsFile {
   return cachedSettings;
 }
 
+/**
+ * Source IDs for the tenant in effect. A bound tenant profile supplies its own IDs and never
+ * falls back to the global file, which belongs to a different tenant.
+ */
 export function getIscSourceId(provider: DeploymentProvider): string | null {
+  const runtime = getActiveIscRuntime();
+  if (runtime) {
+    return runtime.sources?.[provider]?.trim() || null;
+  }
   const value = readIscSettings().sources[provider]?.trim();
   return value || null;
 }
@@ -202,10 +211,37 @@ export function getDatasetId(provider: DeploymentProvider): string {
   return getMisSchemaId(provider);
 }
 
+/** Source IDs for the tenant in effect (see `getIscSourceId`). */
 export function getConfiguredIscSourceIds(): Record<
   DeploymentProvider,
   string | null
 > {
+  const runtime = getActiveIscRuntime();
+  if (runtime) {
+    return {
+      aws_bedrock: runtime.sources?.aws_bedrock?.trim() || null,
+      gcp_vertex: runtime.sources?.gcp_vertex?.trim() || null,
+      azure_ai_foundry: runtime.sources?.azure_ai_foundry?.trim() || null,
+    };
+  }
+  return readFileSourceIds();
+}
+
+/** Source IDs as strings for the tenant in effect, with "" for an unset provider. */
+export function getActiveSourceStrings(): Record<DeploymentProvider, string> {
+  const runtime = getActiveIscRuntime();
+  if (runtime) {
+    return {
+      aws_bedrock: runtime.sources?.aws_bedrock ?? "",
+      gcp_vertex: runtime.sources?.gcp_vertex ?? "",
+      azure_ai_foundry: runtime.sources?.azure_ai_foundry ?? "",
+    };
+  }
+  return { ...readIscSettings().sources };
+}
+
+/** Source IDs saved in the global settings file, regardless of the bound tenant. */
+export function readFileSourceIds(): Record<DeploymentProvider, string | null> {
   const sources = readIscSettings().sources;
   return {
     aws_bedrock: sources.aws_bedrock || null,

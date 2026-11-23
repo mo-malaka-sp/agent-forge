@@ -1,9 +1,12 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextRequest } from "next/server";
 
 import { handleWebServicesEntitlementListRequest } from "@/lib/api/web-services-entitlements-route";
 
 export const runtime = "nodejs";
 
-export async function GET(request: NextRequest) {
+async function GETUnscoped(request: NextRequest) {
   return handleWebServicesEntitlementListRequest(request, "azure_ai_foundry");
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);

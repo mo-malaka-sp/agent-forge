@@ -1,10 +1,11 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { safError, safJson } from "@/lib/saf-poc/http";
 import { startAgentConditionRun } from "@/lib/saf-poc/agent-condition";
 import { resolveBaseUrl } from "@/lib/url";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const body = (await request.json()) as { agentId?: string; confirmed?: boolean };
     const run = await startAgentConditionRun({
@@ -17,3 +18,5 @@ export async function POST(request: Request) {
     return safError(error);
   }
 }
+
+export const POST = withFeatureTenant("endpoint", POSTUnscoped);

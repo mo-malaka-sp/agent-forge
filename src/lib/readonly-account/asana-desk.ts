@@ -2,16 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { resolveAgentForgeDataDir } from "@/lib/db/store";
+import { ensureLegacyTenantsMigrated } from "@/lib/isc/profiles-store";
 import { readonlyAccountClient } from "@/lib/readonly-account/tenant";
 import { loadSafPocConfig } from "@/lib/saf-poc/config";
-import type { SailPointSetupConfig } from "@/lib/saf-poc/sailpoint";
 import { getSafPocStore, type SafPocStore } from "@/lib/saf-poc/storage";
 
+/**
+ * The SailPoint tenant is not stored here. Test Drive uses the saved tenant bound to the
+ * "test-drive" feature (see `src/lib/isc/profiles-store.ts`).
+ */
 export type AsanaDeskConfig = {
   asanaToken: string;
-  tenant: string;
-  clientId: string;
-  clientSecret: string;
   projectName: string;
   triggerStatus: string;
   workingStatus: string;
@@ -23,28 +24,13 @@ export type AsanaDeskConfig = {
   tenantLinkTemplate: string;
 };
 
-export type AsanaDeskPublic = {
+export type AsanaDeskPublic = Omit<AsanaDeskConfig, "asanaToken"> & {
   asanaTokenSet: boolean;
-  clientSecretSet: boolean;
-  tenant: string;
-  clientId: string;
-  projectName: string;
-  triggerStatus: string;
-  workingStatus: string;
-  doneStatus: string;
-  declinedStatus: string;
-  accountField: string;
-  codeField: string;
-  tenantLinkField: string;
-  tenantLinkTemplate: string;
 };
 
 export function defaultAsanaDesk(): AsanaDeskConfig {
   return {
     asanaToken: "",
-    tenant: "",
-    clientId: "",
-    clientSecret: "",
     projectName: "Test Drive Requests - Testing",
     triggerStatus: "New request",
     workingStatus: "Evaluation",
@@ -60,9 +46,6 @@ export function defaultAsanaDesk(): AsanaDeskConfig {
 export function asanaDeskPublic(config: AsanaDeskConfig): AsanaDeskPublic {
   return {
     asanaTokenSet: Boolean(config.asanaToken),
-    clientSecretSet: Boolean(config.clientSecret),
-    tenant: config.tenant,
-    clientId: config.clientId,
     projectName: config.projectName,
     triggerStatus: config.triggerStatus,
     workingStatus: config.workingStatus,
@@ -75,23 +58,13 @@ export function asanaDeskPublic(config: AsanaDeskConfig): AsanaDeskPublic {
   };
 }
 
+/** The tenant link uses the tenant bound to Test Drive. */
 export function tenantLink(config: AsanaDeskConfig): string {
-  const tenant = sailPointEndpoint(config.tenant).tenant || loadSafPocConfig().tenant;
-  return config.tenantLinkTemplate.replaceAll("{tenant}", tenant);
-}
-
-export function sailPointEndpoint(value: string): { tenant: string; apiBase: string } {
-  const raw = value.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-  const host = raw.replace(/\.api\./, ".");
-  if (host.includes(".")) {
-    const tenant = host.split(".")[0] ?? "";
-    const domain = host.slice(tenant.length + 1);
-    return { tenant, apiBase: `https://${tenant}.api.${domain}` };
+  const tenant = loadSafPocConfig().tenant;
+  if (!tenant) {
+    throw new Error("Assign a saved tenant to SAF TestDrive Accounts on the Tenants page first.");
   }
-  return {
-    tenant: host,
-    apiBase: host ? `https://${host}.api.identitynow-demo.com` : "",
-  };
+  return config.tenantLinkTemplate.replaceAll("{tenant}", tenant);
 }
 
 const DESK_KEY = "READONLY_ACCOUNT#asana-desk";
@@ -146,9 +119,6 @@ function readDeskFile(filePath: string): AsanaDeskConfig {
 export function missingDeskFields(config: AsanaDeskConfig): string[] {
   const checks: Array<[string, string]> = [
     ["Asana access token", config.asanaToken],
-    ["SailPoint tenant", config.tenant],
-    ["SailPoint client id", config.clientId],
-    ["SailPoint client secret", config.clientSecret],
     ["Tenant link field", config.tenantLinkField],
   ];
   return checks.filter(([, value]) => !value.trim()).map(([label]) => label);
@@ -159,18 +129,19 @@ export async function saveAsanaDesk(
   filePath = deskPath(),
   store?: SafPocStore | null,
 ): Promise<AsanaDeskConfig> {
+  const shared = resolveDeskStore(filePath, store);
+  // Copy any tenant still stored on the desk into saved profiles before this save drops it.
+  await ensureLegacyTenantsMigrated(shared ?? undefined);
   const current = await loadAsanaDesk(filePath, store);
   const next = normalizeDesk({
     ...current,
     ...input,
     asanaToken: input.asanaToken?.trim() || current.asanaToken,
-    clientSecret: input.clientSecret?.trim() || current.clientSecret,
   });
   const missing = missingDeskFields(next);
   if (missing.length > 0) {
     throw new Error(`Enter ${missing.join(", ")} before connecting.`);
   }
-  const shared = resolveDeskStore(filePath, store);
   if (!shared && isDeployedRuntime()) {
     throw new Error(
       "Set SAF_POC_TABLE_NAME in Amplify and redeploy so the back desk is kept. A file on this server is erased on every deploy.",
@@ -207,25 +178,9 @@ export function asanaAccessToken(override?: string, config?: AsanaDeskConfig): s
   return override?.trim() || config?.asanaToken || process.env.ASANA_ACCESS_TOKEN?.trim() || "";
 }
 
-export function sailPointClientForDesk(config?: AsanaDeskConfig) {
-  if (config?.clientId && config.clientSecret && config.tenant) {
-    return readonlyAccountClient(sailPointConfig(config));
-  }
+/** SailPoint client for the tenant bound to Test Drive. */
+export function sailPointClientForDesk() {
   return readonlyAccountClient();
-}
-
-function sailPointConfig(config: AsanaDeskConfig): SailPointSetupConfig {
-  const endpoint = sailPointEndpoint(config.tenant);
-  return {
-    tenant: endpoint.tenant,
-    apiBase: endpoint.apiBase,
-    clientId: config.clientId,
-    clientSecret: config.clientSecret,
-    ownerId: "",
-    ownerName: "",
-    triggerName: "CAEP Risk Level Change Events",
-    notifyEmail: "",
-  };
 }
 
 function normalizeDesk(config: AsanaDeskConfig): AsanaDeskConfig {
@@ -236,9 +191,6 @@ function normalizeDesk(config: AsanaDeskConfig): AsanaDeskConfig {
   };
   return {
     asanaToken: config.asanaToken?.trim() ?? "",
-    tenant: config.tenant?.trim() ?? "",
-    clientId: config.clientId?.trim() ?? "",
-    clientSecret: config.clientSecret?.trim() ?? "",
     projectName: text(config.projectName, defaults.projectName),
     triggerStatus: text(config.triggerStatus, defaults.triggerStatus),
     workingStatus: text(config.workingStatus, defaults.workingStatus),

@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -9,7 +10,7 @@ import { iscSourceVerifySchema } from "@/lib/validation/isc.schema";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const raw = await request.json();
     const body = iscSourceVerifySchema.parse(raw);
@@ -29,3 +30,5 @@ export async function POST(request: Request) {
     return jsonError("Failed to verify ISC source", 500);
   }
 }
+
+export const POST = withFeatureTenant("govern", POSTUnscoped);

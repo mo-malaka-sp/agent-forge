@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { z } from "zod";
 
 import { bedrockConverseFromEnv } from "@/lib/ask-tenant/bedrock";
@@ -12,7 +13,7 @@ const requestSchema = z.object({
   question: z.string().trim().min(1).max(500),
 });
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const input = requestSchema.parse(await request.json());
     const answer = await withRequestIscRuntime(request, undefined, () =>
@@ -23,3 +24,5 @@ export async function POST(request: Request) {
     return safError(error);
   }
 }
+
+export const POST = withFeatureTenant("ask", POSTUnscoped);

@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { safError, safResult } from "@/lib/saf-poc/http";
 import { dispatchSsf } from "@/lib/saf-poc/transmitter";
 import { resolveBaseUrl } from "@/lib/url";
@@ -37,8 +38,8 @@ async function handle(request: Request, context: RouteContext) {
   }
 }
 
-export const GET = handle;
-export const POST = handle;
-export const PUT = handle;
-export const PATCH = handle;
-export const DELETE = handle;
+export const GET = withFeatureTenant("caep", handle);
+export const POST = withFeatureTenant("caep", handle);
+export const PUT = withFeatureTenant("caep", handle);
+export const PATCH = withFeatureTenant("caep", handle);
+export const DELETE = withFeatureTenant("caep", handle);

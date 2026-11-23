@@ -3,62 +3,51 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { loadIscSessionCache } from "@/lib/isc/session-cache";
-import { resolveVisibleTenant } from "@/lib/isc/visible-tenant";
+import { loadTenantState } from "@/components/TenantPicker";
+import type { IscProfilePublic } from "@/lib/isc/profile-types";
 
-export function HomeTenantCard({
-  serverConnected,
-  serverTenant,
-}: {
-  serverConnected: boolean;
-  serverTenant: string | null;
-}) {
-  const [connected, setConnected] = useState(serverConnected);
-  const [tenant, setTenant] = useState(serverConnected ? serverTenant : null);
+/** Shows the default saved tenant. Each feature can point at its own tenant on the Tenants page. */
+export function HomeTenantCard() {
+  const [loaded, setLoaded] = useState(false);
+  const [profile, setProfile] = useState<IscProfilePublic | null>(null);
+  const [assigned, setAssigned] = useState(0);
 
   useEffect(() => {
-    const sessionTenant = loadIscSessionCache()?.tenant ?? null;
-    const fromSession = resolveVisibleTenant({
-      serverConnected,
-      serverTenant,
-      sessionTenant,
-      apiConfigured: null,
-      apiTenant: null,
-    });
-    setConnected(fromSession.connected);
-    setTenant(fromSession.tenant);
-
     let cancelled = false;
-    void fetch("/api/isc/credentials")
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body: { configured?: boolean; tenant?: string | null } | null) => {
-        if (cancelled || !body) {
-          return;
-        }
-        const next = resolveVisibleTenant({
-          serverConnected,
-          serverTenant,
-          sessionTenant,
-          apiConfigured: Boolean(body.configured),
-          apiTenant: body.tenant ?? null,
-        });
-        setConnected(next.connected);
-        setTenant(next.tenant);
+    loadTenantState()
+      .then((state) => {
+        if (cancelled) return;
+        const defaultId = state.bindings.default ?? null;
+        setProfile(state.profiles.find((item) => item.id === defaultId) ?? null);
+        setAssigned(
+          Object.entries(state.bindings).filter(([feature, id]) => feature !== "default" && Boolean(id))
+            .length,
+        );
+        setLoaded(true);
       })
-      .catch(() => undefined);
-
+      .catch(() => {
+        if (!cancelled) setLoaded(true);
+      });
     return () => {
       cancelled = true;
     };
-  }, [serverConnected, serverTenant]);
+  }, []);
+
+  const connected = Boolean(profile);
 
   return (
-    <Link href="/demo?phase=setup" className="home-tenant" aria-labelledby="tenant-heading">
+    <Link href="/tenants" className="home-tenant" aria-labelledby="tenant-heading">
       <div className="home-tenant__intro">
         <div>
-          <span className="forge-eyebrow">Shared tenant</span>
-          <h2 id="tenant-heading">{connected && tenant ? tenant : "Connect one ISC tenant"}</h2>
-          <p>Discover, Govern, and Protect all use this Identity Security Cloud connection.</p>
+          <span className="forge-eyebrow">Saved tenants</span>
+          <h2 id="tenant-heading">
+            {connected && profile ? profile.tenantUrl : "Save a SailPoint tenant"}
+          </h2>
+          <p>
+            {connected && profile
+              ? `Default: ${profile.name}. ${assigned} feature${assigned === 1 ? "" : "s"} use their own tenant.`
+              : "Add a tenant once, then pick which tenant each feature uses."}
+          </p>
         </div>
         <span
           className={`home-status home-status--on-light ${
@@ -66,7 +55,7 @@ export function HomeTenantCard({
           }`}
         >
           <span className="home-status__dot" aria-hidden="true" />
-          {connected ? "Connected" : "Not connected"}
+          {!loaded ? "Loading" : connected ? "Default set" : "Not set"}
         </span>
       </div>
     </Link>

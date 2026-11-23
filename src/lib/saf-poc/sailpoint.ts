@@ -340,6 +340,36 @@ async function readError(response: Response): Promise<string> {
   return (await response.text()).slice(0, 2000);
 }
 
+// A retired or paused tenant redirects every API call to a web page, for example
+// https://maintenance.identitynow-demo.com/. fetch follows the redirect and gets
+// HTML with status 200, which would otherwise surface as a raw JSON parser error.
+function assertNotRedirected(response: Response, origin: string, label: string): void {
+  if (response.redirected) {
+    throw new Error(
+      `${label} on ${origin} was redirected to ${response.url}. That tenant is not answering API calls (it may be retired or in maintenance). Check SAF_TENANT, SAF_API_BASE, and the tenant saved in AgentForge.`,
+    );
+  }
+}
+
+// A tenant URL that points at the admin web app, or at a host without the API,
+// returns an HTML page with status 200. Say so instead of a raw parser error.
+function parseSailPointText(text: string, origin: string, label: string): unknown {
+  if (text.trimStart().startsWith("<")) {
+    throw new Error(
+      `${label} returned a web page instead of API data from ${origin}. Check SAF_TENANT, SAF_API_BASE, and the tenant saved in AgentForge.`,
+    );
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new Error(`${label} returned data that is not JSON from ${origin}.`);
+  }
+}
+
+async function parseSailPointJson(response: Response, origin: string, label: string): Promise<unknown> {
+  return parseSailPointText(await response.text(), origin, label);
+}
+
 export function createSailPointClient(
   config: SailPointSetupConfig,
   fetchImpl: FetchLike = fetch,
@@ -374,10 +404,11 @@ export function createSailPointClient(
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
     });
+    assertNotRedirected(response, origin, "POST /oauth/token");
     if (!response.ok) {
-      throw new SailPointApiError(response.status, await readError(response), "POST /oauth/token");
+      throw new SailPointApiError(response.status, await readError(response), `POST ${origin}/oauth/token`);
     }
-    const body = (await response.json()) as { access_token?: string };
+    const body = (await parseSailPointJson(response, origin, "POST /oauth/token")) as { access_token?: string };
     if (!body.access_token) {
       throw new Error("SailPoint token response did not include an access token.");
     }
@@ -407,18 +438,16 @@ export function createSailPointClient(
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
+    const label = `${method} ${requestPath.split("?")[0]}`;
+    assertNotRedirected(response, origin, label);
     if (!response.ok) {
-      throw new SailPointApiError(
-        response.status,
-        await readError(response),
-        `${method} ${requestPath.split("?")[0]}`,
-      );
+      throw new SailPointApiError(response.status, await readError(response), label);
     }
     if (response.status === 204) {
       return null;
     }
     const text = await response.text();
-    return text ? (JSON.parse(text) as unknown) : null;
+    return text ? parseSailPointText(text, origin, label) : null;
   };
 
   const request = async (

@@ -1,3 +1,5 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
+import { sectionFeature } from "@/lib/saf-poc/section";
 import { buildFixture, ingestSafEvent, runFullDemo } from "@/lib/saf-poc/events";
 import { safError, safJson, safPocResponse } from "@/lib/saf-poc/http";
 import { resolveBaseUrl } from "@/lib/url";
@@ -11,7 +13,7 @@ const SCENARIOS = [
   "critical-escalation",
 ] as const;
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const body = (await request.json()) as { scenario?: string };
     const scenario = body.scenario?.trim() ?? "";
@@ -37,3 +39,5 @@ export async function POST(request: Request) {
     return safError(error);
   }
 }
+
+export const POST = withFeatureTenant(sectionFeature, POSTUnscoped);

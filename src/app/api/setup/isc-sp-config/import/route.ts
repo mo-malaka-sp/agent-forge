@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -108,7 +109,7 @@ async function maybeEnsureAgentDataset(params: {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const raw = await request.json();
     const baseUrl = resolveBaseUrl(request.headers);
@@ -255,3 +256,5 @@ export async function POST(request: Request) {
     return jsonError(message, 502);
   }
 }
+
+export const POST = withFeatureTenant("govern", POSTUnscoped);

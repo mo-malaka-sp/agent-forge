@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextResponse } from "next/server";
 
 import { withRequestIscRuntime } from "@/lib/isc/apply-runtime";
@@ -20,7 +21,7 @@ async function handlePreflight(request: Request, raw: Record<string, unknown>) {
   );
 }
 
-export async function GET(request: Request) {
+async function GETUnscoped(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const result = await handlePreflight(request, {
@@ -40,7 +41,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const raw = (await request.json()) as Record<string, unknown>;
     const result = await handlePreflight(request, raw);
@@ -51,3 +52,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);
+export const POST = withFeatureTenant("govern", POSTUnscoped);

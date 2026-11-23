@@ -1,0 +1,39 @@
+flowchart TD
+    subgraph Slack ["Slack (Intake, Approvals, Tracker)"]
+        A[Requester clicks the POC request link] --> B[Form: SAF POC Request]
+        B --> C[Post intake message in #saf-poc-requests - this is the thread root]
+        C --> D[Create Asana task with Slack Thread TS]
+        C --> L[Add item to Slack List: POC Request Tracker]
+        D --> E[Reply in thread: ATTENTION ATS with Approve / Reject]
+        E --> F{ATS decision}
+        F -->|Approve| G[Reply: GVP Business Approval Request]
+        F -->|Reject| X[Reply: ATS rejected, request closed]
+        G --> H{GVP decision}
+        H -->|Approve| I[Reply: MNDA validation, Confirmed button]
+        H -->|Decline| X2[Reply: GVP rejected, request closed]
+        I --> J[Reply: Stage 4 Ready for TES]
+    end
+
+    subgraph Asana ["Asana: POC Gateway - Request Management"]
+        D --> R1[Rule: Initialize Work Request, task type POC Request]
+        R1 --> S1[Script: parse description into custom fields, normalize Slack Thread TS]
+        G -.->|moves task| SEC1[Pending GVP Approval]
+        I -.->|moves task| SEC2[Agreement Validation]
+        J -.->|moves task| SEC3[Ready for TES]
+        X -.->|moves task| SEC9[Rejected]
+        X2 -.->|moves task| SEC9
+        SEC3 --> T[TES moves task: Active Provisioning, Implemented / Live, Completed]
+        SEC1 & SEC2 & SEC3 & T & SEC9 --> RS[Rule: Sync Status with Board Lane sets POC Status and task type status]
+    end
+
+    subgraph AgentForge ["AgentForge: SAF POC Tracker"]
+        RS -->|Signed webhook| W[Verify X-Hook-Signature]
+        W --> Z[Read task, find stage, check project and Slack Thread TS, de-duplicate]
+        Z --> Q{Stage is Active Provisioning, Implemented / Live, Completed or Rejected?}
+        Q -->|No| SK[Skip and log the reason]
+        Q -->|Yes| PM[POC Gateway Bot posts chat.postMessage with thread_ts]
+        PM --> LOG[Write outcome to the SAF POC Tracker page log]
+        SK --> LOG
+    end
+
+    PM --> THREAD[Reply appears in the original Slack thread]

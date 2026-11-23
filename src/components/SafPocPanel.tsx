@@ -132,13 +132,13 @@ export function SafPocPanel({
   const ownerEmail = usableEmail(selectedAgent?.ownerEmail);
 
   const load = useCallback(async () => {
-    const response = await fetch("/api/saf-poc/state", { cache: "no-store" });
+    const response = await fetch(`/api/saf-poc/state?section=${section}`, { cache: "no-store" });
     const body = (await response.json()) as SafState & { error?: string };
     if (!response.ok) {
       throw new Error(body.error ?? "Could not load SAF POC state.");
     }
     setState(body);
-  }, []);
+  }, [section]);
 
   const loadAgents = useCallback(async () => {
     const response = await fetch("/api/saf-poc/agents", { cache: "no-store" });
@@ -222,7 +222,7 @@ export function SafPocPanel({
         return;
       }
       try {
-        const payload = await post("/api/saf-poc/demo-stream", { index });
+        const payload = await post(`/api/saf-poc/demo-stream?section=${section}`, { index });
         failures = 0;
         index += 1;
         demoSent.current += typeof payload.sent === "number" ? payload.sent : 1;
@@ -725,7 +725,7 @@ export function SafPocPanel({
               key={scenario}
               type="button"
               disabled={busy !== null}
-              onClick={() => void run(scenario, () => post("/api/saf-poc/simulate", { scenario }).then(() => undefined))}
+              onClick={() => void run(scenario, () => post(`/api/saf-poc/simulate?section=${section}`, { scenario }).then(() => undefined))}
               className="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium dark:border-zinc-700"
             >
               {label}
@@ -744,7 +744,7 @@ export function SafPocPanel({
           <button
             type="button"
             disabled={busy !== null}
-            onClick={() => void run("reset", () => post("/api/saf-poc/reset").then(() => undefined))}
+            onClick={() => void run("reset", () => post(`/api/saf-poc/reset?section=${section}`).then(() => undefined))}
             className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 dark:border-red-900 dark:text-red-300"
           >
             Reset evidence

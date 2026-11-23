@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { EnvironmentWizard } from "@/components/environments/EnvironmentWizard";
+import { TenantPicker } from "@/components/TenantPicker";
 
 export default function EnvironmentsPage() {
   return (
@@ -15,6 +16,7 @@ export default function EnvironmentsPage() {
           Open synthetic agents
         </Link>
       </section>
+      <TenantPicker feature="govern" label="SailPoint tenant for Govern and environments" />
       <EnvironmentWizard />
     </main>
   );

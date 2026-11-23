@@ -6,6 +6,30 @@ export interface ParsedIscTenantUrl {
 
 const EXAMPLE_TENANT_URL = "https://acme.identitynow-demo.com/";
 
+/**
+ * SailPoint domains a saved tenant may use. Client secrets are only sent to
+ * `https://<tenant>.api.<domain>` for a domain on this list, so a user cannot point a saved
+ * secret at another host.
+ */
+export const ALLOWED_ISC_DOMAINS = ["identitynow.com", "identitynow-demo.com"] as const;
+
+const TENANT_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+export function isAllowedIscDomain(domain: string): boolean {
+  return (ALLOWED_ISC_DOMAINS as readonly string[]).includes(domain.trim().toLowerCase());
+}
+
+/** Returns a problem message, or null when the tenant and domain may be used. */
+export function iscHostProblem(tenant: string, domain: string): string | null {
+  if (!TENANT_LABEL.test(tenant.trim().toLowerCase())) {
+    return "The tenant name may only contain letters, numbers and hyphens.";
+  }
+  if (!isAllowedIscDomain(domain)) {
+    return `The tenant domain must be ${ALLOWED_ISC_DOMAINS.join(" or ")}.`;
+  }
+  return null;
+}
+
 export function formatIscTenantUrl(tenant: string, domain: string): string {
   const slug = tenant.trim();
   const host = domain.trim();

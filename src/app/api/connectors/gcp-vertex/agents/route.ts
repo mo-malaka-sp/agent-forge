@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextRequest } from "next/server";
 
 import { handleConnectorListRequest } from "@/lib/api/connector-route";
@@ -5,10 +6,12 @@ import { serializeGcpVertexAgentList } from "@/lib/providers/connector-serialize
 
 export const runtime = "nodejs";
 
-export async function GET(request: NextRequest) {
+async function GETUnscoped(request: NextRequest) {
   return handleConnectorListRequest(
     request,
     "gcp_vertex",
     serializeGcpVertexAgentList,
   );
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);

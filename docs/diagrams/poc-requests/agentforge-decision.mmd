@@ -1,0 +1,24 @@
+flowchart TD
+    A[Asana sends a delivery to /api/poc-tracker/asana/webhook] --> B{X-Hook-Secret present?}
+    B -->|Yes| H[Store secret in DynamoDB and stash task, echo header, log Handshake completed]
+    B -->|No| C{Signature matches?}
+    C -->|No| R[401, log Delivery rejected]
+    C -->|Yes| D{Any events?}
+    D -->|No| HB[200, log Heartbeat received]
+    D -->|Yes| E[Collect task IDs from added and changed events]
+    E --> F[Read task from Asana]
+    F -->|Fails| F1[task_fetch_failed]
+    F --> G{Task in the connected project?}
+    G -->|No| G1[skipped_project]
+    G -->|Yes| I{Slack Thread TS is digits.digits?}
+    I -->|No| I1[skipped_thread_ts]
+    I -->|Yes| J{Status: task type status, then POC Status, then section}
+    J --> K{One of the four stages?}
+    K -->|No| K1[skipped_status]
+    K -->|Yes| L{Posted for this task and stage in the last 60 s?}
+    L -->|Yes| L1[deduplicated]
+    L -->|No| M[Record the post, then chat.postMessage with thread_ts]
+    M --> N{Slack result}
+    N -->|ok, same thread_ts| N1[posted]
+    N -->|ok, different thread_ts| N2[posted_outside_thread]
+    N -->|error| N3[slack_rejected]

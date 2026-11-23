@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { z } from "zod";
 
 import {
@@ -15,9 +16,6 @@ export const runtime = "nodejs";
 
 const deskSchema = z.object({
   asanaToken: z.string().optional(),
-  tenant: z.string().optional(),
-  clientId: z.string().optional(),
-  clientSecret: z.string().optional(),
   projectName: z.string().optional(),
   triggerStatus: z.string().optional(),
   workingStatus: z.string().optional(),
@@ -29,7 +27,7 @@ const deskSchema = z.object({
   tenantLinkTemplate: z.string().optional(),
 });
 
-export async function GET() {
+async function GETUnscoped() {
   const storage = deskStorage();
   try {
     return safJson({ desk: asanaDeskPublic(await loadAsanaDesk()), storage });
@@ -39,7 +37,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function POSTUnscoped(request: Request) {
   try {
     const input = deskSchema.parse(await request.json());
     const saved = await saveAsanaDesk(input);
@@ -60,3 +58,6 @@ export async function POST(request: Request) {
     return safError(error);
   }
 }
+
+export const GET = withFeatureTenant("test-drive", GETUnscoped);
+export const POST = withFeatureTenant("test-drive", POSTUnscoped);

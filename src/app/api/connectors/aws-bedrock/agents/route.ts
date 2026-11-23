@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextRequest } from "next/server";
 
 import { handleConnectorListRequest } from "@/lib/api/connector-route";
@@ -9,10 +10,12 @@ import {
 
 export const runtime = "nodejs";
 
-export async function GET(request: NextRequest) {
+async function GETUnscoped(request: NextRequest) {
   return handleConnectorListRequest(
     request,
     "aws_bedrock",
     serializeAwsBedrockAgentList,
   );
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);

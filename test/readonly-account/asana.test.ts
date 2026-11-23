@@ -163,6 +163,12 @@ const FIELD_SETTINGS = [
   },
 ];
 
+// The SailPoint tenant now comes from the tenant bound to Test Drive. These tests use the env
+// fallback for that binding, so the tenant link resolves to beta-25503.
+process.env.SAF_TENANT = "beta-25503";
+process.env.SAF_CLIENT_ID = "desk-client";
+process.env.SAF_CLIENT_SECRET = "desk-secret";
+
 function restoreEnv(name: string, value: string | undefined) {
   if (value === undefined) {
     delete process.env[name];
@@ -175,9 +181,6 @@ function testDesk() {
   return {
     ...defaultAsanaDesk(),
     asanaToken: "asana-token",
-    tenant: "beta-25503",
-    clientId: "desk-client",
-    clientSecret: "desk-secret",
     tenantLinkField: "Tenant link",
   };
 }
@@ -1000,9 +1003,9 @@ REASON: Tenant unavailable.
     );
     const view = asanaDeskPublic(saved);
     assert.equal(view.asanaTokenSet, true);
-    assert.equal(view.clientSecretSet, true);
     assert.equal("asanaToken" in view, false);
     assert.equal("clientSecret" in view, false);
+    assert.equal("tenant" in view, false);
     assert.equal(tenantLink(saved), "https://beta-25503.identitynow-demo.com");
     fs.unlinkSync(file);
   });
@@ -1085,9 +1088,8 @@ REASON: Tenant unavailable.
     fs.unlinkSync(local);
     const loaded = await loadAsanaDesk(local, shared);
     assert.equal(loaded.asanaToken, saved.asanaToken);
-    assert.equal(loaded.clientSecret, saved.clientSecret);
-    assert.equal(loaded.tenant, "beta-25503");
     assert.equal(loaded.tenantLinkField, "Tenant link");
+    assert.equal("tenant" in loaded, false);
     assert.equal(fs.existsSync(local), false);
     fs.unlinkSync(sharedFile);
   });

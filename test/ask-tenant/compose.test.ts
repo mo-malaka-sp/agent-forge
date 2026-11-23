@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { askTenantModelId } from "@/lib/ask-tenant/bedrock";
+import { askTenantModelId, buildConverseBody } from "@/lib/ask-tenant/bedrock";
 import {
   answerAskedQuestion,
   bedrockToolSpecs,
@@ -163,6 +163,38 @@ describe("ask tenant model", () => {
     const result = await composeAnswer("List the AI Agents", client, converse);
     assert.equal(result.reads.length, 4);
     assert.equal(result.answer, "Stopped.");
+  });
+
+  it("answers when the model asks for a tool after the limit", async () => {
+    const client = deps();
+    const converse: AskConverse = async (turn) => {
+      if (turn.messages.at(-1)?.role === "user" && /Answer now/.test(String((turn.messages.at(-1) as { text?: string }).text))) {
+        return { text: "Final answer.", tools: [] };
+      }
+      return {
+        text: "",
+        tools: [1, 2, 3, 4, 5].map((index) => ({ id: `call-${turn.messages.length}-${index}`, name: "list_agents", query: "*" })),
+      };
+    };
+    const result = await composeAnswer("List the AI Agents", client, converse);
+    assert.equal(result.reads.length, 4);
+    assert.equal(result.answer, "Final answer.");
+  });
+
+  it("sends toolConfig whenever the history holds tool blocks", () => {
+    const system = "system";
+    const first = [{ role: "user" as const, text: "How many agents?" }];
+    const withTools = [
+      ...first,
+      { role: "assistant" as const, text: "", tools: [{ id: "t1", name: "list_agents" as const, query: "*" }] },
+      { role: "tool" as const, results: [{ id: "t1", text: "3 agents", error: false }] },
+      { role: "user" as const, text: "Answer now from the tool results. Do not call tools." },
+    ];
+
+    assert.equal("toolConfig" in buildConverseBody({ system, messages: first, toolsEnabled: false }), false);
+    assert.equal("toolConfig" in buildConverseBody({ system, messages: first, toolsEnabled: true }), true);
+    // The failing case: the final turn has tools disabled but tool blocks in the history.
+    assert.equal("toolConfig" in buildConverseBody({ system, messages: withTools, toolsEnabled: false }), true);
   });
 
   it("uses the Nova Lite id when the env value is default", () => {

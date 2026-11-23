@@ -1,3 +1,4 @@
+import { withFeatureTenant } from "@/lib/isc/feature-tenant";
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -15,7 +16,7 @@ import {
 
 export const runtime = "nodejs";
 
-export async function GET(request: NextRequest) {
+async function GETUnscoped(request: NextRequest) {
   try {
     const query = listAgentsQuerySchema.parse(
       Object.fromEntries(request.nextUrl.searchParams.entries()),
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function POSTUnscoped(request: NextRequest) {
   try {
     const body = await request.json();
     const payload = createAgentSchema.parse(body);
@@ -65,3 +66,6 @@ export async function POST(request: NextRequest) {
     return jsonError("Failed to create agent", 500);
   }
 }
+
+export const GET = withFeatureTenant("govern", GETUnscoped);
+export const POST = withFeatureTenant("govern", POSTUnscoped);

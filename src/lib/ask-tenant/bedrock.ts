@@ -30,14 +30,30 @@ export function bedrockConverseFromEnv(): AskConverse | null {
   return (turn) => converseOnce(region, modelId, turn);
 }
 
-async function converseOnce(region: string, modelId: string, turn: AskModelTurn): Promise<ReturnType<typeof readModelResponse>> {
-  const credentials = await defaultProvider()();
-  const body = JSON.stringify({
+// Bedrock rejects a request whose messages hold toolUse or toolResult blocks unless
+// toolConfig is present, even when this turn should not call tools. The final
+// "answer now" turn after the tool-call limit is that case. The turn's last user
+// message already tells the model not to call tools.
+function historyHasToolBlocks(messages: AskModelMessage[]): boolean {
+  return messages.some(
+    (message) => message.role === "tool" || (message.role === "assistant" && message.tools.length > 0),
+  );
+}
+
+export function buildConverseBody(turn: AskModelTurn) {
+  return {
     system: [{ text: turn.system }],
     messages: turn.messages.map(toBedrockMessage),
-    ...(turn.toolsEnabled ? { toolConfig: { tools: bedrockToolSpecs().map(toToolSpec) } } : {}),
+    ...(turn.toolsEnabled || historyHasToolBlocks(turn.messages)
+      ? { toolConfig: { tools: bedrockToolSpecs().map(toToolSpec) } }
+      : {}),
     inferenceConfig: { maxTokens: 700, temperature: 0.2 },
-  });
+  };
+}
+
+async function converseOnce(region: string, modelId: string, turn: AskModelTurn): Promise<ReturnType<typeof readModelResponse>> {
+  const credentials = await defaultProvider()();
+  const body = JSON.stringify(buildConverseBody(turn));
   const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${encodeURIComponent(modelId)}/converse`;
   const endpoint = new URL(url);
   const signer = new SignatureV4({
