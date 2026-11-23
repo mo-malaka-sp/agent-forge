@@ -41,6 +41,15 @@ function pageTitle(text: string): string {
   return text.match(/<title>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
 }
 
+/** A Cloudflare block page means a network rule answered, not the SailPoint API. */
+function webPageDetail(text: string): string {
+  const title = pageTitle(text);
+  if (/cloudflare/i.test(title)) {
+    return `Cloudflare answered with a block page ("${title}") instead of API data. The token step worked, so the client is accepted. A network rule on the tenant is blocking this request.`;
+  }
+  return `Web page${title ? ` "${title}"` : ""} instead of API data.`;
+}
+
 function redirectStep(id: string, label: string, response: Response, required: boolean): ConnectionStep {
   const location = response.headers.get("location") ?? "another address";
   return {
@@ -224,7 +233,7 @@ export async function checkIscConnection(
           label: path,
           ok: false,
           required: true,
-          detail: `Web page${pageTitle(text) ? ` "${pageTitle(text)}"` : ""} instead of API data.`,
+          detail: webPageDetail(text),
         });
         continue;
       }

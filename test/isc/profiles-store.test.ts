@@ -142,6 +142,22 @@ describe("saved tenant profiles", () => {
     assert.equal(await getProfile(profile.id, store), null);
   });
 
+  it("deletes a tenant that features use when asked to unassign, and clears those features", async () => {
+    const profile = await saveProfile(acme, { store });
+    const other = await saveProfile({ ...acme, name: "Other", tenant: "beta-2" }, { store });
+    await setBinding("ask", profile.id, store);
+    await setBinding("caep", other.id, store);
+
+    await deleteProfile(profile.id, store, { unassign: true });
+
+    assert.equal(await getProfile(profile.id, store), null);
+    const bindings = await getBindings(store);
+    assert.equal(bindings.ask, null);
+    assert.equal(bindings.default, null);
+    // A binding to a different tenant is left alone.
+    assert.equal(bindings.caep, other.id);
+  });
+
   it("refuses to bind an unknown profile", async () => {
     await assert.rejects(() => setBinding("govern", "missing", store), /not found/);
   });

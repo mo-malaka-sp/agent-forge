@@ -37,8 +37,8 @@ const profileBodySchema = z.object({
 export class ProfileBodyError extends Error {}
 
 /**
- * Accepts a tenant slug or pasted URL. A pasted URL also sets the domain, unless the body gives
- * one explicitly.
+ * Accepts a tenant slug or pasted URL. A pasted URL decides the domain, so a leftover value in
+ * the Domain field cannot send the tenant to the wrong host.
  */
 const FIELD_LABELS: Record<string, string> = {
   name: "Name",
@@ -68,7 +68,7 @@ export function parseProfileBody(raw: unknown): IscProfileInput {
       throw new ProfileBodyError("Enter a valid tenant URL, e.g. https://acme.identitynow-demo.com/");
     }
     tenant = fromUrl.tenant;
-    domain = domain || fromUrl.domain;
+    domain = fromUrl.domain;
   }
   const hostProblem = iscHostProblem(tenant, domain || "identitynow.com");
   if (hostProblem) {

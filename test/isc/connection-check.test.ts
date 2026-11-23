@@ -59,6 +59,22 @@ describe("checkIscConnection", () => {
     assert.match(check.steps[0]?.detail ?? "", /web page \(Maintenance\)/);
   });
 
+  it("explains a Cloudflare block page on the AgentForge paths while the token and /v3 work", async () => {
+    const cloudflare =
+      "<!DOCTYPE html><html><head><title>Attention Required! | Cloudflare</title></head></html>";
+    const blocked = async (url: string) => {
+      if (url.endsWith("/oauth/token")) return json({ access_token: "token-value" });
+      if (url.includes("/v3/sources")) return json([{ name: "TestDriveUsers" }, { name: "IdentityNow" }]);
+      return new Response(cloudflare, { status: 403, headers: { "Content-Type": "text/html" } });
+    };
+    const check = await checkIscConnection(INPUT, blocked);
+    assert.equal(check.ok, false);
+    assert.equal(check.steps.find((step) => step.id === "token")?.ok, true);
+    const first = check.steps.find((step) => step.id.startsWith("path:"));
+    assert.match(first?.detail ?? "", /Cloudflare answered with a block page/);
+    assert.match(first?.detail ?? "", /client is accepted/);
+  });
+
   it("reports a rejected client ID or secret", async () => {
     const rejected = async () => json({ error: "invalid_client" }, 401);
     const check = await checkIscConnection(INPUT, rejected);

@@ -25,13 +25,15 @@ describe("parseProfileBody", () => {
     assert.equal(input.domain, "identitynow-demo.com");
   });
 
-  it("keeps an explicit allowed domain over the one in a pasted URL", () => {
+  it("uses the domain in a pasted URL, not the leftover value in the Domain field", () => {
+    // The Add form starts with Domain = identitynow.com. A pasted demo URL must still win.
     const input = parseProfileBody({
       name: "Demo",
-      tenant: "https://beta-26912.identitynow.com/",
-      domain: "identitynow-demo.com",
+      tenant: "https://beta-26912.identitynow-demo.com/ui/d/mysailpoint",
+      domain: "identitynow.com",
       clientId: "id",
     });
+    assert.equal(input.tenant, "beta-26912");
     assert.equal(input.domain, "identitynow-demo.com");
   });
 

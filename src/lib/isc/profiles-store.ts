@@ -376,13 +376,23 @@ export async function recordProfileTest(
   });
 }
 
-export async function deleteProfile(id: string, store?: SafPocStore): Promise<void> {
+export async function deleteProfile(
+  id: string,
+  store?: SafPocStore,
+  options: { unassign?: boolean } = {},
+): Promise<void> {
   const resolved = writableStore(store);
   const bindings = await getBindings(resolved);
   const bound = TENANT_FEATURES.filter((feature) => bindings[feature] === id);
   if (bound.length > 0) {
-    const names = bound.map((feature) => FEATURE_NAMES[feature]).join(", ");
-    throw new Error(`This tenant is used by ${names}. Assign another tenant first.`);
+    if (!options.unassign) {
+      const names = bound.map((feature) => FEATURE_NAMES[feature]).join(", ");
+      throw new Error(`This tenant is used by ${names}. Assign another tenant first.`);
+    }
+    // Explicit unassign: those features go back to the environment settings.
+    const next: IscBindings = { ...bindings };
+    for (const feature of bound) next[feature] = null;
+    await resolved.put(BINDINGS_KEY, next);
   }
   // Remove the client secrets from Secrets Manager along with the record.
   const stored = await getStoredProfile(id, resolved);

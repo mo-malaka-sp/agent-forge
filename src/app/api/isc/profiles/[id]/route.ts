@@ -21,12 +21,14 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await context.params;
-    await deleteProfile(id);
+    // ?unassign=1 also clears the features that use this tenant. The Tenants page asks first.
+    const unassign = new URL(request.url).searchParams.get("unassign") === "1";
+    await deleteProfile(id, undefined, { unassign });
     clearFeatureTenantCache();
     return safJson({ deleted: id });
   } catch (error) {

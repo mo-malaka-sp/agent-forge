@@ -8,11 +8,14 @@ import {
   type TenantState,
 } from "@/components/TenantPicker";
 import {
+  TENANT_FEATURES,
+  TENANT_FEATURE_LABELS,
   TENANT_SOURCE_PROVIDERS,
   type ConnectionCheck,
   type IscProfilePublic,
   type TenantFeature,
 } from "@/lib/isc/profile-types";
+import { parseIscTenantUrl } from "@/lib/isc/tenant-url";
 
 type Form = {
   name: string;
@@ -195,6 +198,12 @@ export function TenantsPanel() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
+  /** A pasted URL fills in the Domain field, so the form shows what will be saved. */
+  function updateTenant(value: string) {
+    const fromUrl = value.includes(".") || value.includes("/") ? parseIscTenantUrl(value) : null;
+    setForm((current) => ({ ...current, tenant: value, domain: fromUrl?.domain ?? current.domain }));
+  }
+
   function startEdit(profile: IscProfilePublic) {
     setEditingId(profile.id);
     setForm(formFromProfile(profile));
@@ -273,13 +282,19 @@ export function TenantsPanel() {
   }
 
   async function remove(profile: IscProfilePublic) {
-    if (!window.confirm(`Delete the saved tenant "${profile.name}"? Its features will fall back to the default.`)) {
+    const usedBy = TENANT_FEATURES.filter((feature) => state?.bindings[feature] === profile.id).map(
+      (feature) => TENANT_FEATURE_LABELS[feature],
+    );
+    const warning = usedBy.length
+      ? `\n\nIt is used by ${usedBy.join(", ")}. Those features will use the environment settings until you assign another tenant.`
+      : "";
+    if (!window.confirm(`Delete the saved tenant "${profile.name}"?${warning}`)) {
       return;
     }
     setBusy(`delete:${profile.id}`);
     setError(null);
     try {
-      await postJson(`/api/isc/profiles/${profile.id}`, "DELETE", {});
+      await postJson(`/api/isc/profiles/${profile.id}${usedBy.length ? "?unassign=1" : ""}`, "DELETE", {});
       setMessage(`Deleted ${profile.name}.`);
       if (editingId === profile.id) startNew();
       await refresh();
@@ -411,7 +426,7 @@ export function TenantsPanel() {
           <Field
             label="Tenant"
             value={form.tenant}
-            onChange={(value) => update("tenant", value)}
+            onChange={updateTenant}
             placeholder="beta-26912 or https://beta-26912.identitynow-demo.com/"
             hint="A pasted URL also fills in the domain."
           />
